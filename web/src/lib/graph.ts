@@ -162,7 +162,10 @@ export function buildGraph(
     edges.push({ id, from, to });
   };
   for (const task of tasks) {
-    const count = task.open_cross_project_blocker_count;
+    // Coalesced: a pod predating cross-project counts omits
+    // open_cross_project_blocker_count, and an undefined one is not `=== 0`, so
+    // without this every task sprouts a placeholder reading "undefined".
+    const count = task.open_cross_project_blocker_count ?? 0;
     if (count === 0) continue;
     const loaded = cross.expanded.has(task.id) ? cross.loaded.get(task.id) : undefined;
     if (loaded === undefined) {

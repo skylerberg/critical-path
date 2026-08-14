@@ -4,6 +4,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import DatesPanel from './DatesPanel.svelte';
 import { board } from '../lib/board.svelte';
 import { taskSeries, type TaskSeries } from '../lib/taskSeries.svelte';
+import { toasts } from '../lib/toasts.svelte';
 import type { BoardTask } from '../lib/board-types';
 
 const task: BoardTask = {
@@ -72,6 +73,9 @@ beforeEach(() => {
   board.currentProjectId = 'p1';
   board.tasks = [{ ...task }];
   taskSeries.reset();
+  for (const toast of [...toasts.toasts]) {
+    toasts.dismiss(toast.id);
+  }
 });
 
 afterEach(() => {
@@ -177,6 +181,7 @@ describe('DatesPanel recurrence', () => {
     render(DatesPanel, { taskId: 't1' });
 
     await fireEvent.change(repeatsSelect(), { target: { value: 'weekly' } });
+    await fireEvent.click(screen.getByRole('button', { name: 'Start repeating' }));
 
     await waitFor(() => {
       expect(board.taskSeriesRefs['t1']).toEqual({
@@ -192,12 +197,72 @@ describe('DatesPanel recurrence', () => {
     expect(await request.clone().json()).toMatchObject({ preset: 'weekly' });
   });
 
+  // The field the panel puts up has to reach the create it is labelling: sending
+  // the POST on the select's change fixes the start at today, and the only state
+  // the field is ever editable in is one where the series already exists.
+  it('starts the series on the date typed into Starts on', async () => {
+    route((pathname) =>
+      pathname === '/api/tasks/t1/series'
+        ? jsonResponse(201, { ...series, start_date: '2026-09-14' })
+        : undefined
+    );
+    render(DatesPanel, { taskId: 't1' });
+
+    await fireEvent.change(repeatsSelect(), { target: { value: 'weekly' } });
+    await fireEvent.input(screen.getByLabelText('Starts on'), {
+      target: { value: '2026-09-14' },
+    });
+    await fireEvent.click(screen.getByRole('button', { name: 'Start repeating' }));
+
+    await waitFor(() => {
+      expect(board.taskSeriesRefs['t1']?.start_date).toBe('2026-09-14');
+    });
+    expect(await requestAt(0).clone().json()).toMatchObject({
+      preset: 'weekly',
+      start_date: '2026-09-14',
+    });
+  });
+
   it('asks for a start date before the card repeats', async () => {
     render(DatesPanel, { taskId: 't1' });
 
     await fireEvent.change(repeatsSelect(), { target: { value: 'weekly' } });
 
     expect(screen.getByLabelText('Starts on')).toBeInTheDocument();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(board.taskSeriesRefs['t1']).toBeUndefined();
+  });
+
+  it('names the presets against the start date being chosen', async () => {
+    render(DatesPanel, { taskId: 't1' });
+
+    await fireEvent.change(repeatsSelect(), { target: { value: 'weekly' } });
+    await fireEvent.input(screen.getByLabelText('Starts on'), {
+      target: { value: '2026-09-14' },
+    });
+
+    const weekly = [...repeatsSelect().options].find((option) => option.value === 'weekly');
+    expect(weekly?.textContent).toBe('Every week on Monday');
+
+    // A date input reports '' for every keystroke of a half-typed value, and an
+    // empty one is 30 November 1899 to Date.UTC.
+    await fireEvent.input(screen.getByLabelText('Starts on'), { target: { value: '' } });
+    expect(weekly?.textContent).toBe('Every week');
+    expect(screen.getByRole('button', { name: 'Start repeating' })).toBeDisabled();
+  });
+
+  it('drops the pending recurrence when the start is cancelled', async () => {
+    render(DatesPanel, { taskId: 't1' });
+
+    await fireEvent.change(repeatsSelect(), { target: { value: 'weekly' } });
+    await fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+
+    await waitFor(() => {
+      expect(repeatsSelect()).toHaveValue('none');
+    });
+    expect(screen.queryByLabelText('Starts on')).toBeNull();
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it('preselects the recurrence a repeating card already has', async () => {
@@ -284,13 +349,79 @@ describe('DatesPanel recurrence', () => {
   // The whole point of carrying the rule on the card: there is no window in
   // which the panel knows the card repeats but not what it repeats on, so it
   // renders right away and asks the server for nothing.
-  it('renders the rule without reading the project’s series list', () => {
+  it('renders the rule without reading the project’s series list', async () => {
     repeating();
     render(DatesPanel, { taskId: 't1' });
 
     expect(repeatsSelect()).toHaveValue('weekly');
     expect(repeatsSelect()).not.toBeDisabled();
+    // A request an effect starts does not reach fetch until the next microtask,
+    // so a synchronous assertion here could only ever observe zero calls.
+    await new Promise((resolve) => setTimeout(resolve, 0));
     expect(fetchMock).not.toHaveBeenCalled();
     expect(screen.queryByText(/Stop this card repeating\?/)).toBeNull();
+  });
+});
+
+describe('DatesPanel recurrence failures', () => {
+  it('says why the series could not be created and keeps the choice for a retry', async () => {
+    route((pathname) =>
+      pathname === '/api/tasks/t1/series'
+        ? jsonResponse(422, { error: 'rrule must be parseable' })
+        : undefined
+    );
+    render(DatesPanel, { taskId: 't1' });
+
+    await fireEvent.change(repeatsSelect(), { target: { value: 'weekly' } });
+    await fireEvent.click(screen.getByRole('button', { name: 'Start repeating' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('rrule must be parseable');
+    expect(board.taskSeriesRefs['t1']).toBeUndefined();
+    // The card still does not repeat, and the same preset can be sent again
+    // without reselecting it — which a select fires no change event for.
+    expect(repeatsSelect()).toHaveValue('weekly');
+    expect(screen.getByRole('button', { name: 'Start repeating' })).toBeEnabled();
+  });
+
+  it('falls back to the rule the card still has when the change is refused', async () => {
+    repeating();
+    route((pathname) =>
+      pathname === '/api/task-series/s1'
+        ? jsonResponse(403, { error: 'Read-only access to this project' })
+        : undefined
+    );
+    render(DatesPanel, { taskId: 't1' });
+
+    await fireEvent.change(repeatsSelect(), { target: { value: 'daily' } });
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Read-only access to this project');
+    await waitFor(() => {
+      expect(repeatsSelect()).toHaveValue('weekly');
+    });
+    expect(board.taskSeriesRefs['t1']?.preset).toBe('weekly');
+  });
+
+  // remove() reports a refused delete by returning false rather than throwing,
+  // so a card cleared regardless would name no recurrence on a card that has one.
+  it('keeps the recurrence on the card when the delete is refused', async () => {
+    repeating();
+    render(DatesPanel, { taskId: 't1' });
+
+    await fireEvent.change(repeatsSelect(), { target: { value: 'none' } });
+
+    route((pathname) =>
+      pathname === '/api/task-series/s1' ? jsonResponse(500, { error: 'Boom' }) : undefined
+    );
+    await fireEvent.click(screen.getByRole('button', { name: 'Stop repeating' }));
+
+    await waitFor(() => {
+      expect(toasts.toasts.map((toast) => toast.message)).toEqual(['Boom']);
+    });
+    expect(board.taskSeriesRefs['t1']).toEqual({
+      id: 's1',
+      summary: 'Every week on Monday',
+      preset: 'weekly',
+      start_date: '2026-08-03',
+    });
   });
 });

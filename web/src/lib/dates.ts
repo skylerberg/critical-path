@@ -33,7 +33,13 @@ export function todayISO(now: Date = new Date()): string {
   return `${String(now.getFullYear())}-${month}-${day}`;
 }
 
-function utcMs(date: string): number {
+/**
+ * The instant a bare calendar date names, always UTC midnight — every formatter
+ * below is `timeZone: 'UTC'` on top of it. Exported so the construction itself
+ * can be asserted: build it from local fields instead and the rendered output is
+ * identical west of Greenwich, and a day early east of it.
+ */
+export function utcMs(date: string): number {
   return Date.UTC(
     Number(date.slice(0, 4)),
     Number(date.slice(5, 7)) - 1,

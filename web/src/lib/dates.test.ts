@@ -7,6 +7,7 @@ import {
   formatTimestamp,
   isCalendarDate,
   todayISO,
+  utcMs,
 } from './dates';
 
 const TODAY = '2026-08-03';
@@ -38,10 +39,30 @@ describe('todayISO', () => {
   });
 });
 
+// The runner is pinned west of Greenwich, which is the direction that catches
+// todayISO. It is the wrong direction for everything built on utcMs: local
+// midnight in Los Angeles is 07:00 UTC on the *same* calendar day, so a
+// UTC-pinned formatter renders identically whichever way the instant was built,
+// and only east of Greenwich does the day slip. So assert the instant itself.
+describe('utcMs', () => {
+  it('is UTC midnight on the day named, not local midnight', () => {
+    expect(utcMs('2026-08-03')).toBe(Date.parse('2026-08-03T00:00:00Z'));
+    expect(utcMs('2026-01-01')).toBe(Date.parse('2026-01-01T00:00:00Z'));
+    // Both sides of the local DST changes, where the offset is not even constant.
+    expect(utcMs('2026-03-08')).toBe(Date.parse('2026-03-08T00:00:00Z'));
+    expect(utcMs('2026-11-01')).toBe(Date.parse('2026-11-01T00:00:00Z'));
+  });
+});
+
 describe('daysUntil', () => {
   it('counts whole days across a DST boundary', () => {
+    // Los Angeles springs forward on 2026-03-08 and back on 2026-11-01, so these
+    // two spans are 23 and 25 local hours: a local-built instant divided by a
+    // fixed day is 0.958 and 1.042 of a day rather than exactly one.
     expect(daysUntil('2026-11-02', '2026-11-01')).toBe(1);
     expect(daysUntil('2026-03-08', '2026-03-09')).toBe(-1);
+    expect(utcMs('2026-11-02') - utcMs('2026-11-01')).toBe(86_400_000);
+    expect(utcMs('2026-03-09') - utcMs('2026-03-08')).toBe(86_400_000);
     expect(daysUntil(TODAY, TODAY)).toBe(0);
   });
 });

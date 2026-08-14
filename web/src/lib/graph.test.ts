@@ -279,6 +279,17 @@ describe('buildGraph cross-project placeholders', () => {
     expect(edges).toEqual([]);
   });
 
+  // A pod predating the count omits the key, and `undefined === 0` is false: the
+  // graph used to draw every task a placeholder labelled "undefined".
+  it('emits nothing for a task whose payload carries no count at all', () => {
+    const noCount = task('a', 'todo');
+    delete (noCount as Partial<BoardTask>).open_cross_project_blocker_count;
+    const { nodes, edges } = buildGraph([noCount], columns);
+
+    expect(nodes.filter((n) => n.kind !== 'task')).toEqual([]);
+    expect(edges).toEqual([]);
+  });
+
   it('emits one placeholder per task, not one per remote blocker', () => {
     const { nodes, edges } = buildGraph([crossTask('a', 3)], columns);
 

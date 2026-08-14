@@ -37,6 +37,12 @@
     peopleLines.length === 0 ? undefined : [shownTitle, ...peopleLines].join('\n')
   );
 
+  // Blockers the caller cannot read are counted rather than named, and they are
+  // what put the row in the blocked bucket: without them a row held up entirely
+  // by invisible work carries no badge and reads as ready.
+  // Coalesced: a pod predating cross-project counts omits hidden_blocked_by_count.
+  const blockedCount = $derived(task.blocked_by.length + (task.hidden_blocked_by_count ?? 0));
+
   const cursor = $derived(cardCursor.taskId === task.id);
 </script>
 
@@ -57,9 +63,9 @@
   </p>
   <span class="truncate text-xs text-muted">{task.project_name}</span>
   <Badge variant="neutral">{task.column_name}</Badge>
-  {#if task.blocked_by.length > 0}
+  {#if blockedCount > 0}
     <Badge variant="danger">
-      Blocked by {task.blocked_by.length}
+      Blocked by {blockedCount}
     </Badge>
   {/if}
   {#if waiting.length > 0}

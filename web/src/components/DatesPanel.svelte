@@ -5,7 +5,7 @@
   import { isCalendarDate, todayISO } from '../lib/dates';
   import { newId } from '../lib/ids';
   import { RECURRENCE_PRESETS, presetLabel, type RecurrencePreset } from '../lib/recurrence';
-  import { taskSeries } from '../lib/taskSeries.svelte';
+  import { taskSeries, type TaskSeries } from '../lib/taskSeries.svelte';
   import Button from './ui/Button.svelte';
 
   interface Props {
@@ -37,6 +37,10 @@
   // 'custom' is a rule set outside the curated set — named, never re-picked.
   const current = $derived(choice ?? (series === null ? 'none' : (series.preset ?? 'custom')));
   const stopping = $derived(current === 'none' && series !== null);
+  // A preset picked for a card that does not repeat yet. Nothing is sent while
+  // this holds: the start date below is part of the create, and issuing the POST
+  // on the select's change would fix it at today before the field is even shown.
+  const starting = $derived(series === null && current !== 'none');
   const anchor = $derived(series?.start_date ?? startDate);
 
   // A date input reports '' for any incomplete value, so clearing one segment to
@@ -54,42 +58,63 @@
     oncleared?.();
   }
 
-  async function run(action: () => Promise<void>): Promise<void> {
+  async function run(action: () => Promise<void>): Promise<boolean> {
     busy = true;
     error = '';
     try {
       await action();
       choice = null;
+      return true;
     } catch (err) {
       error = apiMessage(err, 'Could not save that. Try again.');
+      return false;
     } finally {
       busy = false;
     }
   }
 
-  function choose(value: string): void {
+  function name(row: TaskSeries): void {
+    board.setTaskSeriesRef(taskId, {
+      id: row.id,
+      summary: row.summary,
+      preset: row.preset,
+      start_date: row.start_date,
+    });
+  }
+
+  async function choose(value: string): Promise<void> {
     choice = value;
     error = '';
-    if (value === 'none' || value === 'custom') {
+    // A card that does not repeat yet waits for the start date; one that already
+    // repeats has a start date already and is only changing the rule.
+    if (series === null || value === 'none' || value === 'custom') {
       return;
     }
     const preset = value as RecurrencePreset;
+    const saved = await run(async () => {
+      name(await taskSeries.patch(series.id, { preset }));
+    });
+    if (!saved) {
+      // Back to the rule the card still has: leaving the failed preset selected
+      // makes it unpickable, since re-selecting the shown value fires no change.
+      choice = null;
+    }
+  }
+
+  function start(): void {
+    const preset = RECURRENCE_PRESETS.find((option) => option === choice);
+    if (preset === undefined || !isCalendarDate(startDate)) {
+      return;
+    }
     void run(async () => {
-      const row =
-        series === null
-          ? await taskSeries.createFromTask(taskId, {
-              id: newId(),
-              preset,
-              start_date: startDate,
-              timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-            })
-          : await taskSeries.patch(series.id, { preset });
-      board.setTaskSeriesRef(taskId, {
-        id: row.id,
-        summary: row.summary,
-        preset: row.preset,
-        start_date: row.start_date,
-      });
+      name(
+        await taskSeries.createFromTask(taskId, {
+          id: newId(),
+          preset,
+          start_date: startDate,
+          timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+        })
+      );
     });
   }
 
@@ -137,7 +162,7 @@
       id="{uid}-repeats"
       value={current}
       disabled={busy}
-      onchange={(event) => choose(event.currentTarget.value)}
+      onchange={(event) => void choose(event.currentTarget.value)}
       class="min-h-11 rounded-md border border-edge bg-surface px-3 text-sm disabled:opacity-60"
     >
       <option value="none">Doesn't repeat</option>
@@ -151,7 +176,7 @@
       {/each}
     </select>
 
-    {#if series === null && current !== 'none'}
+    {#if starting}
       <label for="{uid}-start" class="mt-2 text-sm font-medium">Starts on</label>
       <input
         id="{uid}-start"
@@ -159,6 +184,12 @@
         bind:value={startDate}
         class="min-h-11 rounded-md border border-edge bg-surface px-3 text-sm focus-ring focus:border-accent"
       />
+      <div class="mt-2 flex flex-wrap gap-2">
+        <Button disabled={busy || !isCalendarDate(startDate)} onclick={start}
+          >Start repeating</Button
+        >
+        <Button variant="secondary" disabled={busy} onclick={() => (choice = null)}>Cancel</Button>
+      </div>
     {/if}
   </div>
 

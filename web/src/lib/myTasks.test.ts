@@ -311,6 +311,67 @@ describe('myTasks store', () => {
       expect(myTasks.loadingMore).toBe(false);
     });
 
+    // Offset paging over a set the server ranks live: a card that moves earlier
+    // between the two reads is served on both pages, and MyTasks renders the
+    // list with a keyed each, which throws each_key_duplicate on a repeat.
+    it('keeps a card that arrives on two pages once', async () => {
+      fetchMock.mockImplementation(async () =>
+        jsonResponse(200, {
+          tasks: [task('t-1', 'ready'), task('t-2', 'ready')],
+          waiting_on_you: [],
+          you_are_waiting_on: [],
+          next_offset: 1000,
+        })
+      );
+      await myTasks.load();
+
+      fetchMock.mockImplementation(async () =>
+        jsonResponse(200, {
+          tasks: [task('t-2', 'ready', { title: 'Task t-2 renamed' }), task('t-3', 'ready')],
+          waiting_on_you: [],
+          you_are_waiting_on: [],
+          next_offset: null,
+        })
+      );
+      await myTasks.loadMore();
+
+      expect(myTasks.tasks.map((t) => t.id)).toEqual(['t-1', 't-2', 't-3']);
+      // The later copy wins: it is the fresher read of the same row.
+      expect(myTasks.tasks[1]?.title).toBe('Task t-2 renamed');
+    });
+
+    // The Load more button disables itself while a page is in flight, but the
+    // store is what a double-fire has to survive: loadMore takes no new token,
+    // so two concurrent calls would read the same offset and fetch it twice.
+    it('fetches one page when Load more is pressed twice', async () => {
+      fetchMock.mockImplementation(async () =>
+        jsonResponse(200, { ...payload, next_offset: 1000 })
+      );
+      await myTasks.load();
+
+      let release: (() => void) | undefined;
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      fetchMock.mockImplementation(async () => {
+        await gate;
+        return jsonResponse(200, {
+          tasks: [task('t-4', 'ready')],
+          waiting_on_you: [],
+          you_are_waiting_on: [],
+          next_offset: null,
+        });
+      });
+
+      const first = myTasks.loadMore();
+      const second = myTasks.loadMore();
+      release?.();
+      await Promise.all([first, second]);
+
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(myTasks.tasks.map((t) => t.id)).toEqual(['t-1', 't-2', 't-3', 't-4']);
+    });
+
     it('does nothing when there is no next page', async () => {
       fetchMock.mockImplementation(async () => jsonResponse(200, payload));
       await myTasks.load();

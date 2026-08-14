@@ -30,7 +30,9 @@
       .trim()
       .split(/\s+/)
       .slice(0, 2)
-      .map((word) => word[0]?.toUpperCase() ?? '')
+      // By code point, like the colour hash below: `word[0]` is a UTF-16 code
+      // unit, so a name starting outside the BMP shows a lone surrogate.
+      .map((word) => [...word][0]?.toUpperCase() ?? '')
       .join('') || '?'
   );
 

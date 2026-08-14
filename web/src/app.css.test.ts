@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { cssBlock } from './lib/app-css-test-source';
+import { cssBlock, cssTokens } from './lib/app-css-test-source';
 
 const reducedMotion = cssBlock('@media (prefers-reduced-motion: reduce)');
 
@@ -23,6 +23,9 @@ describe('focus ring utilities', () => {
       // The trailing brace separates `focus-ring` from the two that extend its name.
       const block = cssBlock(`@utility ${name} {`);
 
+      // Keyboard focus only: without the variant every one of these would ring
+      // on a mouse click too, and each property below would still be present.
+      expect(block).toContain('focus-visible');
       expect(block).toContain('outline-width: 2px');
       expect(block).toContain('outline-style: solid');
       expect(block).toContain('outline-color: var(--cp-accent)');
@@ -47,5 +50,37 @@ describe('reduced-motion stylesheet rule', () => {
     'scroll-behavior',
   ])('forces %s with !important inside the media block', (property) => {
     expect(reducedMotion).toMatch(new RegExp(`${property}:[^;]*!important`));
+  });
+});
+
+describe('design token mapping', () => {
+  const theme = cssBlock('@theme inline');
+  const light = cssTokens('light');
+  const dark = cssTokens('dark');
+
+  it.each([
+    'canvas',
+    'surface',
+    'edge',
+    'ink',
+    'muted',
+    'accent',
+    'accent-strong',
+    'accent-soft',
+    'on-accent',
+    'danger',
+    'on-danger',
+    'success',
+    'warning',
+  ])('maps --color-%s onto the token of the same name in both themes', (name) => {
+    expect(theme).toContain(`--color-${name}: var(--cp-${name});`);
+    expect(light[`--cp-${name}`]).toMatch(/^#[0-9a-f]{6}$/);
+    expect(dark[`--cp-${name}`]).toMatch(/^#[0-9a-f]{6}$/);
+  });
+
+  it('crosses no wires: every mapping names its own token', () => {
+    for (const [, color, token] of theme.matchAll(/--color-([a-z-]+):\s*var\(--cp-([a-z-]+)\)/g)) {
+      expect(token).toBe(color);
+    }
   });
 });

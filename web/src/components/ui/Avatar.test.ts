@@ -28,6 +28,26 @@ describe('Avatar', () => {
     expect(document.querySelector('img')).toBeNull();
   });
 
+  describe('initials', () => {
+    it('takes a whole first character, not half of a surrogate pair', () => {
+      render(Avatar, { name: '🎉 Party', src: null });
+
+      expect(screen.getByTitle('🎉 Party')).toHaveTextContent('🎉P');
+    });
+
+    it('takes one letter from a single-word name', () => {
+      render(Avatar, { name: 'Ada', src: null });
+
+      expect(screen.getByTitle('Ada')).toHaveTextContent('A');
+    });
+
+    it('falls back to ? when there is no name to abbreviate', () => {
+      const { container } = render(Avatar, { name: '   ', src: null });
+
+      expect(container.querySelector('span')).toHaveTextContent('?');
+    });
+  });
+
   // axe cannot reach this one: `title` counts as an accessible name of last
   // resort, so a title-only avatar passes every automated rule while a generic
   // <span> carrying it is named nothing at all.

@@ -1,12 +1,13 @@
 import { fetchMock, jsonResponse } from '../api/testUtils';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
+import { createEvent, fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import { flushSync } from 'svelte';
 import Project from './Project.svelte';
 import { board } from '../lib/board.svelte';
 import { draftKey, drafts } from '../lib/drafts.svelte';
 import { NODE_HEIGHT, NODE_WIDTH, computeGraph, panToNode, type ViewBox } from '../lib/graph';
 import { session } from '../lib/session.svelte';
+import { router } from '../lib/router.svelte';
 import { projectHref, taskHref } from '../lib/short-links';
 import { testUuid } from '../lib/test-ids';
 import { TASK_TITLE_MAX_LENGTH, truncateTitle } from '../lib/titles';
@@ -116,6 +117,23 @@ function parseClosingPath(d: string): { start: Point; c1: Point; c2: Point; end:
     .map(Number);
   if (n === undefined) throw new Error(`unexpected closing path: ${d}`);
   return { start: [n[0]!, n[1]!], c1: [n[2]!, n[3]!], c2: [n[4]!, n[5]!], end: [n[6]!, n[7]!] };
+}
+
+// jsdom implements no layout, so elementFromPoint is absent; stand in the node
+// the pointer is over so the point-based target detection has something to hit.
+function stubElementFromPoint(el: Element | null): void {
+  document.elementFromPoint = (() => el) as typeof document.elementFromPoint;
+}
+
+function parseViewBox(svg: Element): ViewBox {
+  const [x, y, w, h] = (svg.getAttribute('viewBox') ?? '').split(' ').map(Number);
+  return { x: x!, y: y!, w: w!, h: h! };
+}
+
+function graphSvg(container: HTMLElement): Element {
+  const svg = container.querySelector('svg[aria-label="Dependency graph"]');
+  expect(svg).not.toBeNull();
+  return svg!;
 }
 
 beforeEach(() => {
@@ -319,12 +337,6 @@ describe('Graph', () => {
 });
 
 describe('Graph dependency editing', () => {
-  // jsdom implements no layout, so elementFromPoint is absent; stand in the node
-  // the pointer is over so the point-based target detection has something to hit.
-  function stubElementFromPoint(el: Element | null): void {
-    document.elementFromPoint = (() => el) as typeof document.elementFromPoint;
-  }
-
   afterEach(() => {
     vi.restoreAllMocks();
     vi.useRealTimers();
@@ -618,12 +630,8 @@ describe('Graph dependency editing', () => {
     await waitFor(() => {
       expect(container.querySelectorAll('[data-node-id]')).toHaveLength(1);
     });
-    const svg = container.querySelector('svg[aria-label="Dependency graph"]')!;
-    const parseViewBox = (): ViewBox => {
-      const [x, y, w, h] = (svg.getAttribute('viewBox') ?? '').split(' ').map(Number);
-      return { x: x!, y: y!, w: w!, h: h! };
-    };
-    const before = parseViewBox();
+    const svg = graphSvg(container);
+    const before = parseViewBox(svg);
 
     await fireEvent.click(screen.getByRole('button', { name: 'New task' }));
     const input = screen.getByRole('textbox', { name: 'New task title' });
@@ -640,7 +648,7 @@ describe('Graph dependency editing', () => {
     const expected = panToNode(before, node);
     expect(expected).not.toBeNull();
     await waitFor(() => {
-      const after = parseViewBox();
+      const after = parseViewBox(svg);
       expect(after.x).toBeCloseTo(expected!.x);
       expect(after.y).toBeCloseTo(expected!.y);
       expect(after.w).toBe(before.w);
@@ -800,6 +808,86 @@ describe('Graph dependency editing', () => {
     expect(second.start).not.toEqual(first.start);
   });
 
+  async function renderEdge(projectKey: string) {
+    const projectId = testUuid(projectKey);
+    fetchMock.mockImplementation(async () =>
+      jsonResponse(200, payload(projectId, [task('a', 'todo'), task('b', 'todo', ['a'])]))
+    );
+
+    const rendered = render(Project, { props: { projectId, view: 'graph' } });
+    const edge = await waitFor(() => {
+      const found = rendered.container.querySelector(`[data-edge-id="${A}->${B}"]`);
+      expect(found).not.toBeNull();
+      return found!;
+    });
+    return { ...rendered, edge };
+  }
+
+  const removeChip = () => screen.queryByRole('button', { name: 'Remove dependency' });
+
+  it.each([['Enter'], [' ']])('selects a focused edge with %s', async (key) => {
+    const { edge } = await renderEdge(`p-graph-edge-key-${key === ' ' ? 'space' : 'enter'}`);
+
+    const press = createEvent.keyDown(edge, { key, bubbles: true, cancelable: true });
+    edge.dispatchEvent(press);
+
+    expect(await screen.findByRole('button', { name: 'Remove dependency' })).toBeInTheDocument();
+    // The page scrolls on Space otherwise, which is what the handler prevents.
+    expect(press.defaultPrevented).toBe(true);
+  });
+
+  it('drops the edge selection on Escape', async () => {
+    const { edge } = await renderEdge('p-graph-edge-escape');
+    await fireEvent.click(edge);
+    expect(removeChip()).not.toBeNull();
+
+    await fireEvent.keyDown(window, { key: 'Escape' });
+
+    await waitFor(() => expect(removeChip()).toBeNull());
+  });
+
+  it('leaves the edge selection alone when the filter input swallowed the Escape', async () => {
+    const { container, edge } = await renderEdge('p-graph-edge-escape-filter');
+    await fireEvent.click(edge);
+    expect(removeChip()).not.toBeNull();
+
+    const filter = await screen.findByLabelText('Filter tasks by title');
+    await fireEvent.keyDown(filter, { key: 'Escape' });
+
+    expect(removeChip()).not.toBeNull();
+    // Control: the same press outside the input does clear it, so the survival
+    // above is the defaultPrevented guard and not a dead listener.
+    await fireEvent.keyDown(graphSvg(container), { key: 'Escape' });
+    await waitFor(() => expect(removeChip()).toBeNull());
+  });
+
+  it('cancels an in-progress connect on Escape and adds nothing on release', async () => {
+    const projectId = testUuid('p-graph-connect-escape');
+    fetchMock.mockImplementation(async () =>
+      jsonResponse(200, payload(projectId, [task('a', 'todo'), task('b', 'todo')]))
+    );
+    const spy = vi.spyOn(board, 'addBlocker').mockResolvedValue(true);
+
+    const { container } = render(Project, { props: { projectId, view: 'graph' } });
+
+    await waitFor(() => {
+      expect(container.querySelectorAll('[data-node-id]')).toHaveLength(2);
+    });
+    const handle = container.querySelector(`[data-connect-handle="${A}"]`);
+    stubElementFromPoint(container.querySelector(`[data-node-id="${B}"]`));
+
+    await fireEvent.pointerDown(handle!, { pointerId: 1, button: 0 });
+    await fireEvent.pointerMove(window, { pointerId: 1, clientX: 200, clientY: 60 });
+    // Armed: a preview is on screen, so the release below would have connected.
+    expect(previewPath(container)).not.toBe('');
+
+    await fireEvent.keyDown(window, { key: 'Escape' });
+    await fireEvent.pointerUp(window, { pointerId: 1, clientX: 200, clientY: 60 });
+
+    expect(container.querySelector('path[marker-end="url(#cp-graph-arrow-active)"]')).toBeNull();
+    expect(spy).not.toHaveBeenCalled();
+  });
+
   it('points the front-handle preview arrow at the drop target while the tail stays at the source', async () => {
     const projectId = testUuid('p-graph-front-preview');
     fetchMock.mockImplementation(async () =>
@@ -824,6 +912,131 @@ describe('Graph dependency editing', () => {
 
     expect(second.start).toEqual(first.start);
     expect(second.end).not.toEqual(first.end);
+  });
+});
+
+// jsdom gives getBoundingClientRect all zeros, which viewScale turns into a
+// scale of 1 — so every number below is the client delta, exactly.
+describe('Graph viewport gestures', () => {
+  async function renderGraph(projectKey: string) {
+    const projectId = testUuid(projectKey);
+    fetchMock.mockImplementation(async () =>
+      jsonResponse(200, payload(projectId, [task('a', 'todo'), task('b', 'todo', ['a'])]))
+    );
+    const rendered = render(Project, { props: { projectId, view: 'graph' } });
+    await waitFor(() => {
+      expect(rendered.container.querySelectorAll('[data-node-id]')).toHaveLength(2);
+    });
+    return { ...rendered, svg: graphSvg(rendered.container) };
+  }
+
+  it('pans the drawing under a drag on the background', async () => {
+    const { svg } = await renderGraph('p-graph-pan-drag');
+    const before = parseViewBox(svg);
+
+    await fireEvent.pointerDown(svg, { pointerId: 1, button: 0, clientX: 100, clientY: 100 });
+    await fireEvent.pointerMove(window, { pointerId: 1, clientX: 140, clientY: 130 });
+    await fireEvent.pointerUp(window, { pointerId: 1, clientX: 140, clientY: 130 });
+
+    const after = parseViewBox(svg);
+    expect(after.x).toBeCloseTo(before.x - 40);
+    expect(after.y).toBeCloseTo(before.y - 30);
+    expect(after.w).toBe(before.w);
+  });
+
+  // router.navigate is stubbed rather than watched: the real one navigates, and
+  // Project canonicalizes the address straight back on the same flush, so the
+  // address alone cannot tell a suppressed click from a click that landed.
+  function clickNode(container: HTMLElement, detail: number): void {
+    const anchor = container.querySelector(`[data-node-id="${A}"] a`) as HTMLAnchorElement;
+    anchor.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, detail }));
+  }
+
+  function taskPath(container: HTMLElement): string {
+    return (container.querySelector(`[data-node-id="${A}"] a`) as HTMLAnchorElement).pathname;
+  }
+
+  it('swallows the click a drag ends on, and leaves a keyboard activation alone', async () => {
+    const { container, svg } = await renderGraph('p-graph-drag-click');
+    const navigate = vi.spyOn(router, 'navigate').mockImplementation(() => {});
+
+    await fireEvent.pointerDown(svg, { pointerId: 1, button: 0, clientX: 100, clientY: 100 });
+    await fireEvent.pointerMove(window, { pointerId: 1, clientX: 140, clientY: 130 });
+    await fireEvent.pointerUp(window, { pointerId: 1, clientX: 140, clientY: 130 });
+
+    clickNode(container, 1);
+    expect(navigate).not.toHaveBeenCalled();
+
+    // detail 0 is Enter on the focused link: didDrag is still set, and it must
+    // still navigate.
+    clickNode(container, 0);
+    expect(navigate).toHaveBeenCalledWith(taskPath(container));
+  });
+
+  it('leaves a click alone when the pointer never travelled', async () => {
+    const { container, svg } = await renderGraph('p-graph-tap-click');
+    const navigate = vi.spyOn(router, 'navigate').mockImplementation(() => {});
+
+    await fireEvent.pointerDown(svg, { pointerId: 1, button: 0, clientX: 100, clientY: 100 });
+    // Inside the 3px threshold: a tap that wobbles is still a tap.
+    await fireEvent.pointerMove(window, { pointerId: 1, clientX: 101, clientY: 101 });
+    await fireEvent.pointerUp(window, { pointerId: 1, clientX: 101, clientY: 101 });
+
+    clickNode(container, 1);
+
+    expect(navigate).toHaveBeenCalledWith(taskPath(container));
+  });
+
+  it('zooms on the wheel and keeps the page from scrolling with it', async () => {
+    const { svg } = await renderGraph('p-graph-wheel');
+    const before = parseViewBox(svg);
+
+    const zoomIn = new WheelEvent('wheel', {
+      bubbles: true,
+      cancelable: true,
+      deltaY: -100,
+      clientX: 40,
+      clientY: 40,
+    });
+    svg.dispatchEvent(zoomIn);
+    flushSync();
+
+    expect(zoomIn.defaultPrevented).toBe(true);
+    expect(parseViewBox(svg).w).toBeLessThan(before.w);
+
+    // ctrlKey is a trackpad pinch, which zooms five times harder per notch.
+    const pinchOut = new WheelEvent('wheel', {
+      bubbles: true,
+      cancelable: true,
+      deltaY: 100,
+      ctrlKey: true,
+      clientX: 40,
+      clientY: 40,
+    });
+    svg.dispatchEvent(pinchOut);
+    flushSync();
+
+    expect(parseViewBox(svg).w).toBeGreaterThan(before.w);
+  });
+
+  it('zooms from the distance between two fingers, then hands the pan back to the one left down', async () => {
+    const { svg } = await renderGraph('p-graph-pinch');
+    const before = parseViewBox(svg);
+
+    await fireEvent.pointerDown(svg, { pointerId: 1, button: 0, clientX: 0, clientY: 0 });
+    await fireEvent.pointerDown(svg, { pointerId: 2, button: 0, clientX: 100, clientY: 0 });
+    await fireEvent.pointerMove(window, { pointerId: 2, clientX: 200, clientY: 0 });
+
+    const pinched = parseViewBox(svg);
+    expect(pinched.w).toBeCloseTo(before.w / 2);
+
+    await fireEvent.pointerUp(window, { pointerId: 2, clientX: 200, clientY: 0 });
+    await fireEvent.pointerMove(window, { pointerId: 1, clientX: 30, clientY: 0 });
+
+    // The surviving finger pans from where it is now, rather than jumping by
+    // everything the pinch moved.
+    expect(parseViewBox(svg).x).toBeCloseTo(pinched.x - 30);
+    expect(parseViewBox(svg).w).toBeCloseTo(pinched.w);
   });
 });
 
@@ -1094,6 +1307,134 @@ describe('Graph done-task visibility', () => {
   });
 });
 
+// Without a hover there is nothing to hover: the handles are the only way to
+// draw a dependency on a phone, and one media query decides whether they are
+// hittable at all. jsdom has no matchMedia, so every other test here renders the
+// mouse branch and this is the only place the touch branch is exercised.
+describe('Graph on a coarse pointer', () => {
+  type Listener = (event: MediaQueryListEvent) => void;
+
+  function stubHoverNone(matches: boolean): Listener[] {
+    const listeners: Listener[] = [];
+    vi.stubGlobal('matchMedia', (query: string) => ({
+      matches: query === '(hover: none)' ? matches : false,
+      addEventListener: (_type: string, listener: Listener) => listeners.push(listener),
+      removeEventListener: () => {},
+    }));
+    return listeners;
+  }
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  async function renderWithHandles(projectKey: string) {
+    const projectId = testUuid(projectKey);
+    fetchMock.mockImplementation(async () =>
+      jsonResponse(200, payload(projectId, [task('a', 'todo')]))
+    );
+    const rendered = render(Project, { props: { projectId, view: 'graph' } });
+    await waitFor(() => {
+      expect(rendered.container.querySelectorAll('[data-connect-handle]')).toHaveLength(2);
+    });
+    const handleClasses = (): string[] =>
+      [...rendered.container.querySelectorAll('[data-connect-handle]')].map(
+        (el) => el.getAttribute('class') ?? ''
+      );
+    return { ...rendered, handleClasses };
+  }
+
+  it('leaves the connect handles hittable where nothing can hover', async () => {
+    const listeners = stubHoverNone(true);
+    const { handleClasses } = await renderWithHandles('p-graph-coarse');
+
+    for (const cls of handleClasses()) {
+      expect(cls).not.toContain('pointer-events-none');
+    }
+
+    // A tablet with a mouse plugged in mid-session: the query changes, and the
+    // handles go back behind hover rather than staying permanently live.
+    expect(listeners).toHaveLength(1);
+    listeners[0]!({ matches: false } as MediaQueryListEvent);
+    flushSync();
+    for (const cls of handleClasses()) {
+      expect(cls).toContain('pointer-events-none');
+    }
+  });
+
+  it('keeps them behind hover where the pointer is fine', async () => {
+    stubHoverNone(false);
+    const { handleClasses } = await renderWithHandles('p-graph-fine');
+
+    for (const cls of handleClasses()) {
+      expect(cls).toContain('pointer-events-none');
+      expect(cls).toContain('group-hover:pointer-events-auto');
+    }
+  });
+});
+
+describe('Graph cycle toast', () => {
+  const CYCLE_TOAST = 'Dependency cycle detected — the graph cannot be drawn.';
+  const messages = (): string[] => toasts.toasts.map((t) => t.message);
+
+  it('says it once, however often the done toggle is flipped over the same loop', async () => {
+    const projectId = testUuid('p-graph-cycle-toast');
+    fetchMock.mockImplementation(async () =>
+      jsonResponse(
+        200,
+        payload(projectId, [task('a', 'done', ['b']), task('b', 'done', ['a']), task('c', 'todo')])
+      )
+    );
+
+    const { container } = render(Project, { props: { projectId, view: 'graph' } });
+    const toggle = await screen.findByRole('button', { name: 'Show done (2)' });
+    expect(messages()).toEqual([]);
+
+    await fireEvent.click(toggle);
+    expect(await screen.findByText('Dependency cycle detected')).toBeInTheDocument();
+    expect(messages()).toEqual([CYCLE_TOAST]);
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Show done (2)' }));
+    await waitFor(() => {
+      expect(container.querySelectorAll('[data-node-id]')).toHaveLength(1);
+    });
+    await fireEvent.click(screen.getByRole('button', { name: 'Show done (2)' }));
+    expect(await screen.findByText('Dependency cycle detected')).toBeInTheDocument();
+
+    expect(messages()).toEqual([CYCLE_TOAST]);
+  });
+
+  it('says it again for a loop that comes back after the graph was drawable', async () => {
+    const projectId = testUuid('p-graph-cycle-rearm');
+    fetchMock.mockImplementation(async () =>
+      jsonResponse(200, payload(projectId, [task('a', 'todo'), task('b', 'todo', ['a'])]))
+    );
+
+    const { container } = render(Project, { props: { projectId, view: 'graph' } });
+    await waitFor(() => {
+      expect(container.querySelectorAll('[data-node-id]')).toHaveLength(2);
+    });
+
+    const close = (): void => {
+      board.tasks = board.tasks.map((t) => (t.id === A ? { ...t, blocker_ids: [B] } : t));
+      flushSync();
+    };
+    const open = (): void => {
+      board.tasks = board.tasks.map((t) => (t.id === A ? { ...t, blocker_ids: [] } : t));
+      flushSync();
+    };
+
+    close();
+    expect(screen.getByText('Dependency cycle detected')).toBeInTheDocument();
+    expect(messages()).toEqual([CYCLE_TOAST]);
+
+    open();
+    close();
+
+    expect(messages()).toEqual([CYCLE_TOAST, CYCLE_TOAST]);
+  });
+});
+
 describe('Graph for a viewer', () => {
   function viewerPayload(projectId: string, tasks: BoardTask[]): BoardPayload & { users: [] } {
     const base = payload(projectId, tasks);
@@ -1161,15 +1502,35 @@ describe('Graph cross-project placeholders', () => {
     return payload(projectId, [{ ...task('a', 'todo'), open_cross_project_blocker_count: 2 }]);
   }
 
-  function routes(projectId: string, deps: Record<string, unknown>) {
+  function routesWith(boardPayload: () => BoardPayload, deps: () => Promise<Response>) {
     fetchMock.mockImplementation(async (input) => {
       const url = new URL((input as Request).url);
       if (url.pathname.endsWith('/cross-project-dependencies')) {
-        return jsonResponse(200, deps);
+        return deps();
       }
-      return jsonResponse(200, crossPayload(projectId));
+      return jsonResponse(200, boardPayload());
     });
   }
+
+  function routes(projectId: string, deps: Record<string, unknown>) {
+    routesWith(
+      () => crossPayload(projectId),
+      async () => jsonResponse(200, deps)
+    );
+  }
+
+  const depsCalls = (): number =>
+    fetchMock.mock.calls.filter((call) =>
+      new URL((call[0] as Request).url).pathname.endsWith('/cross-project-dependencies')
+    ).length;
+
+  const showTrigger = () =>
+    screen.findByRole('button', { name: 'Show 2 blocking tasks in other projects' });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    Reflect.deleteProperty(document, 'elementFromPoint');
+  });
 
   const empty = {
     blocked_by: [],
@@ -1245,6 +1606,159 @@ describe('Graph cross-project placeholders', () => {
     const hidden = container.querySelector('[data-node-kind="hidden"]') as HTMLElement;
     expect(hidden.textContent).toContain('2 tasks in other projects');
     expect(hidden.querySelector('a')).toBeNull();
+  });
+
+  it('holds the placeholder disabled and busy while it loads, and asks only once', async () => {
+    const projectId = testUuid('p-graph-cross-loading');
+    let release!: () => void;
+    routesWith(
+      () => crossPayload(projectId),
+      () =>
+        new Promise<Response>((resolve) => {
+          release = () => resolve(jsonResponse(200, empty));
+        })
+    );
+
+    const { container } = render(Project, { props: { projectId, view: 'graph' } });
+    await fireEvent.click(await showTrigger());
+
+    const busy = await showTrigger();
+    expect(busy).toBeDisabled();
+    expect(busy).toHaveAttribute('aria-busy', 'true');
+    expect(screen.getByRole('status', { name: 'Loading tasks in other projects' })).toBeVisible();
+
+    await fireEvent.click(busy);
+    expect(depsCalls()).toBe(1);
+
+    release();
+    // An answer of nothing readable retires the placeholder rather than leaving
+    // a count nobody can act on.
+    await waitFor(() => {
+      expect(container.querySelector('[data-node-kind="placeholder"]')).toBeNull();
+    });
+    expect(container.querySelector(`[data-node-id="${A}"]`)).not.toBeNull();
+  });
+
+  it('offers a retry after a failed load and expands on the second try', async () => {
+    const projectId = testUuid('p-graph-cross-retry');
+    let failing = true;
+    routesWith(
+      () => crossPayload(projectId),
+      async () =>
+        failing
+          ? jsonResponse(500, { error: 'boom' })
+          : jsonResponse(200, {
+              ...empty,
+              blocked_by: [
+                {
+                  task_id: FAR,
+                  project_id: testUuid('p-far'),
+                  project_name: 'Engineering',
+                  title: 'Ship it',
+                  is_done: false,
+                },
+              ],
+            })
+    );
+
+    const { container } = render(Project, { props: { projectId, view: 'graph' } });
+    await fireEvent.click(await showTrigger());
+
+    const retry = await screen.findByRole('button', {
+      name: 'Retry loading blocking tasks in other projects',
+    });
+    expect(retry).toHaveTextContent('Couldn’t load — try again');
+    expect(retry).not.toBeDisabled();
+
+    failing = false;
+    await fireEvent.click(retry);
+
+    await waitFor(() => {
+      expect(container.querySelector('[data-node-kind="remote"]')).not.toBeNull();
+    });
+    expect(depsCalls()).toBe(2);
+  });
+
+  it('retires the placeholder when the host task is gone by the time it is asked', async () => {
+    const projectId = testUuid('p-graph-cross-404');
+    routesWith(
+      () => crossPayload(projectId),
+      async () => jsonResponse(404, { error: 'Task not found' })
+    );
+
+    const { container } = render(Project, { props: { projectId, view: 'graph' } });
+    await fireEvent.click(await showTrigger());
+
+    await waitFor(() => {
+      expect(container.querySelector('[data-node-kind="placeholder"]')).toBeNull();
+    });
+    expect(screen.queryByText('Couldn’t load — try again')).toBeNull();
+  });
+
+  // A synthetic id is not a task id, so a drop that accepted one would optimistically
+  // link the card and then POST a blocker id no server can resolve.
+  it('refuses a connect drop onto a placeholder, and takes the same drag onto a real node', async () => {
+    const projectId = testUuid('p-graph-cross-drop');
+    routesWith(
+      () =>
+        payload(projectId, [
+          { ...task('a', 'todo'), open_cross_project_blocker_count: 2 },
+          task('b', 'todo'),
+        ]),
+      async () => jsonResponse(200, empty)
+    );
+    const spy = vi.spyOn(board, 'addBlocker').mockResolvedValue(true);
+
+    const { container } = render(Project, { props: { projectId, view: 'graph' } });
+    await waitFor(() => {
+      expect(container.querySelector('[data-node-kind="placeholder"]')).not.toBeNull();
+    });
+    const back = container.querySelector(`[data-connect-dir="back"][data-connect-handle="${A}"]`);
+    stubElementFromPoint(container.querySelector('[data-node-kind="placeholder"]'));
+
+    await fireEvent.pointerDown(back!, { pointerId: 1, button: 0 });
+    await fireEvent.pointerUp(window, { pointerId: 1, clientX: 20, clientY: 20 });
+
+    expect(spy).not.toHaveBeenCalled();
+
+    // Control: the identical gesture onto a task node does land, so the refusal
+    // above is the node-kind guard and not a gesture that never armed.
+    stubElementFromPoint(container.querySelector(`[data-node-id="${B}"]`));
+    await fireEvent.pointerDown(back!, { pointerId: 2, button: 0 });
+    await fireEvent.pointerUp(window, { pointerId: 2, clientX: 20, clientY: 20 });
+
+    expect(spy).toHaveBeenCalledWith(A, B);
+  });
+
+  it('refuses a connect drop onto an expanded remote task', async () => {
+    const projectId = testUuid('p-graph-cross-drop-remote');
+    routes(projectId, {
+      ...empty,
+      blocked_by: [
+        {
+          task_id: FAR,
+          project_id: testUuid('p-far'),
+          project_name: 'Engineering',
+          title: 'Ship it',
+          is_done: false,
+        },
+      ],
+    });
+    const spy = vi.spyOn(board, 'addBlocker').mockResolvedValue(true);
+
+    const { container } = render(Project, { props: { projectId, view: 'graph' } });
+    await fireEvent.click(await showTrigger());
+    await waitFor(() => {
+      expect(container.querySelector('[data-node-kind="remote"]')).not.toBeNull();
+    });
+
+    const back = container.querySelector(`[data-connect-dir="back"][data-connect-handle="${A}"]`);
+    stubElementFromPoint(container.querySelector('[data-node-kind="remote"]'));
+
+    await fireEvent.pointerDown(back!, { pointerId: 1, button: 0 });
+    await fireEvent.pointerUp(window, { pointerId: 1, clientX: 20, clientY: 20 });
+
+    expect(spy).not.toHaveBeenCalled();
   });
 
   it('gives a placeholder no connect handles', async () => {

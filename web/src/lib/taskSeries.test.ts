@@ -169,6 +169,36 @@ describe('task series store', () => {
     expect(taskSeries.list.map((row) => row.id)).toEqual(['created']);
   });
 
+  // The modal's teardown resets the store, so a create submitted on one board can
+  // still be in flight while the next board's list is on screen.
+  it('keeps a new series out of the list the store has moved on to', async () => {
+    await loadWith([]);
+
+    let resolveCreate: ((value: Response) => void) | undefined;
+    fetchMock.mockReturnValueOnce(
+      new Promise<Response>((resolve) => {
+        resolveCreate = resolve;
+      })
+    );
+    const pending = taskSeries.create({
+      id: 'elsewhere',
+      project_id: 'p-1',
+      column_id: 'c-1',
+      title: 'Weekly review',
+      start_date: '2026-02-02',
+      timezone: 'Europe/Berlin',
+      preset: 'weekly',
+    });
+
+    taskSeries.reset();
+    await loadWith([], 'p-2');
+
+    resolveCreate?.(jsonResponse(201, { ...series({ id: 'elsewhere' }), dropped_image_count: 0 }));
+    await pending;
+
+    expect(taskSeries.list).toEqual([]);
+  });
+
   it('adds the series a card started, and rethrows a rejection', async () => {
     await loadWith([]);
 
@@ -386,6 +416,9 @@ describe('task series realtime events', () => {
     taskSeries.reset();
     fetchMock.mockClear();
     taskSeries.resync();
+    // resync is fire-and-forget, and the client defers every request past its
+    // middleware, so asserting on the next line can only ever see zero calls.
+    await new Promise((resolve) => setTimeout(resolve, 0));
     expect(fetchMock).not.toHaveBeenCalled();
   });
 });

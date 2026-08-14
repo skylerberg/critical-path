@@ -11,7 +11,7 @@ import { cardMenu } from '../lib/card-menu.svelte';
 import { projects } from '../lib/projects.svelte';
 import { router } from '../lib/router.svelte';
 import { SEARCH_MAX_QUERY_LENGTH, type SearchResult } from '../lib/search-query';
-import { search } from '../lib/search.svelte';
+import { search, SearchStore } from '../lib/search.svelte';
 import { selection } from '../lib/selection.svelte';
 import { session } from '../lib/session.svelte';
 import { projectHref, taskHref } from '../lib/short-links';
@@ -194,8 +194,14 @@ afterEach(() => {
 });
 
 describe('rendering and grouping', () => {
-  it('focuses the box and issues no request before anything is typed', () => {
+  it('focuses the box and issues no request before anything is typed', async () => {
     open();
+
+    // Both drains are the assertion below: a synchronous body cannot tell a
+    // palette that searched on mount from one that did not, because nothing has
+    // been given the chance to dispatch.
+    await settle();
+    await vi.advanceTimersByTimeAsync(DEBOUNCE_MS);
 
     expect(box()).toHaveFocus();
     expect(box()).toHaveAttribute('maxlength', String(SEARCH_MAX_QUERY_LENGTH));
@@ -450,15 +456,22 @@ describe('search', () => {
       await held;
       return jsonResponse(200, { results: [result('t-1', 'Late hit')], truncated: false });
     });
+    const run = vi.spyOn(SearchStore.prototype, 'run');
     const { unmount } = render(CommandPalette, { ctx: board, onclose });
 
     await fireEvent.input(box(), { target: { value: 'export' } });
     await vi.advanceTimersByTimeAsync(DEBOUNCE_MS);
+    // The palette's store is a component-local const, so an unmounted palette
+    // leaves the call itself as the only handle on it — and an empty container
+    // says nothing about what the late response wrote.
+    const paletteSearch = run.mock.contexts[0] as SearchStore;
     unmount();
 
     release();
     await vi.advanceTimersByTimeAsync(0);
 
+    expect(paletteSearch.status).toBe('idle');
+    expect(paletteSearch.results).toEqual([]);
     expect(screen.queryByRole('option')).toBeNull();
   });
 

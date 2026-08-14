@@ -11,6 +11,21 @@ type MyTaskPersonGroup = components['schemas']['MyTaskPersonGroup'];
 // Each page of my-tasks groups only its own cards, so a second page has to be
 // merged into the first rather than appended: one person can appear on both,
 // and the same card can reach a group from two different tasks of the caller's.
+type MyTask = components['schemas']['MyTask'];
+
+// The bucket lists are paged rather than grouped, but they need the same merge
+// for the same reason: the ranking the server pages over is computed live, so a
+// card that moves earlier between two reads is served on both pages. My Tasks
+// renders them through a keyed each, which throws on a repeated id rather than
+// drawing the row twice. The later copy wins — it is the fresher read.
+export function mergeTaskPages(existing: readonly MyTask[], incoming: readonly MyTask[]): MyTask[] {
+  const byId = new Map(existing.map((task) => [task.id, task]));
+  for (const task of incoming) {
+    byId.set(task.id, task);
+  }
+  return [...byId.values()];
+}
+
 export function mergePersonGroups(
   existing: readonly MyTaskPersonGroup[],
   incoming: readonly MyTaskPersonGroup[]
