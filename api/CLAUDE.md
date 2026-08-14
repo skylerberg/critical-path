@@ -198,6 +198,14 @@ web app and the CLI generate from it.
   the sockets authenticated with that token; and one that carries `session_id`
   closes only that session's. Any new publisher must keep sending `user_id` —
   it is the dispatch fallback in `handleBusEntry`.
+  Both application close codes are one table,
+  `src/services/realtime/closeCodes.ts`, which `src/spec/realtime-events.ts`
+  publishes as `RealtimeCloseCode`: a client generates the set it has to route
+  on, so a code added at a close site and not in that table reaches no client at
+  all. `tests/unit/realtimeEventsDocument.test.ts` holds the table to the codes
+  every module in `src/services/realtime` can actually send, and changing it
+  carries the same
+  `npm run --prefix cli generate-realtime` obligation a payload change does.
 - The realtime bus is in-process by default; when `REDIS_URL` is set (as in
   production, which runs 2+ replicas) publishes fan out via Redis pub/sub so
   every replica delivers to its own sockets. Rate limits also share Redis

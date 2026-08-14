@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 // Event types for `cpath watch`, generated from realtime-events.json at the repo
 // root — dumped by `npm run realtime:dump`, exactly as openapi.json is. Nothing
-// is filtered: that document declares no paths, so every schema in it is part of
-// the envelope union rather than something a path reaches.
+// is filtered: that document declares no paths, so nothing in it is reachable
+// only through one — it is the envelope union plus the socket's close codes.
 
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { redump } from './redump.mjs';

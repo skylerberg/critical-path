@@ -1,6 +1,7 @@
 import { toOpenAPISchema } from '@standard-community/standard-openapi';
 import type { StandardSchemaV1 } from '@standard-schema/spec';
 import { ENVELOPE_VERSION } from '../services/webhooks/queue';
+import { REALTIME_CLOSE_CODES } from '../services/realtime/closeCodes';
 import {
   REALTIME_EVENT_TYPES,
   eventScope,
@@ -11,8 +12,8 @@ import { REALTIME_PAYLOAD_SCHEMAS } from '../services/realtime/payloads';
 
 // `/ws` carries no HTTP request or response, so none of this can live in
 // openapi.json. This builds a second, standalone document describing the socket
-// and webhook envelopes, which the clients generate event types from exactly as
-// they generate their API client from openapi.json.
+// and webhook envelopes and the socket's close codes, which the clients generate
+// types from exactly as they generate their API client from openapi.json.
 
 // Mirrors the fallback in ./schema-registry.ts: ArkType throws converting
 // any schema built with `.pipe(...)` without it.
@@ -79,15 +80,31 @@ export async function buildRealtimeEventsDocument(): Promise<Record<string, unkn
       title: 'Critical Path realtime and webhook events',
       version: String(ENVELOPE_VERSION),
       description:
-        'Generated from src/services/realtime/payloads.ts by `npm run realtime:dump`. ' +
+        'Generated from the declaration tables in src/services/realtime by `npm run realtime:dump`. ' +
         'RealtimeEvent is the envelope a /ws socket receives; WebhookEvent is the body ' +
-        'POSTed to a project webhook registration. Not an HTTP API: it declares no paths.',
+        'POSTed to a project webhook registration; RealtimeCloseCode is what that socket ' +
+        'can be closed with. Not an HTTP API: it declares no paths.',
     },
     paths: {},
     components: {
       schemas: {
         RealtimeEvent: { oneOf: socketRefs },
         WebhookEvent: { oneOf: webhookRefs },
+        // A generator keeps a schema's own description and drops its members',
+        // so every code's meaning has to be in this one string or it does not
+        // cross the boundary at all.
+        RealtimeCloseCode: {
+          description:
+            'Close codes a /ws socket can be closed with, beyond the standard RFC 6455 ones. ' +
+            REALTIME_CLOSE_CODES.map(
+              ({ code, name, meaning }) => `${String(code)} (${name}): ${meaning}`
+            ).join(' '),
+          oneOf: REALTIME_CLOSE_CODES.map(({ code, name }) => ({
+            type: 'integer',
+            const: code,
+            title: name,
+          })),
+        },
         ...schemas,
       },
     },
