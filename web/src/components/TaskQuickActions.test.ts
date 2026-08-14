@@ -4,7 +4,11 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/sve
 import TaskQuickActions from './TaskQuickActions.svelte';
 import { board } from '../lib/board.svelte';
 import type { BoardTask } from '../lib/board-types';
+import { testSortKey } from '../lib/test-ids';
 import { users } from '../lib/users.svelte';
+
+const FIRST_IN_DONE = testSortKey(0);
+const LAST_IN_DONE = testSortKey(1);
 
 const task: BoardTask = {
   id: 't1',
@@ -90,8 +94,15 @@ describe('TaskQuickActions', () => {
     expect(screen.getByRole('group', { name: 'Assign' })).toBeInTheDocument();
   });
 
-  it('moves the card to the column picked, and closes', async () => {
+  // The destination has to hold cards for the key to mean anything: against an
+  // empty column append and prepend produce the same one.
+  it('moves the card to the bottom of the column picked, and closes', async () => {
     const spy = vi.spyOn(board, 'moveTask');
+    board.tasks = [
+      { ...task },
+      { ...task, id: 't2', column_id: 'c2', sort_key: FIRST_IN_DONE },
+      { ...task, id: 't3', column_id: 'c2', sort_key: LAST_IN_DONE },
+    ];
     renderBar();
 
     await fireEvent.click(screen.getByRole('button', { name: 'Todo' }));
@@ -107,6 +118,7 @@ describe('TaskQuickActions', () => {
       { sort_key: expect.any(String) },
       { kind: 'append' }
     );
+    expect(spy.mock.calls[0]![2].sort_key > LAST_IN_DONE).toBe(true);
     expect(screen.queryByRole('group', { name: 'Move to column' })).toBeNull();
   });
 
@@ -155,6 +167,27 @@ describe('TaskQuickActions', () => {
 
     expect(within(panel).getByLabelText('Search tasks that block this one')).toBeInTheDocument();
     expect(within(panel).getByLabelText('Search tasks this one blocks')).toBeInTheDocument();
+  });
+
+  // The three exports are the card's only way to ask about the bar: TaskDetail
+  // reads isOpen() to tell a backdrop click that dismisses a panel from one that
+  // dismisses the card, and calls close() when it takes focus elsewhere.
+  it('answers the card whether a panel is up, and closes the one that is', async () => {
+    const { component } = render(TaskQuickActions, {
+      taskId: 't1',
+      onreveal: vi.fn(),
+      onattach: vi.fn(),
+    });
+    expect(component.isOpen()).toBe(false);
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Labels' }));
+    expect(component.isOpen()).toBe(true);
+
+    component.close({ restoreFocus: true });
+
+    await waitFor(() => expect(screen.queryByRole('group', { name: 'Add labels' })).toBeNull());
+    expect(component.isOpen()).toBe(false);
+    expect(screen.getByRole('button', { name: 'Labels' })).toHaveFocus();
   });
 
   it('restores focus to the button that opened the panel on Escape', async () => {

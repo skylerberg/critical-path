@@ -96,6 +96,14 @@
 
   function onkeydown(event: KeyboardEvent, rowIndex?: number): void {
     if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+      // An arrow from a row moves from that row, as Enter activates it: the
+      // pointer highlights whatever it rests over without moving focus, so
+      // stepping from the highlight instead would skip the row in between — onto
+      // Create, whose activation cannot be undone.
+      const from = rowIndex === undefined ? undefined : rows[rowIndex];
+      if (from !== undefined) {
+        nav.highlight(rowKey(from));
+      }
       if (nav.move(event.key === 'ArrowDown' ? 1 : -1)) {
         event.preventDefault();
       }

@@ -478,7 +478,9 @@ describe('TaskHistory', () => {
     const box = container.querySelector('.rte-bare')!.parentElement!;
     expect(box.classList).toContain('overflow-y-auto');
     expect(box.classList).toContain('overscroll-contain');
-    expect([...box.classList].some((name) => name.startsWith('max-h-'))).toBe(true);
+    // The exact bound, not any `max-h-*`: `max-h-none` and `max-h-fit` are the
+    // two ways to remove it and both carry the prefix.
+    expect(box.classList).toContain('max-h-64');
   });
 
   it('offers no expansion for a change the line already shows whole', () => {
@@ -500,6 +502,20 @@ describe('TaskHistory', () => {
       'moved this from Backlog to Doing'
     );
     expect(container.querySelectorAll('details')).toHaveLength(0);
+  });
+
+  // The state every brand-new card is in, and the only one where the log has
+  // nothing to draw and nothing to apologise for.
+  it('says a card with no history has none, and draws no list', () => {
+    taskActivity.entries = [];
+    taskActivity.error = false;
+    taskActivity.loading = false;
+
+    render(TaskHistory, { taskId: 't1' });
+
+    expect(screen.getByText('No activity yet.')).toBeInTheDocument();
+    expect(screen.queryByRole('list')).not.toBeInTheDocument();
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
   });
 
   it('reports a failed log load inline rather than as a toast, without calling it empty', () => {

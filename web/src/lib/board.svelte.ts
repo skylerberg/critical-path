@@ -2068,7 +2068,7 @@ class BoardStore {
   // not, so every caller — including the board's own realtime switch — is
   // untouched by the split.
 
-  createComment(taskId: string, body: CommentBody): Promise<void> {
+  createComment(taskId: string, body: CommentBody): Promise<boolean> {
     return this.#comments.create(taskId, body);
   }
 

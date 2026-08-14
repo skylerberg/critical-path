@@ -218,16 +218,22 @@ describe('DependencyPicker', () => {
       expect(addSpy).toHaveBeenCalledWith('t1', 't3');
     });
 
-    it('ignores arrow keys while no rows are shown', async () => {
+    it('leaves the arrow key to the caret while no rows are shown', async () => {
       const spy = vi.spyOn(board, 'addBlocker').mockResolvedValue(true);
       render(DependencyPicker, { taskId: 't1', direction: 'blocker' });
       const input = screen.getByLabelText<HTMLInputElement>('Search tasks that block this one');
 
-      await fireEvent.keyDown(input, { key: 'ArrowDown' });
+      const ignored = await fireEvent.keyDown(input, { key: 'ArrowDown' });
       await fireEvent.input(input, { target: { value: 'cards' } });
+      const swallowed = await fireEvent.keyDown(input, { key: 'ArrowDown' });
       await fireEvent.keyDown(input, { key: 'Enter' });
 
-      expect(spy).toHaveBeenCalledWith('t1', 't3');
+      // fireEvent answers false once a handler has called preventDefault. With no
+      // suggestions the arrow is the caret's — Home/End behaviour in the field —
+      // and only once there are rows may the list take it.
+      expect(ignored).toBe(true);
+      expect(swallowed).toBe(false);
+      expect(spy).toHaveBeenCalledWith('t1', 't4');
     });
 
     it('leaves Enter to the IME while a composition is active', async () => {
@@ -257,8 +263,11 @@ describe('DependencyPicker', () => {
       const createSpy = vi.spyOn(board, 'createAndLinkTask').mockResolvedValue('new');
       const input = await typeCards();
 
+      // The second query still holds the highlighted row, so a highlight that
+      // vanished with its row is not what puts Enter back on the top one.
       await fireEvent.keyDown(input, { key: 'ArrowDown' });
-      await fireEvent.input(input, { target: { value: 'print' } });
+      await fireEvent.input(input, { target: { value: 'c' } });
+      expect(screen.getByRole('button', { name: /Sleeve cards/ })).toBeInTheDocument();
       await fireEvent.keyDown(input, { key: 'Enter' });
 
       expect(addSpy).toHaveBeenCalledWith('t1', 't3');
@@ -301,6 +310,21 @@ describe('DependencyPicker', () => {
       await fireEvent.keyDown(second, { key: 'Enter' });
 
       expect(spy).toHaveBeenCalledWith('t1', 't4');
+    });
+
+    it('arrows from the focused row even when the pointer highlights another', async () => {
+      await typeCards();
+      const first = screen.getByRole('button', { name: /Print cards/ });
+      const second = screen.getByRole('button', { name: /Sleeve cards/ });
+      first.focus();
+      await fireEvent.pointerMove(second);
+
+      await fireEvent.keyDown(first, { key: 'ArrowDown' });
+
+      // Stepping from the pointer's highlight instead would land on Create,
+      // which creates a task for everyone with no undo.
+      expect(second).toHaveFocus();
+      expect(screen.getByRole('button', { name: /Create "cards"/ })).not.toHaveFocus();
     });
 
     it('activates the focused row on Enter even when the pointer highlights another', async () => {

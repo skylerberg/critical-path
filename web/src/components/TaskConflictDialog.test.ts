@@ -2,7 +2,7 @@ import { fetchMock, jsonResponse } from '../api/testUtils';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import TaskConflictDialog from './TaskConflictDialog.svelte';
-import { board } from '../lib/board.svelte';
+import { board, type TaskUpdateOutcome } from '../lib/board.svelte';
 import type { BoardTask } from '../lib/board-types';
 import type { TaskVersion } from '../lib/conflictDrafts.svelte';
 import { taskActivity, type TaskActivityEntry } from '../lib/taskActivity.svelte';
@@ -55,7 +55,12 @@ function activity(overrides: Partial<TaskActivityEntry> = {}): TaskActivityEntry
   };
 }
 
-type Resolve = (resolution: TaskVersion, expectedUpdatedAt: string) => Promise<'ok' | 'conflict'>;
+// The whole of what applyResolution can answer, not the two arms this file used
+// to name: narrowing it here is what made the other two branches unreachable.
+type Resolve = (
+  resolution: TaskVersion,
+  expectedUpdatedAt: string
+) => Promise<TaskUpdateOutcome['status']>;
 
 // The dialog loads the log itself, so seeding the store directly would only be
 // wiped by that fetch.
@@ -75,7 +80,14 @@ function mount(
   });
 }
 
+// Only the one property: spreading `navigator` loses its prototype getters, and
+// `userAgent` going missing takes Tiptap's editor down with it.
+function stubClipboard(writeText: (value: string) => Promise<void>): void {
+  Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+}
+
 afterEach(() => {
+  Reflect.deleteProperty(navigator, 'clipboard');
   vi.restoreAllMocks();
 });
 
@@ -189,6 +201,85 @@ describe('TaskConflictDialog', () => {
     const merged = onresolve.mock.calls[0]![0];
     expect(JSON.stringify(merged.description)).toContain('My text');
     expect(JSON.stringify(merged.description)).toContain('Stored text');
+  });
+
+  // The card is gone, or the patch failed. A toast is invisible behind this
+  // Modal's top layer, so the dialog has to say so itself.
+  it('stays open and says so when the resolve fails outright', async () => {
+    const onclose = vi.fn();
+    render(TaskConflictDialog, {
+      taskId: T1,
+      mine: { title: 'My title', description: paragraph('My text') },
+      base: BASE,
+      onresolve: async () => 'error' as const,
+      onclose,
+    });
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Keep mine' }));
+
+    expect(await screen.findByText(/could not be saved/)).toBeInTheDocument();
+    expect(onclose).not.toHaveBeenCalled();
+    expect(screen.getByRole('button', { name: 'Keep mine' })).not.toBeDisabled();
+  });
+
+  it('says the choice is waiting for the network when it is queued', async () => {
+    const onclose = vi.fn();
+    render(TaskConflictDialog, {
+      taskId: T1,
+      mine: { title: 'My title', description: paragraph('My text') },
+      base: BASE,
+      onresolve: async () => 'queued' as const,
+      onclose,
+    });
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Keep mine' }));
+
+    expect(await screen.findByText(/waiting for the network/)).toBeInTheDocument();
+    expect(onclose).not.toHaveBeenCalled();
+  });
+
+  // The one branch where the user's text is most at risk, and the guard is all
+  // that stops a merged save writing the title away to ''.
+  it('will not save a merged version whose title has been emptied', async () => {
+    const onresolve = vi.fn<Resolve>(async () => 'ok');
+    mount({ title: 'My title', description: paragraph('My text') }, onresolve);
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Merge manually…' }));
+    const title = screen.getByLabelText('Merged title');
+    await fireEvent.input(title, { target: { value: '   ' } });
+
+    // The attribute, not a dispatched click: jsdom hands a synthetic click to the
+    // listener whether or not the button is disabled, so clicking would prove
+    // nothing about what a browser does.
+    expect(screen.getByRole('button', { name: 'Save merged version' })).toBeDisabled();
+    expect(onresolve).not.toHaveBeenCalled();
+
+    await fireEvent.input(title, { target: { value: 'Merged title' } });
+    expect(screen.getByRole('button', { name: 'Save merged version' })).not.toBeDisabled();
+  });
+
+  // The escape hatch offered right beside "Keep theirs": if it copies the wrong
+  // thing, the user discards their version having saved nothing.
+  it('copies the user’s own title and body as Markdown', async () => {
+    const writeText = vi.fn<(value: string) => Promise<void>>(async () => {});
+    stubClipboard(writeText);
+    mount({ title: 'My title', description: paragraph('My text') }, async () => 'ok');
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Copy my version as Markdown' }));
+
+    expect(writeText).toHaveBeenCalledWith('My title\n\nMy text');
+    expect(await screen.findByText('Copied')).toBeInTheDocument();
+  });
+
+  it('says so when the clipboard refuses', async () => {
+    stubClipboard(async () => {
+      throw new Error('denied');
+    });
+    mount({ title: 'My title', description: paragraph('My text') }, async () => 'ok');
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Copy my version as Markdown' }));
+
+    expect(await screen.findByText('Could not copy to the clipboard')).toBeInTheDocument();
   });
 
   it('re-presents the newer stored version instead of retrying the same write', async () => {

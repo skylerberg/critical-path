@@ -258,6 +258,56 @@ describe('QuickAddTask multi-line paste', () => {
     expect(toasts.toasts[0]!.variant).toBe('success');
   });
 
+  // The batch is all-or-nothing and the API refuses a title over the same bound
+  // the field enforces, so one over-long line would take every card pasted with
+  // it down to a 422.
+  it('caps a pasted line at the length the typed field allows', async () => {
+    const input = await openComposer();
+
+    await fireEvent(input, pasteEvent(input, `Alpha\n${'x'.repeat(TASK_TITLE_MAX_LENGTH + 40)}`));
+
+    expect(board.tasksInColumn('c1').map((t) => t.title.length)).toEqual([
+      5,
+      TASK_TITLE_MAX_LENGTH,
+    ]);
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+    const request = fetchMock.mock.calls[0]![0] as Request;
+    const body = (await request.json()) as { tasks: { title: string }[] };
+    expect(body.tasks.map((t) => t.title.length)).toEqual([5, TASK_TITLE_MAX_LENGTH]);
+  });
+
+  // Truncating in silence is the failure mode the cap traded up to: the 422 was
+  // at least visible, and a card ending mid-sentence is not.
+  it('says how many pasted lines it shortened', async () => {
+    const input = await openComposer();
+
+    await fireEvent(
+      input,
+      pasteEvent(input, `Alpha\n${'x'.repeat(TASK_TITLE_MAX_LENGTH + 40)}\nBeta`)
+    );
+
+    await waitFor(() => {
+      expect(toasts.toasts.map((t) => t.message)).toEqual(['Added 3 tasks (1 shortened to fit)']);
+    });
+    expect(toasts.toasts[0]!.variant).toBe('success');
+  });
+
+  // Cutting between the halves of a surrogate pair leaves a code unit that is not
+  // a character; the request body encodes it as U+FFFD, so the title arrives with
+  // a replacement mark the user never typed.
+  it('does not cut a pasted line through a surrogate pair', async () => {
+    const input = await openComposer();
+    const padded = `${'x'.repeat(TASK_TITLE_MAX_LENGTH - 1)}😀tail`;
+
+    await fireEvent(input, pasteEvent(input, `Alpha\n${padded}`));
+
+    const capped = board.tasksInColumn('c1').at(-1)!.title;
+    expect(capped).toHaveLength(TASK_TITLE_MAX_LENGTH - 1);
+    expect(capped).not.toMatch(/[\uD800-\uDFFF]/);
+  });
+
   it('shows no success toast when the batch fails', async () => {
     fetchMock.mockImplementation(async (input) => {
       const request = input as Request;

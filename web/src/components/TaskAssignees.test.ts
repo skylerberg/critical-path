@@ -69,6 +69,18 @@ describe('TaskAssignees', () => {
     expect(screen.getByRole('button', { name: 'Unassign Alan Turing' })).toHaveFocus();
   });
 
+  // Removing the trailing pill is the one case where focus has to travel left.
+  it('hands focus leftward when the last chip in the row is removed', async () => {
+    vi.spyOn(board, 'setTaskAssignees');
+    const onemptied = vi.fn();
+    render(TaskAssignees, { taskId: 't1', onemptied });
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Unassign Alan Turing' }));
+
+    expect(screen.getByRole('button', { name: 'Unassign Ada Lovelace' })).toHaveFocus();
+    expect(onemptied).not.toHaveBeenCalled();
+  });
+
   it('tells the caller when the last person goes', async () => {
     vi.spyOn(board, 'setTaskAssignees');
     board.tasks = [{ ...task, assignee_ids: ['u-ada'] }];

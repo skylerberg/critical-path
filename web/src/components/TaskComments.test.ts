@@ -4,7 +4,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import { tick } from 'svelte';
 import TaskComments from './TaskComments.svelte';
 import { board, type TaskComment } from '../lib/board.svelte';
-import { drafts } from '../lib/drafts.svelte';
+import { docDraftKey, drafts } from '../lib/drafts.svelte';
 import { projects, type Project } from '../lib/projects.svelte';
 import { realtimeEvent } from '../lib/realtime-test-events';
 import { session } from '../lib/session.svelte';
@@ -429,5 +429,52 @@ describe('TaskComments', () => {
       ).toBe(true)
     );
     expect(board.taskComments.t1).toEqual([]);
+  });
+
+  // The composer empties before the write lands and the failure path resyncs the
+  // optimistic row away, so a refusal nobody reports back destroys the text: the
+  // user is left with a toast and an empty box.
+  it('puts a refused comment back in the composer, and back in the draft', async () => {
+    fetchMock.mockImplementation(async (input) => {
+      const request = input as Request;
+      if (request.method === 'POST') {
+        return jsonResponse(404, { error: 'Task not found' });
+      }
+      return jsonResponse(200, { ...task(0), project_id: 'p1', images: [], comments: [] });
+    });
+
+    const { component } = render(TaskComments, { taskId: 't1' });
+    await tick();
+    component.getComposerEditor()!.commands.insertContent('doomed');
+    await tick();
+    await fireEvent.click(screen.getByRole('button', { name: 'Comment' }));
+
+    await waitFor(() => expect(toasts.toasts.at(-1)?.message).toBe('Task not found'));
+    await waitFor(() => expect(component.getComposerEditor()!.getText()).toContain('doomed'));
+    expect(drafts.getDoc(docDraftKey.taskComment('t1'))).not.toBeNull();
+    expect(screen.getByRole('button', { name: 'Comment' })).toBeInTheDocument();
+  });
+
+  it('keeps the text on its own card when the post is refused after a switch', async () => {
+    fetchMock.mockImplementation(async (input) => {
+      const request = input as Request;
+      if (request.method === 'POST') {
+        return jsonResponse(404, { error: 'Task not found' });
+      }
+      return jsonResponse(200, { ...task(0), project_id: 'p1', images: [], comments: [] });
+    });
+    board.tasks = [task(2), { ...task(0), id: 't2' }];
+
+    const { component, rerender } = render(TaskComments, { taskId: 't1' });
+    await tick();
+    component.getComposerEditor()!.commands.insertContent('doomed');
+    await tick();
+    await fireEvent.click(screen.getByRole('button', { name: 'Comment' }));
+    await rerender({ taskId: 't2' });
+
+    await waitFor(() => expect(toasts.toasts.at(-1)?.message).toBe('Task not found'));
+    expect(drafts.getDoc(docDraftKey.taskComment('t1'))).not.toBeNull();
+    expect(drafts.getDoc(docDraftKey.taskComment('t2'))).toBeNull();
+    expect(component.getComposerEditor()!.getText()).not.toContain('doomed');
   });
 });

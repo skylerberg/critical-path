@@ -19,6 +19,10 @@ class TaskRouteResolver {
   #byTask = $state<Record<string, string>>({});
   #failed = $state<Record<string, 'not-found' | 'error'>>({});
   #inflight = new Set<string>();
+  // Bumped by reset(), so a read still on the wire when the session ends is
+  // dropped rather than writing the departing account's card into the next one's
+  // cache and board. Clearing the fields alone cannot reach it.
+  #generation = 0;
 
   // Side-effect free so it is safe inside a $derived; a later payload flips a
   // pending target to ready on its own. Fetching is ensure()'s job alone.
@@ -98,14 +102,20 @@ class TaskRouteResolver {
       delete remaining[taskId];
       this.#failed = remaining;
     }
-    void this.#lookup(taskId).finally(() => this.#inflight.delete(taskId));
+    const generation = this.#generation;
+    void this.#lookup(taskId, generation).finally(() => {
+      // Only while this read is still the current session's: after a reset the
+      // set belongs to the next account, and a retry it started is in there.
+      if (generation === this.#generation) this.#inflight.delete(taskId);
+    });
   }
 
-  async #lookup(taskId: string): Promise<void> {
+  async #lookup(taskId: string, generation: number): Promise<void> {
     try {
       const detail = assertOk(
         await api.GET('/api/tasks/{id}', { params: { path: { id: taskId } } })
       );
+      if (generation !== this.#generation) return;
       this.#byTask = { ...this.#byTask, [taskId]: detail.project_id };
       // The whole card, not just the project it names. This read is the same one
       // the overlay makes on open, and the overlay opens a moment later on every
@@ -115,12 +125,14 @@ class TaskRouteResolver {
     } catch (error) {
       // A 404 is also what no-access returns, deliberately, and is the only answer
       // worth keeping: anything else is transient, so ensure() will ask again.
+      if (generation !== this.#generation) return;
       const missing = error instanceof ApiError && error.status === 404;
       this.#failed = { ...this.#failed, [taskId]: missing ? 'not-found' : 'error' };
     }
   }
 
   reset(): void {
+    this.#generation += 1;
     this.#byTask = {};
     this.#failed = {};
     this.#inflight.clear();

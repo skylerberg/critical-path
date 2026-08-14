@@ -200,6 +200,13 @@
 
   function onkeydown(event: KeyboardEvent, rowIndex?: number): void {
     if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+      // The step starts at the row the key came from, not at the pointer's
+      // highlight: the two disagree whenever the pointer is resting elsewhere,
+      // and the slot skipped that way is the one Enter then files the card into.
+      const from = rowIndex === undefined ? undefined : rows[rowIndex];
+      if (from !== undefined) {
+        nav.highlight(from.key);
+      }
       if (nav.move(event.key === 'ArrowDown' ? 1 : -1)) {
         event.preventDefault();
       }

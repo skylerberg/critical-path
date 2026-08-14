@@ -151,6 +151,20 @@ function wrapMark(mark: Node, inner: string): string {
   }
 }
 
+// CommonMark opens an emphasis run only on non-whitespace, so `* text*` is not
+// emphasis at all — and at the start of a paragraph that `* ` is a bullet marker,
+// so the line reparses as a list item and the paragraph is lost with it. Selecting
+// ' text' and hitting Ctrl-I produces exactly that node, as does a Google Docs
+// paste. Moving the edge whitespace outside the delimiters is what both rules
+// want. Emphasis only: `[ text](url)` is legal, and code spans pad themselves.
+const EDGE_TRIMMED_MARKS = new Set(['bold', 'italic', 'strike']);
+
+function markRun(mark: Node, inner: string): string {
+  if (!EDGE_TRIMMED_MARKS.has(stringOf(mark.type))) return wrapMark(mark, inner);
+  const [, lead = '', core = '', trail = ''] = /^([ \t]*)([\s\S]*?)([ \t]*)$/.exec(inner) ?? [];
+  return core === '' ? inner : `${lead}${wrapMark(mark, core)}${trail}`;
+}
+
 function inlineFrom(items: InlineItem[], depth: number, lineBreak: string): string {
   let out = '';
   let i = 0;
@@ -194,7 +208,7 @@ function inlineFrom(items: InlineItem[], depth: number, lineBreak: string): stri
     out +=
       mark.type === 'code'
         ? codeSpan(run.map((item) => stringOf(item.node.text)).join(''))
-        : wrapMark(mark, inlineFrom(run, depth + 1, lineBreak));
+        : markRun(mark, inlineFrom(run, depth + 1, lineBreak));
     i = end;
   }
   return out;

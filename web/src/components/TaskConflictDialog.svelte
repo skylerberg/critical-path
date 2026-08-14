@@ -63,6 +63,12 @@
   let mergeTitle = $state(initialMine.title);
   let mergeEditor = $state<ReturnType<typeof RichTextEditor>>();
   let copyStatus = $state<'idle' | 'copied' | 'failed'>('idle');
+  // 'ok' and 'conflict' are not the only answers onresolve can give: the card can
+  // be gone or the patch can fail ('error'), and offline it is held ('queued').
+  // Both used to just re-enable the button, leaving the dialog sitting there with
+  // no account of what happened — and a toast is no use, since this Modal's top
+  // layer covers the shell that renders them.
+  let submitStatus = $state<'idle' | 'error' | 'queued'>('idle');
 
   const mentionUsers = $derived(currentProjectMentionCandidates());
 
@@ -177,10 +183,18 @@
   async function submit(next: TaskVersion): Promise<void> {
     if (saving) return;
     saving = true;
+    submitStatus = 'idle';
     try {
       const outcome = await onresolve(next, theirs.updated_at);
       if (outcome === 'ok') {
         onclose();
+        return;
+      }
+      if (outcome === 'error' || outcome === 'queued') {
+        // Left open in both cases: the draft is still what holds the user's text,
+        // and closing over an unsaved choice is the loss this dialog exists to
+        // prevent.
+        submitStatus = outcome;
         return;
       }
       if (outcome === 'conflict') {
@@ -238,6 +252,17 @@
         <span>This task was last edited {storedAt}</span>
       {/if}
     </div>
+
+    {#if submitStatus !== 'idle'}
+      <p role="status" class="rounded-md border border-warning bg-warning/10 p-3 text-sm">
+        {#if submitStatus === 'queued'}
+          Your choice is waiting for the network. Nothing is lost — it will be saved once you are
+          back online.
+        {:else}
+          That could not be saved. Your text is still here — try again.
+        {/if}
+      </p>
+    {/if}
 
     {#if superseded}
       <p role="status" class="rounded-md border border-warning bg-warning/10 p-3 text-sm">

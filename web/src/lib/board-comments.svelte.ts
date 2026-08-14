@@ -38,7 +38,10 @@ export class BoardComments {
     this.byTask = { ...this.byTask, [taskId]: next(cached) };
   }
 
-  async create(taskId: string, body: CommentBody): Promise<void> {
+  // Reports its outcome for the same reason `update` does: the composer clears
+  // itself before the write lands, so a rejection it never hears about takes the
+  // typed text with it.
+  async create(taskId: string, body: CommentBody): Promise<boolean> {
     const id = newId();
     const now = nowIso();
     const optimistic: TaskComment = {
@@ -63,16 +66,16 @@ export class BoardComments {
       (error) => this.#board.detailMutationFailed(taskId, error)
     );
     if (result.status === 'failed') {
-      return;
+      return false;
     }
     if (result.status !== 'sent') {
-      return;
+      return true;
     }
     // A detail fetch landing mid-flight replaces the whole stream, so the
     // optimistic row may be gone and the server row has to be re-inserted.
     if (this.byTask[taskId] === undefined) {
       await this.#board.loadTaskDetail(taskId);
-      return;
+      return true;
     }
     const created = result.data;
     this.replace(taskId, (comments) =>
@@ -80,10 +83,11 @@ export class BoardComments {
         ? comments.map((comment) => (comment.id === id ? created : comment))
         : [...comments, created].sort(chronological)
     );
+    return true;
   }
 
-  // Unlike its siblings this one has an outcome: a rejected edit must leave the
-  // caller's editor open, or the resync takes the user's rewrite with it.
+  // Its outcome matters for the same reason create's does: a rejected edit must
+  // leave the caller's editor open, or the resync takes the user's rewrite with it.
   async update(taskId: string, commentId: string, body: CommentBody): Promise<boolean> {
     const now = nowIso();
     this.replace(taskId, (comments) =>
