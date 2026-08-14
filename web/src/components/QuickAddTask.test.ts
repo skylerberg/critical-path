@@ -385,6 +385,14 @@ describe('QuickAddTask drafts', () => {
     expect(screen.getByRole('button', { name: '+ Add task' })).toBeInTheDocument();
   });
 
+  // Hover-only was what it had. jsdom resolves no :focus-visible rule, and axe
+  // audits the resting page, so the class list is as close as either gets.
+  it('gives the trigger the shared focus indicator', () => {
+    render(QuickAddTask, { columnId: 'c1' });
+
+    expect(screen.getByRole('button', { name: '+ Add task' }).classList).toContain('focus-ring');
+  });
+
   it('does not leak a draft into another column', async () => {
     const first = render(QuickAddTask, { columnId: 'c1' });
     await typeTitle('c1', 'Column one only');

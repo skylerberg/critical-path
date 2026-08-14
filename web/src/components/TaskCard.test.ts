@@ -989,6 +989,19 @@ describe('TaskCard selection', () => {
     expect(event.defaultPrevented).toBe(false);
   });
 
+  // The overlay covers the card, and the card is separately a tab stop for the
+  // keyboard drag, so this stop and its wrapper have to agree. Unstyled it drew
+  // the browser's own ring, which differs per engine and is never the accent.
+  it('rings the overlay link like the card it covers', () => {
+    render(TaskCard, { props: { task, projectId: PROJECT_ID } });
+
+    const overlay = screen.getByRole('link', { name: task.title });
+
+    expect(overlay.classList).toContain('focus-visible:outline-2');
+    expect(overlay.classList).toContain('focus-visible:outline-accent');
+    expect(overlay.classList).toContain('focus-visible:outline-offset-0');
+  });
+
   it('draws no checkbox on a readonly card', () => {
     selection.toggle(TASK_ID);
     render(TaskCard, { props: { task, projectId: PROJECT_ID, readonly: true } });
