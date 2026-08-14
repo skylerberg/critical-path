@@ -8,11 +8,10 @@
 //   npm run check:layout:real
 //
 // Boots vite in-process on the first free port at or above 5180 (override with
-// LAYOUT_PROBE_PORT — its own variable, not one shared with the other probe
-// check, so overriding one cannot land both on the same port), measures, tears
-// down. Two worktrees can therefore run this check
-// at once, and a killed run leaves no server behind to fail the next one. Skips
-// with exit 0 if Chromium isn't installed. Exits non-zero on assertion failure.
+// LAYOUT_PROBE_PORT), measures, tears down. Two worktrees can therefore run this
+// check at once, and a killed run leaves no server behind to fail the next one.
+// Skips with exit 0 if Chromium isn't installed. Exits non-zero on assertion
+// failure.
 //
 // The scroll phase is most of the runtime — around 27s per case against 1s for a
 // layout case — so iterating on it wants `--only=scroll`, or `--only=740` for the

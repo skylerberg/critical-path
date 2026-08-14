@@ -9,10 +9,10 @@
 // under prefers-color-scheme: dark, so a light-only run reads none of them. Four
 // of the contrast failures this was written for were dark-only.
 //
-// Boots vite in-process on the first free port at or above 5190 (override with
-// VITE_PORT), measures, tears down — so this can run beside the layout checks and
-// a killed run leaves no server behind. Skips with exit 0 if Chromium isn't
-// installed. Exits non-zero on any violation.
+// Boots vite in-process on the first free port at or above 5200 (override with
+// A11Y_PROBE_PORT), measures, tears down — so this can run beside the layout
+// checks and a killed run leaves no server behind. Skips with exit 0 if Chromium
+// isn't installed. Exits non-zero on any violation.
 import { fileURLToPath } from 'node:url';
 import { dirname } from 'node:path';
 import { createServer } from 'vite';
@@ -72,7 +72,7 @@ async function startServer(plugins = []) {
     plugins: [injectAxe, ...plugins],
     server: {
       host: '127.0.0.1',
-      port: Number(process.env.VITE_PORT ?? '5190'),
+      port: Number(process.env.A11Y_PROBE_PORT ?? '5200'),
       strictPort: false,
     },
   });
