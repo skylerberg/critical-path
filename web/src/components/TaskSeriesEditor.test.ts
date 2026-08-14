@@ -170,6 +170,36 @@ describe('TaskSeriesEditor', () => {
     ).toBeInTheDocument();
   });
 
+  // Every other edit-mode case is the null-preset one, so this is the only test
+  // that reopens a series on the rule it was saved with.
+  it('reopens a curated rule on that rule, and keeps it through an unrelated edit', async () => {
+    const onsaved = vi.fn();
+    render(TaskSeriesEditor, {
+      projectId: 'p-1',
+      series: series({ preset: 'monthly_date', start_date: '2026-01-31' }),
+      onsaved,
+      oncancel: () => {},
+    });
+
+    const select = screen.getByLabelText('Repeats') as HTMLSelectElement;
+    expect(select.selectedOptions[0]?.textContent?.trim()).toBe(
+      'Monthly on the 31st, or the last day of shorter months'
+    );
+    expect(screen.queryByRole('option', { name: 'Custom' })).toBeNull();
+
+    await fireEvent.input(screen.getByLabelText('Title'), { target: { value: 'Renamed' } });
+    fetchMock.mockResolvedValueOnce(jsonResponse(200, series({ preset: 'monthly_date' })));
+    await fireEvent.submit(screen.getByRole('form', { name: 'Recurring card' }));
+
+    await waitFor(() => {
+      expect(onsaved).toHaveBeenCalled();
+    });
+    const sent = JSON.parse(
+      String(await requestAt(fetchMock.mock.calls.length - 1).text())
+    ) as Record<string, unknown>;
+    expect(sent.preset).toBe('monthly_date');
+  });
+
   it('leaves a custom rule alone when only the template changes', async () => {
     const onsaved = vi.fn();
     render(TaskSeriesEditor, {

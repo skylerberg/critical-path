@@ -68,6 +68,19 @@ describe('TaskLabels', () => {
     expect(screen.getByRole('button', { name: 'Remove label rules' })).toHaveFocus();
   });
 
+  // The chip at the end of the row is the only one with no chip after it and the
+  // section still not empty, so it alone reaches the fallback.
+  it('hands focus leftward when the last chip in the row is removed', async () => {
+    vi.spyOn(board, 'setTaskLabels');
+    const onemptied = vi.fn();
+    render(TaskLabels, { taskId: 't1', onemptied });
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Remove label rules' }));
+
+    expect(screen.getByRole('button', { name: 'Remove label art' })).toHaveFocus();
+    expect(onemptied).not.toHaveBeenCalled();
+  });
+
   it('tells the caller when the last chip goes', async () => {
     vi.spyOn(board, 'setTaskLabels');
     board.tasks = [{ ...task, label_ids: ['l1'] }];

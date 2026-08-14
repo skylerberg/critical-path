@@ -21,17 +21,29 @@
   const cross = $derived(entry?.deps ?? null);
   const anonymous = $derived(board.readonly);
   // The same idiom as TaskAttachments: the card already knows how many rows are
-  // coming, so the list can reserve them before the fetch answers.
-  const crossPending = $derived(cross === null && !anonymous);
+  // coming, so the list can reserve them before the fetch answers. A failure
+  // leaves `deps` null for good, so it has to end the wait explicitly — otherwise
+  // the notice below sits under skeletons that pulse forever and a list that
+  // never stops announcing itself busy.
+  const crossPending = $derived(cross === null && !anonymous && entry?.error !== true);
   const crossSkeletons = $derived(crossPending ? (task?.open_cross_project_blocker_count ?? 0) : 0);
 
   const openBlockerCount = $derived(
     blockers.filter((blocker) => !doneColumnIds.has(blocker.column_id)).length +
       (task?.open_cross_project_blocker_count ?? 0)
   );
+  // The failure notice lives in this section, so a card whose only blockers are
+  // the ones that could not be loaded still has to draw it. Gated on the card
+  // having counted some: the panel refreshes on every open, so an ungated clause
+  // gives a card with no dependencies at all a Blocked by section whenever the
+  // read fails.
+  const crossFailureHidesBlockers = $derived(
+    entry?.error === true && (task?.open_cross_project_blocker_count ?? 0) > 0
+  );
   const showBlockedBy = $derived(
     blockers.length > 0 ||
       crossSkeletons > 0 ||
+      crossFailureHidesBlockers ||
       (cross !== null && cross.blocked_by.length + cross.hidden_blocked_by_count > 0)
   );
   const showBlocks = $derived(

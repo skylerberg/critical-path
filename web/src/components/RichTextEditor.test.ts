@@ -1,11 +1,16 @@
 import '../api/testUtils';
-import { describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, waitFor } from '@testing-library/svelte';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { createEvent, fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import { tick } from 'svelte';
 import type { Editor } from '@tiptap/core';
 import type { components } from '../api/api.generated';
+import { toasts } from '../lib/toasts.svelte';
 import type { User } from '../lib/users.svelte';
 import RichTextEditor from './RichTextEditor.svelte';
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 // The suggestion plugin resolves its items through an async path, so a listbox
 // that is about to open is still absent one tick after the keystroke.
@@ -36,6 +41,11 @@ const manyUsers: User[] = Array.from({ length: 8 }, (_, i) => ({
   name: `Person ${i}`,
   avatar_url: null,
 }));
+
+const existingDoc: components['schemas']['TiptapDoc'] = {
+  type: 'doc',
+  content: [{ type: 'paragraph', content: [{ type: 'text', text: 'existing' }] }],
+};
 
 const mentionDoc: components['schemas']['TiptapDoc'] = {
   type: 'doc',
@@ -135,6 +145,50 @@ describe('RichTextEditor', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  // The seed at construction is the only thing stopping the teardown flush from
+  // PATCHing a document the user never touched. Every other save test mounts with
+  // `content: null`, where that seed is indistinguishable from the 'null' default.
+  it('writes nothing back for a document it was only shown', async () => {
+    const onSave = vi.fn().mockResolvedValue(true);
+    const { unmount } = render(RichTextEditor, { content: existingDoc, onSave });
+    await tick();
+
+    unmount();
+
+    expect(onSave).not.toHaveBeenCalled();
+  });
+
+  it('writes once when that same document is then edited', async () => {
+    const onSave = vi.fn().mockResolvedValue(true);
+    const { component, unmount } = render(RichTextEditor, { content: existingDoc, onSave });
+    await tick();
+
+    component.getEditor()!.commands.insertContent('!');
+    unmount();
+
+    expect(onSave).toHaveBeenCalledTimes(1);
+    expect(JSON.stringify(onSave.mock.calls[0]![0])).toContain('!existing');
+  });
+
+  // Tiptap's own isEmpty counts a paragraph of spaces as content, so the composer
+  // offered to post a comment the API rejects and a description of nothing but
+  // spaces was stored as text.
+  it('calls a document of nothing but whitespace empty', async () => {
+    const onChange = vi.fn();
+    const onSave = vi.fn().mockResolvedValue(true);
+    const { component, unmount } = render(RichTextEditor, { content: null, onChange, onSave });
+    await tick();
+
+    component.getEditor()!.commands.insertContent('   ');
+    await tick();
+
+    expect(onChange).toHaveBeenLastCalledWith(null);
+    expect(component.getContent()).toBeNull();
+
+    unmount();
+    expect(onSave).not.toHaveBeenCalled();
   });
 
   it('starts from the provided doc and renders the toolbar once focused', async () => {
@@ -264,6 +318,32 @@ describe('RichTextEditor', () => {
     await fireEvent.click(getAllByRole('option')[0]);
 
     expect(insertedMentionAttrs(editor)).toMatchObject({ id: ada.id, label: ada.name });
+  });
+
+  // Without this the browser sequence is mousedown → the contenteditable loses
+  // focus → onBlur nulls `mention` → the click inserts nothing, silently. The
+  // click test above never reaches it, because jsdom moves no focus on a
+  // synthetic mousedown.
+  it('refuses the mousedown that would take focus off the editor', async () => {
+    const { component, findByRole, getAllByRole } = render(RichTextEditor, {
+      content: null,
+      mentionUsers: [ada, alan],
+    });
+    await tick();
+
+    component.getEditor()!.commands.insertContent('@a');
+    const menu = await findByRole('listbox');
+    await waitFor(() => expect(getAllByRole('option')).toHaveLength(2));
+
+    const pressed = createEvent.mouseDown(getAllByRole('option')[0]);
+    fireEvent(getAllByRole('option')[0], pressed);
+    expect(pressed.defaultPrevented).toBe(true);
+
+    // Control: the menu box around the rows does not refuse it, so a runner that
+    // reported every event as prevented would not read as a pass here.
+    const onBox = createEvent.mouseDown(menu);
+    fireEvent(menu, onBox);
+    expect(onBox.defaultPrevented).toBe(false);
   });
 
   it('closes the menu on Escape without inserting', async () => {
@@ -498,6 +578,248 @@ describe('RichTextEditor', () => {
     expect(doc.content?.[1]).toMatchObject({ type: 'heading', attrs: { level: 3 } });
     expect(container.querySelector('h1')).toHaveTextContent('one');
     expect(container.querySelector('h3')).toHaveTextContent('three');
+  });
+
+  describe('links', () => {
+    async function editorWithToolbar(): Promise<Editor> {
+      const { component, container } = render(RichTextEditor, {
+        content: null,
+        onSave: vi.fn(),
+      });
+      await tick();
+      const editor = component.getEditor()!;
+      editor.commands.insertContent('click me');
+      editor.commands.selectAll();
+      await focusEditor(container);
+      return editor;
+    }
+
+    function linkButton(): HTMLElement {
+      return screen.getByRole('button', { name: 'Link' });
+    }
+
+    function hrefOf(editor: Editor): string | undefined {
+      const marks = editor.getJSON().content?.[0]?.content?.[0]?.marks ?? [];
+      return marks.find((mark) => mark.type === 'link')?.attrs?.href as string | undefined;
+    }
+
+    it('gives a bare host the https scheme it was missing', async () => {
+      vi.spyOn(window, 'prompt').mockReturnValue('example.com');
+      const editor = await editorWithToolbar();
+
+      await fireEvent.click(linkButton());
+
+      expect(hrefOf(editor)).toBe('https://example.com');
+    });
+
+    it('keeps a mailto: as it was given', async () => {
+      vi.spyOn(window, 'prompt').mockReturnValue('mailto:ada@example.com');
+      const editor = await editorWithToolbar();
+
+      await fireEvent.click(linkButton());
+
+      expect(hrefOf(editor)).toBe('mailto:ada@example.com');
+    });
+
+    it('refuses any other scheme and says why', async () => {
+      vi.spyOn(window, 'prompt').mockReturnValue('javascript:alert(1)');
+      const error = vi.spyOn(toasts, 'error').mockReturnValue('');
+      const editor = await editorWithToolbar();
+
+      await fireEvent.click(linkButton());
+
+      expect(hrefOf(editor)).toBeUndefined();
+      expect(error).toHaveBeenCalledWith('Only http(s) and mailto links are allowed');
+    });
+
+    it('writes nothing when the prompt is dismissed', async () => {
+      vi.spyOn(window, 'prompt').mockReturnValue(null);
+      const error = vi.spyOn(toasts, 'error').mockReturnValue('');
+      const editor = await editorWithToolbar();
+
+      await fireEvent.click(linkButton());
+
+      expect(hrefOf(editor)).toBeUndefined();
+      expect(error).not.toHaveBeenCalled();
+    });
+
+    it('takes the link off again on a second click', async () => {
+      vi.spyOn(window, 'prompt').mockReturnValue('example.com');
+      const editor = await editorWithToolbar();
+      await fireEvent.click(linkButton());
+      expect(hrefOf(editor)).toBe('https://example.com');
+
+      editor.commands.selectAll();
+      await waitFor(() => expect(linkButton()).toHaveAttribute('aria-pressed', 'true'));
+      await fireEvent.click(linkButton());
+
+      expect(hrefOf(editor)).toBeUndefined();
+    });
+
+    // The other door in: isAllowedUri is what the link extension consults when it
+    // parses pasted HTML, which no prompt ever sees.
+    it('drops a hostile href carried in by pasted HTML', async () => {
+      const { component } = render(RichTextEditor, { content: null, onSave: vi.fn() });
+      await tick();
+      const editor = component.getEditor()!;
+
+      editor.commands.setContent(
+        '<p><a href="javascript:alert(1)">x</a> <a href="tel:+15551234">t</a>' +
+          ' <a href="https://ok.example">y</a></p>'
+      );
+      await tick();
+
+      const json = JSON.stringify(editor.getJSON());
+      expect(json).not.toContain('javascript:');
+      // tel: is the half the narrowing owns on its own — Tiptap's own validation
+      // is happy with it, and only the https?/mailto test turns it down.
+      expect(json).not.toContain('tel:');
+      expect(json).toContain('https://ok.example');
+    });
+  });
+
+  describe('images', () => {
+    function pngFile(name = 'shot.png'): File {
+      return new File([new Uint8Array([1, 2, 3])], name, { type: 'image/png' });
+    }
+
+    // The exact call ProseMirror makes: the component registers these as
+    // editorProps, so someProp is what a paste or a drop reaches them through.
+    function handlePaste(editor: Editor, files: File[]): boolean {
+      // getData/types as well as files: someProp keeps walking the plugins when
+      // ours returns false, and the list extension's handler reads them.
+      const event = {
+        clipboardData: { files, types: [], items: [], getData: () => '' },
+      } as unknown as ClipboardEvent;
+      return (
+        editor.view.someProp('handlePaste', (fn) => fn(editor.view, event, undefined as never)) ??
+        false
+      );
+    }
+
+    function handleDrop(editor: Editor, files: File[], moved: boolean): boolean {
+      const event = { dataTransfer: { files } } as unknown as DragEvent;
+      return (
+        editor.view.someProp('handleDrop', (fn) =>
+          fn(editor.view, event, undefined as never, moved)
+        ) ?? false
+      );
+    }
+
+    function srcOf(editor: Editor): string | undefined {
+      const json = JSON.stringify(editor.getJSON());
+      return /"src":"([^"]*)"/.exec(json)?.[1];
+    }
+
+    it('uploads a pasted image and embeds the url that came back', async () => {
+      const uploadImage = vi.fn().mockResolvedValue('/api/images/img1');
+      const { component } = render(RichTextEditor, { content: null, uploadImage });
+      await tick();
+      const editor = component.getEditor()!;
+
+      expect(handlePaste(editor, [pngFile()])).toBe(true);
+
+      await waitFor(() => expect(srcOf(editor)).toBe('/api/images/img1'));
+      expect(uploadImage).toHaveBeenCalledTimes(1);
+      expect((uploadImage.mock.calls[0]![0] as File).name).toBe('shot.png');
+    });
+
+    // Returning true here would swallow every ordinary text or HTML paste.
+    it('leaves an ordinary paste to ProseMirror', async () => {
+      const uploadImage = vi.fn().mockResolvedValue('/api/images/img1');
+      const { component } = render(RichTextEditor, { content: null, uploadImage });
+      await tick();
+      const editor = component.getEditor()!;
+
+      expect(handlePaste(editor, [])).toBe(false);
+      expect(uploadImage).not.toHaveBeenCalled();
+    });
+
+    it('does not upload a dragged file that is not an image', async () => {
+      const uploadImage = vi.fn().mockResolvedValue('/api/images/img1');
+      const { component } = render(RichTextEditor, { content: null, uploadImage });
+      await tick();
+      const editor = component.getEditor()!;
+      const pdf = new File([new Uint8Array([1])], 'spec.pdf', { type: 'application/pdf' });
+
+      expect(handleDrop(editor, [pdf], false)).toBe(false);
+      expect(uploadImage).not.toHaveBeenCalled();
+    });
+
+    // `!moved` is what keeps a drag WITHIN the editor working.
+    it('leaves a drag inside the editor to ProseMirror', async () => {
+      const uploadImage = vi.fn().mockResolvedValue('/api/images/img1');
+      const { component } = render(RichTextEditor, { content: null, uploadImage });
+      await tick();
+      const editor = component.getEditor()!;
+
+      expect(handleDrop(editor, [pngFile()], true)).toBe(false);
+      expect(uploadImage).not.toHaveBeenCalled();
+    });
+
+    it('inserts nothing when the upload comes back with no url', async () => {
+      const uploadImage = vi.fn().mockResolvedValue(null);
+      const { component } = render(RichTextEditor, { content: null, uploadImage });
+      await tick();
+      const editor = component.getEditor()!;
+
+      expect(handlePaste(editor, [pngFile()])).toBe(true);
+      await waitFor(() => expect(uploadImage).toHaveBeenCalledTimes(1));
+      await tick();
+
+      expect(srcOf(editor)).toBeUndefined();
+    });
+
+    // Cleared so picking the same file twice fires a second change event.
+    it('uploads from the file picker and clears the input after', async () => {
+      const uploadImage = vi.fn().mockResolvedValue('/api/images/img1');
+      const { component, container } = render(RichTextEditor, { content: null, uploadImage });
+      await tick();
+      const input = container.parentElement!.querySelector(
+        'input[type="file"]'
+      ) as HTMLInputElement;
+
+      Object.defineProperty(input, 'files', { value: [pngFile()], configurable: true });
+      // jsdom reports a file input's value as '' whether or not anything cleared
+      // it, so the assignment itself is what has to be watched.
+      let cleared = 0;
+      Object.defineProperty(input, 'value', {
+        get: () => '',
+        set: () => {
+          cleared += 1;
+        },
+        configurable: true,
+      });
+      await fireEvent.change(input);
+
+      await waitFor(() => expect(srcOf(component.getEditor()!)).toBe('/api/images/img1'));
+      expect(cleared).toBe(1);
+    });
+
+    // The fourth entry point: the toolbar button owns nothing but opening the
+    // hidden input the test above drives.
+    it('opens the file picker from the toolbar button', async () => {
+      const uploadImage = vi.fn().mockResolvedValue('/api/images/img1');
+      const { container } = render(RichTextEditor, { content: null, uploadImage });
+      await tick();
+      await focusEditor(container);
+      const input = container.parentElement!.querySelector(
+        'input[type="file"]'
+      ) as HTMLInputElement;
+      const click = vi.spyOn(input, 'click').mockImplementation(() => {});
+
+      await fireEvent.click(screen.getByRole('button', { name: 'Insert image' }));
+
+      expect(click).toHaveBeenCalledTimes(1);
+    });
+
+    it('offers no image button when there is nowhere to upload to', async () => {
+      const { container, queryByRole } = render(RichTextEditor, { content: null });
+      await tick();
+      await focusEditor(container);
+
+      expect(queryByRole('button', { name: 'Insert image' })).toBeNull();
+    });
   });
 
   it('renders a compact body', async () => {

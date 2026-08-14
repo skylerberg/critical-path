@@ -43,7 +43,26 @@
   const removeClass =
     'flex min-h-11 cursor-pointer items-center rounded-md px-3 text-sm text-muted hover:bg-accent-soft hover:text-danger focus-ring-flush';
 
-  function removeLocal(otherId: string): void {
+  // The row unmounts on the optimistic update, taking the button that was just
+  // activated with it, so focus is handed to a neighbouring row first — a remote
+  // row's link counts, since it is the next thing in the list either way.
+  function focusNeighborOf(row: Element): void {
+    const rows = Array.from(row.parentElement?.children ?? []);
+    const at = rows.indexOf(row);
+    for (const sibling of [...rows.slice(at + 1), ...rows.slice(0, at).reverse()]) {
+      const control = sibling.querySelector<HTMLElement>('button, a[href]');
+      if (control !== null) {
+        control.focus();
+        return;
+      }
+    }
+  }
+
+  function removeLocal(otherId: string, event: MouseEvent): void {
+    const row = (event.currentTarget as HTMLElement).closest('li');
+    if (row !== null) {
+      focusNeighborOf(row);
+    }
     // The picker's direction convention, mirrored: a blocker is removed from
     // this task, a dependent has this task removed from it.
     void (direction === 'blocker'
@@ -67,7 +86,7 @@
             aria-label="Remove {direction === 'blocker'
               ? 'blocking'
               : 'blocked'} task {truncateTitle(task.title)}"
-            onclick={() => removeLocal(task.id)}
+            onclick={(event) => removeLocal(task.id, event)}
             class={removeClass}
           >
             Remove

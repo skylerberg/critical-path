@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { conflictDrafts, type ConflictDraft } from './conflictDrafts.svelte';
+import { conflictDrafts, mergeVersion, type ConflictDraft } from './conflictDrafts.svelte';
 
 const doc = {
   type: 'doc' as const,
@@ -39,6 +39,36 @@ describe('conflictDrafts', () => {
 
     expect(conflictDrafts.get('t1')).toBeNull();
     expect(conflictDrafts.get('t2')).not.toBeNull();
+  });
+
+  // What the resolver offers as "mine" for every guarded write and for the
+  // offline coalesce. Clearing a description is an edit like any other, so a
+  // patch that carries `null` has to beat the baseline's text — a `??` here
+  // would hand the user back the version they deleted and call it theirs.
+  describe('mergeVersion', () => {
+    const base = { title: 'Design cards', description: doc };
+
+    it('keeps a cleared description cleared', () => {
+      expect(mergeVersion(base, { description: null })).toEqual({
+        title: 'Design cards',
+        description: null,
+      });
+    });
+
+    it('leaves the baseline description alone for a title-only patch', () => {
+      expect(mergeVersion(base, { title: 'Design cards v2' })).toEqual({
+        title: 'Design cards v2',
+        description: doc,
+      });
+    });
+
+    it('lays a patched description over the baseline', () => {
+      const next = { type: 'doc' as const, content: [{ type: 'paragraph' }] };
+      expect(mergeVersion(base, { description: next })).toEqual({
+        title: 'Design cards',
+        description: next,
+      });
+    });
   });
 
   it('clears everything, which is what ending a session does', () => {

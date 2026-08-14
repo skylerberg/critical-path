@@ -6,7 +6,9 @@ import TaskCard from './TaskCard.svelte';
 import { board } from '../lib/board.svelte';
 import type { BoardTask } from '../lib/board-types';
 import { cardMenu } from '../lib/card-menu.svelte';
+import { connectivity } from '../lib/connectivity.svelte';
 import { todayISO } from '../lib/dates';
+import { outbox } from '../lib/outbox.svelte';
 import { router } from '../lib/router.svelte';
 import { selection } from '../lib/selection.svelte';
 import { session } from '../lib/session.svelte';
@@ -49,8 +51,27 @@ beforeEach(() => {
 
 afterEach(() => {
   cardMenu.reset();
+  outbox.reset();
+  connectivity.resetForTests();
   vi.restoreAllMocks();
 });
+
+// A real queued op rather than a stubbed `isPending`: the marker's whole job is
+// to name the cards the queue is holding work for, and only the queue can say.
+async function queueAWriteFor(taskId: string): Promise<void> {
+  connectivity.noteUnreachable();
+  await outbox.submit({
+    projectId: PROJECT_ID,
+    entityId: taskId,
+    label: 'Renamed a card',
+    request: {
+      method: 'PATCH',
+      path: '/api/tasks/{id}',
+      pathParams: { id: taskId },
+      body: { title: 'Queued' },
+    },
+  });
+}
 
 // Relative to the real today, so the color bands stay meaningful as time passes.
 function dueIn(days: number): BoardTask {
@@ -191,6 +212,19 @@ describe('TaskCard', () => {
 
     expect(screen.queryByTitle(/checklist/)).not.toBeInTheDocument();
     expect(screen.getByText('Design cards')).toBeInTheDocument();
+  });
+
+  // The badge that does render is the only place the coalescing can be seen: an
+  // absent count read raw reaches the badge as the text "undefined", where an
+  // absent one on a hidden badge is indistinguishable from zero.
+  it('counts a missing done count as none against a total the payload does carry', () => {
+    const legacy: Partial<BoardTask> = { ...task, checklist_item_count: 5 };
+    delete legacy.checklist_done_count;
+    render(TaskCard, { task: legacy as BoardTask, projectId: PROJECT_ID });
+
+    const badge = screen.getByTitle('0 of 5 checklist items done');
+    expect(badge).toHaveTextContent('0/5');
+    expect(badge.className).toContain('text-muted');
   });
 
   it('shows the badge row when the checklist is the only badge', () => {
@@ -372,6 +406,31 @@ describe('TaskCard', () => {
     );
   });
 
+  // The banner says how many changes are waiting; this says which cards they are
+  // on, and a card with nothing queued must stay unmarked.
+  describe('unsent marker', () => {
+    it('marks the card the queue is holding a write for', async () => {
+      await queueAWriteFor(TASK_ID);
+      render(TaskCard, { task, projectId: PROJECT_ID });
+
+      expect(screen.getByTestId('card-unsent')).toHaveTextContent('Not sent yet');
+    });
+
+    it('leaves every other card unmarked, and clears once the queue drains', async () => {
+      await queueAWriteFor(testUuid('t2'));
+      const { unmount } = render(TaskCard, { task, projectId: PROJECT_ID });
+      expect(screen.queryByTestId('card-unsent')).toBeNull();
+      unmount();
+
+      await queueAWriteFor(TASK_ID);
+      render(TaskCard, { task, projectId: PROJECT_ID });
+      expect(screen.getByTestId('card-unsent')).toBeInTheDocument();
+
+      outbox.reset();
+      await vi.waitFor(() => expect(screen.queryByTestId('card-unsent')).toBeNull());
+    });
+  });
+
   describe('long-press link menu', () => {
     function contextMenu(target: Element, pointerType: string): boolean {
       const event = new PointerEvent('contextmenu', {
@@ -465,11 +524,16 @@ describe('TaskCard', () => {
 
     // Tab focuses the drag wrapper, so that — not the card — is what Shift+F10 and
     // the context-menu key fire on.
-    it('opens from the keyboard on the card wrapper that holds focus', () => {
+    it('opens from the keyboard anchored on the card, not the corner of the window', () => {
       const { container } = render(TaskCard, { task, projectId: PROJECT_ID });
+      vi.spyOn(card(), 'getBoundingClientRect').mockReturnValue(
+        new DOMRect(200, 40, 240, 100) as DOMRect
+      );
 
       expect(rightClick(container, { clientX: 0, clientY: 0 })).toBe(true);
       expect(cardMenu.taskId).toBe(TASK_ID);
+      expect(cardMenu.x).toBe(216);
+      expect(cardMenu.y).toBe(140);
     });
 
     // Pressed on the card's own padding, which is what a finger held beside the
@@ -533,7 +597,13 @@ describe('TaskCard', () => {
       cardMenu.rename(TASK_ID);
       await vi.waitFor(() => expect(screen.getByLabelText('Task title')).toHaveFocus());
 
-      expect(screen.getByLabelText('Task title')).toHaveValue('Design cards');
+      // Opened to replace the title rather than to append to it, so the whole
+      // value is selected — which only holds if the draft was assigned before
+      // the action ran select() on an empty field.
+      const editor = screen.getByLabelText<HTMLTextAreaElement>('Task title');
+      expect(editor).toHaveValue('Design cards');
+      expect(editor.selectionStart).toBe(0);
+      expect(editor.selectionEnd).toBe('Design cards'.length);
       expect(screen.queryByRole('link')).toBeNull();
     });
 
@@ -971,6 +1041,43 @@ describe('TaskCard selection', () => {
 
     expect(selection.cursorTaskId).toBe(TASK_ID);
     expect(selection.selectedIds).toEqual([SECOND_ID]);
+  });
+
+  // dnd reparents and re-inserts cards under a stationary pointer while one is in
+  // flight, so every card the lifted one passes gets a pointerenter the user never
+  // made.
+  it('leaves the cursor where it was for a hover the drag manufactured', async () => {
+    selection.set(SECOND_ID);
+    board.dragging = true;
+    render(TaskCard, { props: { task, projectId: PROJECT_ID } });
+
+    await fireEvent.pointerEnter(card());
+
+    expect(selection.cursorTaskId).toBe(SECOND_ID);
+  });
+
+  it('refuses a modifier click on the drag placeholder, whose id names no task', async () => {
+    const { container } = render(TaskCard, {
+      props: { task: { ...task, id: SHADOW_PLACEHOLDER_ITEM_ID }, projectId: PROJECT_ID },
+    });
+
+    const event = new MouseEvent('click', { bubbles: true, cancelable: true, metaKey: true });
+    container.querySelector('[role="presentation"]')!.dispatchEvent(event);
+
+    expect(selection.selectedIds).toEqual([]);
+    expect(event.defaultPrevented).toBe(false);
+  });
+
+  it('refuses a modifier click on a card whose title is being renamed', async () => {
+    const { container } = render(TaskCard, { props: { task, projectId: PROJECT_ID } });
+    cardMenu.rename(TASK_ID);
+    await screen.findByLabelText('Task title');
+
+    const event = new MouseEvent('click', { bubbles: true, cancelable: true, metaKey: true });
+    container.querySelector('[role="presentation"]')!.dispatchEvent(event);
+
+    expect(selection.selectedIds).toEqual([]);
+    expect(event.defaultPrevented).toBe(false);
   });
 
   // A set built before a demotion outlives it, so the guards have to hold with a

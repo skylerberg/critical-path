@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/svelte';
 import TaskDependencies from './TaskDependencies.svelte';
 import { board } from '../lib/board.svelte';
+import { crossProjectDeps } from '../lib/crossProjectDeps.svelte';
 import type { BoardTask } from '../lib/board-types';
 
 function task(id: string, overrides: Partial<BoardTask> = {}): BoardTask {
@@ -33,6 +34,7 @@ beforeEach(() => {
   fetchMock.mockReset();
   fetchMock.mockImplementation(async () => jsonResponse(200, {}));
   board.reset();
+  crossProjectDeps.reset();
   board.currentProjectId = 'p1';
   board.columns = [
     { id: 'c1', name: 'Doing', sort_key: 'V0000010001', is_done: false },
@@ -97,6 +99,68 @@ describe('TaskDependencies', () => {
 
     await fireEvent.click(screen.getByRole('button', { name: 'Remove blocked task Task t3' }));
     expect(removeBlocker).toHaveBeenCalledWith('t3', 't1');
+  });
+
+  // `deps` stays null after a failure, so anything deriving "still loading" from
+  // it alone waits for a response that is never coming.
+  it('stops waiting on cross-project blockers that failed to load', async () => {
+    fetchMock.mockImplementation(async () => jsonResponse(500, { error: 'boom' }));
+    board.tasks = [
+      task('t1', { blocker_ids: ['t2'], open_cross_project_blocker_count: 2 }),
+      task('t2'),
+    ];
+    const { container } = render(TaskDependencies, { taskId: 't1' });
+    crossProjectDeps.ensure('t1');
+
+    await vi.waitFor(() => expect(screen.getByText(/could not be loaded/)).toBeInTheDocument());
+    expect(screen.getByRole('list', { name: 'Blocked by' })).toHaveAttribute('aria-busy', 'false');
+    expect(container.querySelectorAll('.animate-pulse')).toHaveLength(0);
+    expect(screen.getByRole('button', { name: 'Try again' })).toBeInTheDocument();
+  });
+
+  // Dropping the skeletons takes the section's last row with it when every
+  // blocker is a remote one, and the notice lives inside that section.
+  it('still reports the failure on a card whose only blockers are the remote ones', async () => {
+    fetchMock.mockImplementation(async () => jsonResponse(500, { error: 'boom' }));
+    board.tasks = [task('t1', { open_cross_project_blocker_count: 2 })];
+    const { container } = render(TaskDependencies, { taskId: 't1' });
+    crossProjectDeps.ensure('t1');
+
+    await vi.waitFor(() => expect(screen.getByText(/could not be loaded/)).toBeInTheDocument());
+    expect(screen.getByRole('heading', { name: 'Blocked by' })).toBeInTheDocument();
+    expect(container.querySelectorAll('.animate-pulse')).toHaveLength(0);
+  });
+
+  // The other side of that case: the panel refreshes on every card open, so a
+  // failure that hides nothing must not hand a card its first dependency section.
+  it('renders nothing when the read fails on a card with no dependencies', async () => {
+    fetchMock.mockImplementation(async () => jsonResponse(500, { error: 'boom' }));
+    board.tasks = [task('t1')];
+    const { container } = render(TaskDependencies, { taskId: 't1' });
+    crossProjectDeps.ensure('t1');
+
+    await vi.waitFor(() => expect(crossProjectDeps.get('t1')?.error).toBe(true));
+    expect(screen.queryByRole('heading')).toBeNull();
+    expect(screen.queryByText(/could not be loaded/)).toBeNull();
+    expect(container.querySelector('ul')).toBeNull();
+  });
+
+  // The control for the case above: while the read is genuinely in flight the rows
+  // the card knows are coming are reserved, and the list says it is busy.
+  it('reserves a row per known cross-project blocker while the read is in flight', async () => {
+    fetchMock.mockImplementation(() => new Promise<Response>(() => {}));
+    board.tasks = [
+      task('t1', { blocker_ids: ['t2'], open_cross_project_blocker_count: 2 }),
+      task('t2'),
+    ];
+    const { container } = render(TaskDependencies, { taskId: 't1' });
+    crossProjectDeps.ensure('t1');
+
+    await vi.waitFor(() =>
+      expect(container.querySelectorAll('[aria-hidden="true"]').length).toBeGreaterThan(0)
+    );
+    expect(screen.getByRole('list', { name: 'Blocked by' })).toHaveAttribute('aria-busy', 'true');
+    expect(container.querySelectorAll('.animate-pulse').length).toBeGreaterThan(0);
   });
 
   it('offers no remove control to a reader who cannot write', () => {

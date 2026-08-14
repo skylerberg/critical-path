@@ -74,6 +74,18 @@ async function chooseColumn(name: string): Promise<void> {
   await fireEvent.click(screen.getByRole('button', { name: new RegExp(`^${name}`) }));
 }
 
+// An exception thrown inside a listener never reaches the caller under jsdom; it
+// is re-reported on window, and that is the only place activating a row that is
+// not there shows up.
+function watchErrors(): { errors: unknown[]; stop: () => void } {
+  const errors: unknown[] = [];
+  const onError = (event: ErrorEvent): void => {
+    errors.push(event.error);
+  };
+  window.addEventListener('error', onError);
+  return { errors, stop: () => window.removeEventListener('error', onError) };
+}
+
 describe('QuickMoveMenu', () => {
   it('lists every column, marks the current one, and focuses the filter', () => {
     open();
@@ -213,6 +225,30 @@ describe('QuickMoveMenu', () => {
     );
   });
 
+  it('arrows from the focused row even when the pointer highlights another', async () => {
+    open();
+    await chooseColumn('Doing');
+    const top = screen.getByRole('button', { name: /^Top/ });
+    top.focus();
+    await fireEvent.pointerMove(screen.getByRole('button', { name: /^Bottom/ }));
+
+    await fireEvent.keyDown(top, { key: 'ArrowDown' });
+
+    // Stepping from the pointer's highlight instead clamps on Bottom, and the
+    // Enter below then files the card in a slot nobody picked.
+    const before = screen.getByRole('button', { name: 'Before "Print rules"' });
+    expect(before).toHaveFocus();
+
+    await fireEvent.keyDown(before, { key: 'Enter' });
+
+    expect(moveTask).toHaveBeenCalledWith(
+      't1',
+      'doing',
+      { sort_key: expect.any(String) },
+      { kind: 'between', afterId: 't2', beforeId: 't3' }
+    );
+  });
+
   it('clamps at the top', async () => {
     open();
     await chooseColumn('Doing');
@@ -336,6 +372,62 @@ describe('QuickMoveMenu', () => {
     } finally {
       window.removeEventListener('keydown', onWindowKeydown);
     }
+  });
+
+  it('says so and leaves Enter inert when the filter matches no column', async () => {
+    const watch = watchErrors();
+    open();
+
+    const input = screen.getByLabelText('Search columns');
+    await fireEvent.input(input, { target: { value: 'zzz' } });
+    await fireEvent.keyDown(input, { key: 'Enter' });
+    watch.stop();
+
+    expect(screen.getByText('No matching columns.')).toBeInTheDocument();
+    expect(screen.queryByRole('list')).toBeNull();
+    expect(watch.errors).toEqual([]);
+    expect(moveTask).not.toHaveBeenCalled();
+    expect(screen.queryByLabelText('Search positions')).toBeNull();
+    expect(onclose).not.toHaveBeenCalled();
+  });
+
+  it('says so and leaves Enter inert when the filter matches no position', async () => {
+    open();
+    await chooseColumn('Doing');
+    const watch = watchErrors();
+
+    const input = screen.getByLabelText('Search positions');
+    await fireEvent.input(input, { target: { value: 'zzz' } });
+    await fireEvent.keyDown(input, { key: 'Enter' });
+    watch.stop();
+
+    expect(screen.getByText('No matching positions.')).toBeInTheDocument();
+    expect(screen.queryByRole('list')).toBeNull();
+    expect(watch.errors).toEqual([]);
+    expect(moveTask).not.toHaveBeenCalled();
+    expect(onclose).not.toHaveBeenCalled();
+  });
+
+  // The Enter that commits an IME candidate is not a choice, and it arrives on
+  // the same field at both steps: unguarded, one commit picks the column and the
+  // next moves the card.
+  it('leaves Enter to the IME while a composition is active', async () => {
+    open();
+    await fireEvent.input(screen.getByLabelText('Search columns'), { target: { value: 'doing' } });
+
+    await fireEvent.keyDown(screen.getByLabelText('Search columns'), {
+      key: 'Enter',
+      isComposing: true,
+    });
+    expect(screen.queryByLabelText('Search positions')).toBeNull();
+
+    await fireEvent.keyDown(screen.getByLabelText('Search columns'), { key: 'Enter' });
+    const input = screen.getByLabelText('Search positions');
+    await fireEvent.keyDown(input, { key: 'Enter', isComposing: true });
+
+    expect(moveTask).not.toHaveBeenCalled();
+    expect(onclose).not.toHaveBeenCalled();
+    expect(input).toBeInTheDocument();
   });
 
   it('ignores an auto-repeated Enter, so holding it cannot skip the position step', async () => {

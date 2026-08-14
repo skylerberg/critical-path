@@ -10,6 +10,7 @@ import { realtimeEvent } from '../lib/realtime-test-events';
 import { conflictDrafts } from '../lib/conflictDrafts.svelte';
 import { drafts } from '../lib/drafts.svelte';
 import { projects } from '../lib/projects.svelte';
+import { byRank } from '../lib/ranks';
 import { router } from '../lib/router.svelte';
 import { session } from '../lib/session.svelte';
 import {
@@ -20,6 +21,7 @@ import {
   type ProjectView,
 } from '../lib/short-links';
 import { shortcuts } from '../lib/shortcuts.svelte';
+import { announcer } from '../lib/announcer.svelte';
 import { crossProjectDeps } from '../lib/crossProjectDeps.svelte';
 import { taskActivity } from '../lib/taskActivity.svelte';
 import { testUuid } from '../lib/test-ids';
@@ -347,6 +349,13 @@ async function openQuickAction(name: string): Promise<void> {
   await fireEvent.click(screen.getByRole('button', { name }));
 }
 
+// Scoped to the Description section: the overlay carries its own Announcer,
+// which is also a role="status" region.
+function descriptionStatus(): string | null {
+  const section = screen.getByRole('heading', { name: 'Description' }).closest('section')!;
+  return within(section).queryByRole('status')?.textContent?.trim() ?? null;
+}
+
 // Tiptap hangs the editor off its own DOM node; nothing else exposes the instance.
 function descriptionEditor(container: HTMLElement, selector = '.tiptap'): Editor {
   const dom = container.querySelector(selector) as (HTMLElement & { editor?: Editor }) | null;
@@ -386,11 +395,21 @@ describe('TaskDetail', () => {
     expect(screen.getByRole('button', { name: 'Archive' })).toBeInTheDocument();
   });
 
-  it('opens with focus on the dialog rather than the title field', async () => {
+  // Named for what it verifies and no more: jsdom implements no showModal, so the
+  // component takes its `dialog.open = true` fallback here and this only pins the
+  // explicit `dialog.focus()`. The caret-steal showModal's own focus steps used to
+  // produce lives entirely in the other branch and is guarded by
+  // scripts/check-task-detail.mjs, which is not redundant with this.
+  it('focuses the dialog element when the overlay opens', async () => {
     renderDetail({ taskId: T1, closePath: BOARD_PATH });
 
     const title = await screen.findByLabelText('Task title');
     expect(document.activeElement).toBe(title.closest('dialog'));
+
+    // The control: without it, a page on which nothing at all can take focus
+    // reads exactly like a pass.
+    title.focus();
+    expect(document.activeElement).toBe(title);
   });
 
   it('gathers images, files and links under one Attachments heading', async () => {
@@ -663,6 +682,9 @@ describe('TaskDetail', () => {
   it('moves the task to the bottom of the column picked from the bar', async () => {
     const spy = vi.spyOn(board, 'moveTask');
     renderDetail({ taskId: T1, closePath: BOARD_PATH });
+    // Read before the move, which puts the card into c2 optimistically.
+    const destination = board.tasksInColumn('c2').map((t) => ({ id: t.id, sort_key: t.sort_key }));
+    expect(destination.length).toBeGreaterThan(0);
 
     await openQuickAction('Todo');
     await fireEvent.click(
@@ -677,6 +699,12 @@ describe('TaskDetail', () => {
       { sort_key: expect.any(String) },
       { kind: 'append' }
     );
+    // "Bottom" is the whole claim of the name, and any string satisfies the
+    // matcher above: the key has to sort after every card already down there.
+    const moved = { id: T1, sort_key: (spy.mock.calls[0]![2] as { sort_key: string }).sort_key };
+    for (const existing of destination) {
+      expect(byRank(moved, existing)).toBe(1);
+    }
   });
 
   it('does not move the task when the current column is picked again', async () => {
@@ -1055,6 +1083,67 @@ describe('TaskDetail', () => {
     expect(update.mock.calls[0]![1]).toEqual({ title: 'Design cards v2' });
   });
 
+  // close() sends the title itself rather than leaving it to the blur the ✕ tap
+  // fires, so the two fields of one card behave alike. The Chromium check
+  // dismisses through the teardown instead, so this is the only guard on it.
+  it('commits an uncommitted title edit when ✕ is tapped', async () => {
+    vi.spyOn(router, 'redirect').mockImplementation(() => {});
+    const first = renderDetail({ taskId: T1, closePath: BOARD_PATH });
+    await fireEvent.input(screen.getByLabelText('Task title'), {
+      target: { value: 'Design cards v2' },
+    });
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+
+    await waitFor(() => expect(taskPatches()).toHaveLength(1));
+    expect(await taskPatches()[0]!.json()).toEqual({
+      title: 'Design cards v2',
+      expected_updated_at: '2026-01-02T00:00:00Z',
+    });
+
+    // Exactly one: the ✕ path is the one place two commits for one edit are
+    // enqueued in the same turn.
+    first.unmount();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(taskPatches()).toHaveLength(1);
+  });
+
+  it('sends one write when the field is blurred and then ✕ is tapped', async () => {
+    vi.spyOn(router, 'redirect').mockImplementation(() => {});
+    renderDetail({ taskId: T1, closePath: BOARD_PATH });
+
+    await editTitle('Design cards v2');
+    await waitFor(() => expect(taskPatches()).toHaveLength(1));
+    await fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(taskPatches()).toHaveLength(1);
+  });
+
+  // The dismissal most likely to be hit by accident, and it carries a deliberate
+  // exception: a click that lands on the dialog while a quick-action panel is up
+  // dismisses the panel, not the card — with the title edit close() would commit.
+  it('closes the card when the backdrop is clicked', async () => {
+    const redirect = vi.spyOn(router, 'redirect').mockImplementation(() => {});
+    renderDetail({ taskId: T1, closePath: BOARD_PATH });
+
+    await fireEvent.click(screen.getByRole('dialog'));
+
+    expect(redirect).toHaveBeenCalledWith(BOARD_PATH);
+  });
+
+  it('leaves the card open when the backdrop is clicked past an open panel', async () => {
+    const redirect = vi.spyOn(router, 'redirect').mockImplementation(() => {});
+    renderDetail({ taskId: T1, closePath: BOARD_PATH });
+    await openQuickAction('Labels');
+    expect(screen.getByRole('group', { name: 'Add labels' })).toBeInTheDocument();
+
+    await fireEvent.click(screen.getByRole('dialog'));
+
+    expect(redirect).not.toHaveBeenCalled();
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+  });
+
   it('does not re-send a committed title when the overlay then closes', async () => {
     const update = vi.spyOn(board, 'updateTask').mockResolvedValue({
       status: 'ok',
@@ -1277,6 +1366,80 @@ describe('TaskDetail', () => {
     expect(taskPatches()).toHaveLength(1);
   });
 
+  // A mobile keyboard finishing a word by composition updates the field without
+  // firing `input`, so the mirror the handler keeps is a word behind what the
+  // user can see. Every other title test in this file drives the field through
+  // fireEvent.input, which moves both at once and cannot tell them apart.
+  it('saves what the field holds when the oninput mirror is behind it', async () => {
+    renderDetail({ taskId: T1, closePath: BOARD_PATH });
+    const input = screen.getByLabelText('Task title') as HTMLInputElement;
+
+    await fireEvent.input(input, { target: { value: 'Design car' } });
+    input.value = 'Design cards v2';
+    await fireEvent.blur(input);
+
+    await waitFor(() => expect(taskPatches()).toHaveLength(1));
+    expect(await taskPatches()[0]!.json()).toEqual({
+      title: 'Design cards v2',
+      expected_updated_at: '2026-01-02T00:00:00Z',
+    });
+  });
+
+  // Select-all, delete, then leave: the input's maxlength cannot stop an empty
+  // title and nothing else on the client rejects one, so this revert is the only
+  // thing between the user and a PATCH of `title: ''`.
+  it('reverts an emptied title rather than sending one', async () => {
+    const update = vi.spyOn(board, 'updateTask');
+    const first = renderDetail({ taskId: T1, closePath: BOARD_PATH });
+    const input = screen.getByLabelText('Task title');
+
+    await fireEvent.input(input, { target: { value: '   ' } });
+    await fireEvent.blur(input);
+    await tick();
+
+    expect(update).not.toHaveBeenCalled();
+    expect(input).toHaveValue('Design cards');
+
+    // And again through the teardown flush, which is the dismissal a phone makes.
+    await fireEvent.input(input, { target: { value: '' } });
+    first.unmount();
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(update).not.toHaveBeenCalled();
+  });
+
+  // The other bail-out inside the queue, and the one a user never asks for: a
+  // teammate's delete, or the archive's, landing while the title write waits
+  // behind a slow PATCH. Without it the write 404s and the failure path can put
+  // the row back on the board.
+  it('drops a queued title write for a card that left the board', async () => {
+    let release: (() => void) | undefined;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let patches = 0;
+    mockRoutes((request, url) => {
+      if (request.method === 'PATCH' && url.pathname === `/api/tasks/${T1}`) {
+        patches += 1;
+        const saved = (): Response =>
+          jsonResponse(200, { ...board.tasks[0], updated_at: SERVER_UPDATED_AT });
+        return patches === 1 ? held.then(saved) : saved();
+      }
+      return undefined;
+    });
+    renderDetail({ taskId: T1, closePath: BOARD_PATH });
+
+    await editTitle('Design cards v2');
+    await editTitle('Design cards v3');
+    expect(taskPatches()).toHaveLength(1);
+
+    board.applyRealtime(realtimeEvent('task_deleted', { id: T1 }, PROJECT_ID));
+    release?.();
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(taskPatches()).toHaveLength(1);
+  });
+
   it('does not adopt a new precondition from a column change', async () => {
     renderDetail({ taskId: T1, closePath: BOARD_PATH });
 
@@ -1496,6 +1659,82 @@ describe('TaskDetail', () => {
     }
   });
 
+  // The one thing that tells a user their description did not reach the server.
+  // The whole indicator could be deleted, or its labels inverted, and every other
+  // assertion in this file would still hold.
+  it('says the description is saving, then saved, then goes quiet', async () => {
+    vi.useFakeTimers();
+    try {
+      const { container } = renderDetail({ taskId: T1, closePath: BOARD_PATH });
+      await tick();
+      expect(descriptionStatus()).toBeNull();
+
+      descriptionEditor(container).commands.insertContent('Draft text');
+      await tick();
+      expect(descriptionStatus()).toBe('Saving…');
+
+      await vi.advanceTimersByTimeAsync(800);
+      await tick();
+      expect(taskPatches()).toHaveLength(1);
+      expect(descriptionStatus()).toBe('Saved');
+
+      await vi.advanceTimersByTimeAsync(2000);
+      await tick();
+      expect(descriptionStatus()).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  // Typing back to the stored text writes nothing, so there is no save left to
+  // report — the indicator has to stop saying one is running.
+  it('stops saying the description is saving once the text is back where it was', async () => {
+    vi.useFakeTimers();
+    try {
+      const { container } = renderDetail({ taskId: T1, closePath: BOARD_PATH });
+      await tick();
+      const editor = descriptionEditor(container);
+
+      editor.commands.insertContent('Draft text');
+      await tick();
+      expect(descriptionStatus()).toBe('Saving…');
+
+      editor.commands.clearContent(true);
+      await vi.advanceTimersByTimeAsync(800);
+      await tick();
+
+      expect(taskPatches()).toHaveLength(0);
+      expect(descriptionStatus()).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('says the description is not saved when the save fails', async () => {
+    mockRoutes((request, url) =>
+      request.method === 'PATCH' && url.pathname === `/api/tasks/${T1}`
+        ? jsonResponse(500, { error: 'boom' })
+        : undefined
+    );
+    vi.useFakeTimers();
+    try {
+      const { container } = renderDetail({ taskId: T1, closePath: BOARD_PATH });
+      await tick();
+
+      descriptionEditor(container).commands.insertContent('Draft text');
+      await vi.advanceTimersByTimeAsync(800);
+      await tick();
+
+      expect(descriptionStatus()).toBe('Not saved — retrying');
+      // And it stays said: the text is still only in the browser.
+      await vi.advanceTimersByTimeAsync(2000);
+      await tick();
+      expect(descriptionStatus()).toBe('Not saved — retrying');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('keeps the typed description and stops saving it when the save is stale', async () => {
     mockConflict();
     vi.useFakeTimers();
@@ -1698,6 +1937,12 @@ describe('TaskDetail', () => {
 describe('TaskDetail cross-project dependencies', () => {
   const FAR = testUuid('far1');
 
+  function crossRequests(): Request[] {
+    return fetchMock.mock.calls
+      .map((call) => call[0] as Request)
+      .filter((request) => new URL(request.url).pathname.endsWith('/cross-project-dependencies'));
+  }
+
   function farEdge(overrides: Record<string, unknown> = {}) {
     return {
       task_id: FAR,
@@ -1802,6 +2047,56 @@ describe('TaskDetail cross-project dependencies', () => {
     mockRoutes();
     await fireEvent.click(retry);
     await waitFor(() => expect(screen.queryByRole('button', { name: 'Try again' })).toBeNull());
+  });
+
+  // Rows swapping in for skeletons is otherwise silent, and the visual half of
+  // the same behaviour (aria-busy) is the only part tested above.
+  it('announces the remote rows once they land, and only once per card', async () => {
+    const announce = vi.spyOn(announcer, 'announce');
+    board.tasks = board.tasks.map((t) =>
+      t.id === T1 ? { ...t, blocker_ids: [], open_cross_project_blocker_count: 1 } : t
+    );
+    crossProjectResponse = { ...crossProjectResponse, blocked_by: [farEdge()] };
+
+    renderDetail({ taskId: T1, closePath: BOARD_PATH });
+
+    await waitFor(() =>
+      expect(announce).toHaveBeenCalledWith('1 dependency in other projects loaded')
+    );
+
+    // A second answer for the same card re-runs the effect; the card has already
+    // been told, so it must stay quiet.
+    const asked = crossRequests().length;
+    crossProjectDeps.refresh(T1);
+    await waitFor(() => expect(crossRequests()).toHaveLength(asked + 1));
+    await waitFor(() => expect(crossProjectDeps.get(T1)?.loading).toBe(false));
+    await tick();
+
+    expect(announce).toHaveBeenCalledTimes(1);
+  });
+
+  it('counts the remote rows in plural', async () => {
+    const announce = vi.spyOn(announcer, 'announce');
+    crossProjectResponse = {
+      ...crossProjectResponse,
+      blocked_by: [farEdge()],
+      blocking: [farEdge({ task_id: testUuid('far2'), title: 'Write the docs' })],
+    };
+
+    renderDetail({ taskId: T1, closePath: BOARD_PATH });
+
+    await waitFor(() =>
+      expect(announce).toHaveBeenCalledWith('2 dependencies in other projects loaded')
+    );
+  });
+
+  it('says nothing for a card with no remote dependencies at all', async () => {
+    const announce = vi.spyOn(announcer, 'announce');
+    renderDetail({ taskId: T1, closePath: BOARD_PATH });
+
+    await waitFor(() => expect(crossProjectDeps.get(T1)?.deps).not.toBeNull());
+    await tick();
+    expect(announce).not.toHaveBeenCalled();
   });
 
   it('asks for nothing on a public board', async () => {
@@ -1952,8 +2247,9 @@ describe('TaskDetail on a public board', () => {
 
     expect(screen.getByRole('heading', { name: 'Dates' })).toBeInTheDocument();
     expect(screen.getByText(/2026/)).toBeInTheDocument();
-    expect(screen.queryByLabelText('Due date')).toBeNull();
-    expect(screen.queryByRole('button', { name: '+ Add due date' })).toBeNull();
+    // The quick bar is the only way to the date editor, so its absence is what
+    // makes this read-only; `Dates` is a button the writable render does have.
+    expect(screen.queryByRole('button', { name: 'Dates' })).toBeNull();
   });
 
   it('shows the published comments and their authors, with nothing to write with', async () => {
@@ -2035,10 +2331,11 @@ describe('TaskDetail for a viewer', () => {
     expect(screen.queryByLabelText('Task title')).toBeNull();
     expect(screen.queryByLabelText('Column')).toBeNull();
     expect(screen.queryByRole('button', { name: 'Attach file' })).toBeNull();
-    expect(screen.queryByRole('button', { name: 'Delete task' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Archive' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Duplicate' })).toBeNull();
-    expect(screen.queryByRole('button', { name: '+ Add label' })).toBeNull();
+    // The label control TaskLabels actually gates — the writable render at the
+    // top of this file proves it is there, so the pair is a real contrast.
+    expect(screen.queryByRole('button', { name: 'Remove label art' })).toBeNull();
     expect(screen.queryByRole('button', { name: /^Remove blocking task/ })).toBeNull();
 
     expect(await screen.findByText('first thoughts')).toBeInTheDocument();

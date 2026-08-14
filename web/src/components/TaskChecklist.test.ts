@@ -669,3 +669,23 @@ describe('TaskChecklist for a viewer', () => {
     expect(options?.dropFromOthersDisabled).toBe(true);
   });
 });
+
+// The third drag surface in the app, held to what the other two already assert.
+describe('TaskChecklist reduced motion', () => {
+  it('animates the zone by default', () => {
+    renderChecklist();
+
+    const options = checklistConfigs().at(-1);
+    expect(options?.flipDurationMs).toBe(150);
+    expect(options?.dropAnimationDisabled).toBe(false);
+  });
+
+  it('disables flip and drop animation when motion is reduced', () => {
+    motion.reduced = true;
+    renderChecklist();
+
+    const options = checklistConfigs().at(-1);
+    expect(options?.flipDurationMs).toBe(0);
+    expect(options?.dropAnimationDisabled).toBe(true);
+  });
+});

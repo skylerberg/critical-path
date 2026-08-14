@@ -1130,4 +1130,177 @@ export const guards = [
     replace: "      nav.move(event.key === 'ArrowDown' ? 1 : -1);",
     tests: ['src/components/BulkLabelMenu.test.ts'],
   },
+  {
+    // reset() clears the caches but cannot reach a read already on the wire, and
+    // that read writes a whole card — the departing account's — into the next
+    // session's task cache and hands it to the board.
+    name: 'a task lookup that outlives the session writes into nobody',
+    testName: 'drops a lookup that lands after the session ended',
+    file: 'src/lib/task-route.svelte.ts',
+    find: '      if (generation !== this.#generation) return;\n      this.#byTask = { ...this.#byTask, [taskId]: detail.project_id };',
+    replace: '      this.#byTask = { ...this.#byTask, [taskId]: detail.project_id };',
+    tests: ['src/lib/task-route.test.ts'],
+  },
+  {
+    // Emphasis delimiters used to go outside the whitespace, which CommonMark
+    // reads as no emphasis at all — and `* text*` at the start of a paragraph is
+    // a bullet marker, so the copied markdown came back as a list item.
+    name: 'an emphasis run keeps its whitespace outside the delimiters',
+    testName: 'moves whitespace at the edge of an emphasis run outside its delimiters',
+    file: 'src/lib/tiptap.ts',
+    find: '        : markRun(mark, inlineFrom(run, depth + 1, lineBreak));',
+    replace: '        : wrapMark(mark, inlineFrom(run, depth + 1, lineBreak));',
+    tests: ['src/lib/tiptap.test.ts'],
+  },
+  {
+    // Tiptap's isEmpty is whitespace-blind, so a paragraph of spaces was a real
+    // document: the composer offered to post a comment the API rejects, and a
+    // description of nothing but spaces was stored as text.
+    name: 'one definition of an empty document for the whole app',
+    testName: 'calls a document of nothing but whitespace empty',
+    file: 'src/components/RichTextEditor.svelte',
+    find: '    const doc = e.getJSON() as TiptapDoc;\n    return isEmptyDoc(doc) ? null : doc;',
+    replace: '    return e.isEmpty ? null : (e.getJSON() as TiptapDoc);',
+    tests: ['src/components/RichTextEditor.test.ts'],
+  },
+  {
+    // A plain $effect assigns the draft after the textarea has mounted, so the
+    // action's select() ran against an empty field and the rename opened with the
+    // caret at the end — typing appended to the title instead of replacing it.
+    name: 'the rename editor opens with the whole title selected',
+    testName: 'swaps the title for an editor and takes the overlay link out of the way',
+    file: 'src/components/TaskCard.svelte',
+    find: '  $effect.pre(() => {\n    if (renaming) {',
+    replace: '  $effect(() => {\n    if (renaming) {',
+    tests: ['src/components/TaskCard.test.ts'],
+  },
+  {
+    // A failed cross-project read leaves `deps` null for good, so a "still
+    // loading" derived from that alone never ends: the Blocked by list stayed
+    // aria-busy and its skeleton rows pulsed under the failure notice forever.
+    name: 'a failed cross-project read stops the panel waiting',
+    testName: 'stops waiting on cross-project blockers that failed to load',
+    file: 'src/components/TaskDependencies.svelte',
+    find: '  const crossPending = $derived(cross === null && !anonymous && entry?.error !== true);',
+    replace: '  const crossPending = $derived(cross === null && !anonymous);',
+    tests: ['src/components/TaskDependencies.test.ts'],
+  },
+  {
+    // board.removeBlocker rewrites the tasks optimistically, so the row unmounts
+    // under the button that was just pressed and focus falls back to the task
+    // dialog's body — several tab stops from the list being worked in.
+    name: 'removing a dependency row leaves focus in the list',
+    testName: 'hands focus to the next row when a row is removed',
+    file: 'src/components/DependencyList.svelte',
+    find: "    const row = (event.currentTarget as HTMLElement).closest('li');\n    if (row !== null) {\n      focusNeighborOf(row);\n    }\n",
+    replace: '',
+    tests: ['src/components/DependencyList.test.ts'],
+  },
+  {
+    // The pointer highlights a row without focusing it, so a highlight and a
+    // focused row can name different rows; stepping from the highlight then skips
+    // the row between them, and the row after the last suggestion is Create.
+    name: 'an arrow from a focused row steps from that row, not the pointer’s',
+    testName: 'arrows from the focused row even when the pointer highlights another',
+    file: 'src/components/DependencyPicker.svelte',
+    find: '      const from = rowIndex === undefined ? undefined : rows[rowIndex];\n      if (from !== undefined) {\n        nav.highlight(rowKey(from));\n      }\n',
+    replace: '',
+    tests: ['src/components/DependencyPicker.test.ts'],
+  },
+  {
+    // The typed path is capped by the field's maxlength; the pasted one was not,
+    // and /api/tasks/batch is all-or-nothing, so one long line 422s every card
+    // pasted with it.
+    name: 'a pasted line is capped at the same bound typing is',
+    testName: 'caps a pasted line at the length the typed field allows',
+    file: 'src/components/QuickAddTask.svelte',
+    find: '    const lines = raw.map(cap);',
+    replace: '    const lines = raw;',
+    tests: ['src/components/QuickAddTask.test.ts'],
+  },
+  {
+    // The cut is the same one maxlength makes to typing, but typing shows itself
+    // happening and a paste does not, so without the count a card just ends
+    // mid-sentence and nothing anywhere says a word about it.
+    name: 'a paste that had to shorten a line says so',
+    testName: 'says how many pasted lines it shortened',
+    file: 'src/components/QuickAddTask.svelte',
+    find: '          : `Added ${lines.length} tasks (${shortened} shortened to fit)`',
+    replace: '          : `Added ${lines.length} tasks`',
+    tests: ['src/components/QuickAddTask.test.ts'],
+  },
+  {
+    // Slicing at the bound lands between the halves of a surrogate pair, and the
+    // half left behind is not a character: the request body carries it as U+FFFD.
+    name: 'a capped title never ends in half a character',
+    testName: 'does not cut a pasted line through a surrogate pair',
+    file: 'src/components/QuickAddTask.svelte',
+    find: '    const whole = last >= 0xd800 && last <= 0xdbff ? cut.slice(0, -1) : cut;',
+    replace: '    const whole = cut;',
+    tests: ['src/components/QuickAddTask.test.ts'],
+  },
+  {
+    // Same disagreement as the dependency picker's, one step worse: the row the
+    // arrow skips is a slot, so Enter files the card where nobody put it.
+    name: 'a move arrow steps from the focused slot, not the pointer’s',
+    testName: 'arrows from the focused row even when the pointer highlights another',
+    file: 'src/components/QuickMoveMenu.svelte',
+    find: '      const from = rowIndex === undefined ? undefined : rows[rowIndex];\n      if (from !== undefined) {\n        nav.highlight(from.key);\n      }\n',
+    replace: '',
+    tests: ['src/components/QuickMoveMenu.test.ts'],
+  },
+  {
+    // Its sibling menus close with the card; this one stayed open showing every
+    // label unselected, and a click PUT labels for an id the server no longer has.
+    name: 'the label menu closes with the card it is labelling',
+    testName: 'closes the label menu when its card is deleted under it',
+    file: 'src/components/QuickLabelMenu.svelte',
+    find: '    if (task === undefined) {\n      onclose();\n    }\n',
+    replace: '',
+    tests: ['src/components/QuickMenus.test.ts'],
+  },
+  {
+    // The notice lives inside the Blocked by section, and once a failure stops
+    // reserving skeleton rows that section has nothing else to draw for a card
+    // whose blockers are all in other projects.
+    name: 'a card blocked only from elsewhere still says the read failed',
+    testName: 'still reports the failure on a card whose only blockers are the remote ones',
+    file: 'src/components/TaskDependencies.svelte',
+    find: '      crossFailureHidesBlockers ||\n',
+    replace: '',
+    tests: ['src/components/TaskDependencies.test.ts'],
+  },
+  {
+    // The composer clears itself before the write lands and the failure path
+    // resyncs the optimistic row away, so a refusal reported to nobody leaves the
+    // user a toast and an empty box where their comment was.
+    name: 'a refused comment survives in the composer it was typed in',
+    testName: 'puts a refused comment back in the composer, and back in the draft',
+    file: 'src/components/TaskComments.svelte',
+    find: '    if (await board.createComment(taskId, doc)) return;\n    drafts.setDoc(key, doc);\n    posting?.replaceContent(doc);',
+    replace: '    void board.createComment(taskId, doc);\n    void key;\n    void posting;',
+    tests: ['src/components/TaskComments.test.ts'],
+  },
+  {
+    // Read live rather than captured, the key names whichever card is on screen
+    // when the refusal lands — so a switch files the text under the new card and
+    // the one it was typed on comes back empty.
+    name: 'a refused comment is filed under the card it was typed on',
+    testName: 'keeps the text on its own card when the post is refused after a switch',
+    file: 'src/components/TaskComments.svelte',
+    find: '    drafts.setDoc(key, doc);',
+    replace: '    drafts.setDoc(draftKeyForTask, doc);',
+    tests: ['src/components/TaskComments.test.ts'],
+  },
+  {
+    // The card panel refreshes this read every time it opens, so an ungated
+    // failure clause gave every card opened offline a Blocked by heading over an
+    // empty list — including cards that have no dependencies at all.
+    name: 'a failed read grows no dependency section on a card without any',
+    testName: 'renders nothing when the read fails on a card with no dependencies',
+    file: 'src/components/TaskDependencies.svelte',
+    find: '    entry?.error === true && (task?.open_cross_project_blocker_count ?? 0) > 0\n',
+    replace: '    entry?.error === true\n',
+    tests: ['src/components/TaskDependencies.test.ts'],
+  },
 ];

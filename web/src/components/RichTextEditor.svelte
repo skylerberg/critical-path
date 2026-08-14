@@ -8,6 +8,7 @@
   import { Placeholder } from '@tiptap/extensions';
   import type { BoardTask } from '../lib/board-types';
   import { filterMentionCandidates, mentionLabel } from '../lib/mentions';
+  import { isEmptyDoc } from '../lib/tiptap';
   import { toasts } from '../lib/toasts.svelte';
   import type { User } from '../lib/users.svelte';
   import Avatar from './ui/Avatar.svelte';
@@ -111,8 +112,14 @@
     setSaveState('idle');
   }
 
+  // isEmptyDoc, not Tiptap's `isEmpty`, which is whitespace-blind: a paragraph
+  // holding only spaces is content to it, so the composer offered to post a
+  // comment the API rejects and a description of spaces was stored as text. One
+  // definition of empty for the whole app — this is the one the resolver's "No
+  // description" panel and the comment composer's Post button already use.
   function currentDoc(e: Editor): TiptapDoc | null {
-    return e.isEmpty ? null : (e.getJSON() as TiptapDoc);
+    const doc = e.getJSON() as TiptapDoc;
+    return isEmptyDoc(doc) ? null : doc;
   }
 
   function scheduleSave(): void {

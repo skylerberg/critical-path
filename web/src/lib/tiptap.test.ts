@@ -180,6 +180,36 @@ describe('docToMarkdown', () => {
     );
   });
 
+  // Selecting ' text' and hitting Ctrl-I produces this node, and so does a paste
+  // from Google Docs. The delimiters used to go on outside the spaces, which
+  // CommonMark reads as no emphasis at all — and, at the start of a paragraph,
+  // as a bullet marker that swallows the whole line.
+  it('moves whitespace at the edge of an emphasis run outside its delimiters', () => {
+    expect(docToMarkdown(doc(paragraph(text(' lead', { type: 'italic' }))))).toBe('&#x20;*lead*');
+    expect(
+      docToMarkdown(doc(paragraph(text('a'), text(' bold ', { type: 'bold' }), text('b'))))
+    ).toBe('a **bold** b');
+    expect(
+      docToMarkdown(doc(paragraph(text('a'), text('gone ', { type: 'strike' }), text('b'))))
+    ).toBe('a~~gone~~ b');
+  });
+
+  it('leaves a run that is only whitespace unmarked rather than emitting empty delimiters', () => {
+    expect(
+      docToMarkdown(doc(paragraph(text('a'), text('  ', { type: 'italic' }), text('b'))))
+    ).toBe('a  b');
+  });
+
+  // A link's text may legally start or end with a space, and moving it out would
+  // change what the reader is being asked to click.
+  it('keeps edge whitespace inside a link’s text', () => {
+    expect(
+      docToMarkdown(
+        doc(paragraph(text(' home ', { type: 'link', attrs: { href: 'https://a.example' } })))
+      )
+    ).toBe('[ home ](https://a.example)');
+  });
+
   it('escapes what would otherwise read as HTML or as an entity', () => {
     expect(
       docToMarkdown(

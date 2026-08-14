@@ -122,6 +122,9 @@ describe('TaskSeriesModal', () => {
 
     const before = fetchMock.mock.calls.length;
     taskSeries.resync();
+    // A turn, because openapi-fetch never reaches fetch in the one the request
+    // is started in: sampled synchronously the count cannot have moved either way.
+    await new Promise((resolve) => setTimeout(resolve, 0));
     expect(fetchMock.mock.calls.length).toBe(before);
   });
 

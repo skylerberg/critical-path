@@ -10,6 +10,8 @@ import type { BoardTask } from '../lib/board-types';
 
 const PROJECT_ID = testUuid('p1');
 const T1 = testUuid('t1');
+const jsdomCreateObjectURL = URL.createObjectURL;
+const jsdomRevokeObjectURL = URL.revokeObjectURL;
 
 function task(id: string, overrides: Partial<BoardTask> = {}): BoardTask {
   return {
@@ -155,9 +157,12 @@ describe('TaskAttachments file rows', () => {
     const created: string[] = [];
     const revoked: string[] = [];
     const clicked: HTMLAnchorElement[] = [];
+    // A subclass, never `Object.assign(URL, …)`: assigning onto the live global
+    // leaves the two spies on it, and `vi.unstubAllGlobals()` restores a binding
+    // rather than an object — so every later test would go on calling these.
     vi.stubGlobal(
       'URL',
-      Object.assign(URL, {
+      Object.assign(class extends URL {}, {
         createObjectURL: vi.fn(() => {
           created.push('blob:x');
           return 'blob:x';
@@ -182,6 +187,13 @@ describe('TaskAttachments file rows', () => {
     expect(requestAt(0).url).toContain(`/api/attachments/${testUuid('a1')}/download`);
     expect(clicked[0]?.download).toBe('spec.pdf');
     expect(revoked).toEqual(['blob:x']);
+  });
+
+  // `vi.unstubAllGlobals()` restores a binding, not an object, so a stub written
+  // onto the live global outlives the test that made it — for the whole file.
+  it('hands the global URL back the way jsdom left it', () => {
+    expect(URL.createObjectURL).toBe(jsdomCreateObjectURL);
+    expect(URL.revokeObjectURL).toBe(jsdomRevokeObjectURL);
   });
 
   it('keeps Download but hides every mutation for a viewer', () => {
@@ -456,6 +468,32 @@ describe('TaskAttachments uploads', () => {
     expect(requestAt(1).url).toContain('/api/attachments/files');
   });
 
+  // A viewer gets no buttons and no file input, so the drop zone is the only
+  // write surface still reachable — and it is still drawn.
+  it('refuses both kinds of drop for a viewer', async () => {
+    const { container } = renderSection({ readonly: true });
+    const zone = container.querySelector('div') as HTMLElement;
+
+    await fireEvent.drop(zone, {
+      dataTransfer: {
+        types: ['Files'],
+        files: fileList([new File(['x'], 'dropped.bin', { type: '' })]),
+        getData: () => '',
+      },
+    });
+    await fireEvent.drop(zone, {
+      dataTransfer: {
+        types: ['text/uri-list'],
+        files: fileList([]),
+        getData: (type: string) => (type === 'text/uri-list' ? 'https://example.com/dragged' : ''),
+      },
+    });
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+    expect(screen.getByText('No attachments.')).toBeVisible();
+  });
+
   it('sends a dropped SVG to the same endpoint as everything else', async () => {
     fetchMock.mockImplementation(async () => jsonResponse(201, attachment('a1')));
     const { container } = renderSection();
@@ -610,6 +648,40 @@ describe('TaskAttachments rename and delete', () => {
     unmount();
 
     expect(patch).not.toHaveBeenCalled();
+  });
+
+  // The teardown flushes on every card dismissal that left a rename box open, so
+  // without the guard merely opening the box costs a PATCH each time.
+  it('writes nothing for an unchanged or retyped title', async () => {
+    const patch = vi.spyOn(board, 'patchAttachment');
+    board.taskAttachments = { [T1]: [attachment('a1', { title: 'The spec' })] };
+    const untouched = renderSection();
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Rename The spec' }));
+    untouched.unmount();
+    expect(patch).not.toHaveBeenCalled();
+
+    renderSection();
+    await fireEvent.click(screen.getByRole('button', { name: 'Rename The spec' }));
+    const input = screen.getByRole('textbox', { name: 'Rename The spec' });
+    await fireEvent.input(input, { target: { value: 'Something else' } });
+    await fireEvent.input(input, { target: { value: '  The spec  ' } });
+    await fireEvent.blur(input);
+
+    expect(patch).not.toHaveBeenCalled();
+  });
+
+  it('clears a title emptied in the box rather than storing an empty string', async () => {
+    const patch = vi.spyOn(board, 'patchAttachment');
+    board.taskAttachments = { [T1]: [attachment('a1', { title: 'The spec' })] };
+    renderSection();
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Rename The spec' }));
+    const input = screen.getByRole('textbox', { name: 'Rename The spec' });
+    await fireEvent.input(input, { target: { value: '   ' } });
+    await fireEvent.blur(input);
+
+    expect(patch).toHaveBeenCalledWith(T1, testUuid('a1'), { title: null });
   });
 
   it('requires two clicks to delete', async () => {

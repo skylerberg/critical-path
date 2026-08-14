@@ -59,7 +59,10 @@
   let cardEl = $state<HTMLDivElement>();
   let draft = $state('');
 
-  $effect(() => {
+  // Pre, so the draft is in place before the textarea is created: a plain effect
+  // runs after the action has already focused and select()ed an empty field, and
+  // the assignment then lands as a value change that puts the caret at the end.
+  $effect.pre(() => {
     if (renaming) {
       untrack(() => (draft = task.title));
     }

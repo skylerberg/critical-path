@@ -231,6 +231,64 @@ describe('quick menus on a project route', () => {
     ).toHaveFocus();
   });
 
+  // The palette seeds this one with free text the user typed, and a menu the user
+  // dismisses on its own never reaches closeMenus(): the seed left behind would
+  // narrow whatever menu is opened next.
+  it('opens the label menu narrowed to a seeded query and drops the seed when dismissed', async () => {
+    render(QuickMenus);
+
+    shortcuts.menuPrefill = 'Urgent';
+    shortcuts.labelMenu = T1;
+
+    const heading = await screen.findByRole('heading', { level: 2, name: 'Labels' });
+    const menu = heading.closest('dialog')!;
+    expect(within(menu).getByLabelText<HTMLInputElement>('Filter labels').value).toBe('Urgent');
+
+    // Clicking the backdrop, not closeMenus(): the dialog's own dismissal.
+    await fireEvent.click(menu);
+
+    await waitFor(() => {
+      expect(shortcuts.labelMenu).toBeNull();
+    });
+    expect(shortcuts.menuPrefill).toBe('');
+  });
+
+  it('closes the label menu when its card is deleted under it', async () => {
+    render(QuickMenus);
+    selection.set(T1);
+
+    press('l');
+    await screen.findByRole('heading', { level: 2, name: 'Labels' });
+
+    board.tasks = board.tasks.filter((t) => t.id !== T1);
+
+    // A row here PUTs the card's labels, so an open menu over a deleted card
+    // offers a click that can only end in an error toast and a refetch.
+    await waitFor(() => {
+      expect(shortcuts.labelMenu).toBeNull();
+    });
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog')).toBeNull();
+    });
+  });
+
+  it('closes the dependency picker when its card is deleted under it', async () => {
+    render(QuickMenus);
+    selection.set(T1);
+
+    press('b');
+    await screen.findByRole('heading', { level: 2, name: 'Blocked by — Design cards' });
+
+    board.tasks = board.tasks.filter((t) => t.id !== T1);
+
+    await waitFor(() => {
+      expect(shortcuts.dependencyMenu).toBeNull();
+    });
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog')).toBeNull();
+    });
+  });
+
   it('opens the move menu narrowed to a seeded column and drops the seed after', async () => {
     vi.spyOn(board, 'moveTask');
     render(QuickMenus);

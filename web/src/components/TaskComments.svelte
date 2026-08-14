@@ -63,12 +63,22 @@
     confirmingDeleteId = null;
   });
 
-  function submit(): void {
+  // The composer is emptied before the write lands, so the typed text exists
+  // nowhere but this frame until the post is accepted: the optimistic row goes
+  // with the failure path's resync and the draft went with clearContent.
+  async function submit(): Promise<void> {
     const doc = draftDoc;
     if (doc === null) return;
+    // Both captured now: a card switch while the post is in flight moves them
+    // both on, and the text belongs to the card it was typed on. The composer it
+    // was typed in is torn down by that switch, and ignores this.
+    const key = draftKeyForTask;
+    const posting = composer;
     // clearContent reports null through onChange, which drops the stored draft.
     composer?.getEditor()?.commands.clearContent(true);
-    void board.createComment(taskId, doc);
+    if (await board.createComment(taskId, doc)) return;
+    drafts.setDoc(key, doc);
+    posting?.replaceContent(doc);
   }
 
   function startEdit(comment: TaskComment): void {
@@ -182,7 +192,7 @@
       onkeydowncapture={(event) => {
         if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
           event.preventDefault();
-          submit();
+          void submit();
         }
       }}
       onfocusin={() => (composerFocused = true)}
@@ -199,7 +209,7 @@
       />
       {#if composerActive}
         <div class="flex">
-          <Button disabled={draftDoc === null} onclick={submit}>Comment</Button>
+          <Button disabled={draftDoc === null} onclick={() => void submit()}>Comment</Button>
         </div>
       {/if}
     </div>

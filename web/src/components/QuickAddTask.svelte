@@ -59,19 +59,35 @@
     await scrollToNewestCard();
   }
 
+  // Capped as the field's maxlength caps typing: the batch is all-or-nothing, so
+  // a single over-long line would 422 every card pasted with it. The bound counts
+  // UTF-16 units on both sides of the wire, so the cut is made in those and then
+  // backed off a trailing lone surrogate — half a character, which the request
+  // body would encode as a replacement one.
+  function cap(line: string): string {
+    if (line.length <= TASK_TITLE_MAX_LENGTH) {
+      return line;
+    }
+    const cut = line.slice(0, TASK_TITLE_MAX_LENGTH);
+    const last = cut.charCodeAt(cut.length - 1);
+    const whole = last >= 0xd800 && last <= 0xdbff ? cut.slice(0, -1) : cut;
+    return whole.trimEnd();
+  }
+
   function paste(event: ClipboardEvent): void {
-    const lines = (event.clipboardData?.getData('text/plain') ?? '')
+    const raw = (event.clipboardData?.getData('text/plain') ?? '')
       .split(/\r\n|\r|\n/)
       .map((line) => line.trim())
       .filter((line) => line !== '');
-    if (lines.length < 2) {
+    if (raw.length < 2) {
       return;
     }
     event.preventDefault();
-    void addMany(lines);
+    const lines = raw.map(cap);
+    void addMany(lines, lines.filter((line, index) => line !== raw[index]).length);
   }
 
-  async function addMany(lines: string[]): Promise<void> {
+  async function addMany(lines: string[], shortened: number): Promise<void> {
     const before = board.tasksInColumn(columnId).length;
     const pending = board.createTasks(columnId, lines);
     // A refused batch inserts nothing, and scrolling then would jump to an
@@ -81,7 +97,14 @@
     }
     // Waits, so a batch that fails is never announced as a success.
     if ((await pending) !== null) {
-      toasts.success(`Added ${lines.length} tasks`);
+      // Truncation is the same correction maxlength makes to typing, but typing
+      // shows it happening and a paste does not; a card silently ending
+      // mid-sentence is the one thing the user cannot find out any other way.
+      toasts.success(
+        shortened === 0
+          ? `Added ${lines.length} tasks`
+          : `Added ${lines.length} tasks (${shortened} shortened to fit)`
+      );
     }
   }
 
