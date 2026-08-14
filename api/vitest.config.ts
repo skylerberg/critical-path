@@ -16,12 +16,25 @@ process.env.DB_DATABASE = database;
 process.env.DB_POOL_MAX ??= '5';
 const poolMax = process.env.DB_POOL_MAX;
 
+// The default reporter redraws a live tree, which needs a terminal to redraw
+// into: with output going to a file or a CI log it prints the run's result only
+// once everything has finished, so a suite that takes twenty minutes says
+// nothing for twenty minutes and a hang is indistinguishable from work. The
+// verbose reporter emits a line per test as it lands, which is what makes a
+// redirected run followable and a stall obvious.
+//
+// Whatever you do, do not read a run through `| tail` — a pipe cannot show you
+// anything until the command exits, whichever reporter is chosen. Redirect and
+// `tail -f`.
+const reporters = process.stdout.isTTY ? ['default'] : ['verbose'];
+
 export default defineConfig({
   test: {
     globals: true,
     environment: 'node',
     testTimeout: 30000,
     hookTimeout: 60000,
+    reporters,
     pool: 'forks',
     // Files within a run still share this checkout's database, so they must
     // not run concurrently; this also forces a single worker.

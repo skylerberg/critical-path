@@ -17,7 +17,7 @@ export const NOTIFY_SILENCE_LOG_MAX = 10;
 // An unconditional line would turn an abuse loop into log spam, but dropping
 // mail with no trace leaves a silenced recipient invisible.
 async function warnDropped(budgets: Budget[], fields: LogFields): Promise<void> {
-  if ((await consumeBudgets(budgets, Date.now(), NOTIFY_WINDOW_MS)) === null) {
+  if ((await consumeBudgets(budgets, Date.now())) === null) {
     logger.warn(fields);
   }
 }
@@ -34,29 +34,52 @@ export async function withNotificationBudget(
   send: () => Promise<void>
 ): Promise<void> {
   const now = Date.now();
-  const repeat: Budget = { key: `notify-repeat:${recipientId}:${repeatKey}`, max: 1 };
+  const repeat: Budget = {
+    key: `notify-repeat:${recipientId}:${repeatKey}`,
+    max: 1,
+    windowMs: NOTIFY_WINDOW_MS,
+  };
   const pair: Budget = {
     key: `notify-pair:${recipientId}:${actorId}`,
     max: NOTIFY_PAIR_MAX_ATTEMPTS,
+    windowMs: NOTIFY_WINDOW_MS,
   };
   const recipient: Budget = {
     key: `notify-recipient:${recipientId}`,
     max: NOTIFY_RECIPIENT_MAX_ATTEMPTS,
+    windowMs: NOTIFY_WINDOW_MS,
   };
   const budgets = [repeat, pair, recipient];
 
-  const refusedBy = await consumeBudgets(budgets, now, NOTIFY_WINDOW_MS);
+  const refusedBy = await consumeBudgets(budgets, now);
   if (refusedBy === pair) {
-    await warnDropped([{ key: `notify-drop-log:pair:${recipientId}:${actorId}`, max: 1 }], {
-      msg: 'Notification email dropped: one sender has spent their budget for this recipient',
-      recipient_id: recipientId,
-      actor_id: actorId,
-    });
+    await warnDropped(
+      [
+        {
+          key: `notify-drop-log:pair:${recipientId}:${actorId}`,
+          max: 1,
+          windowMs: NOTIFY_WINDOW_MS,
+        },
+      ],
+      {
+        msg: 'Notification email dropped: one sender has spent their budget for this recipient',
+        recipient_id: recipientId,
+        actor_id: actorId,
+      }
+    );
   } else if (refusedBy === recipient) {
     await warnDropped(
       [
-        { key: `notify-drop-log:silenced:${recipientId}:${actorId}`, max: 1 },
-        { key: `notify-drop-log:silenced:${recipientId}`, max: NOTIFY_SILENCE_LOG_MAX },
+        {
+          key: `notify-drop-log:silenced:${recipientId}:${actorId}`,
+          max: 1,
+          windowMs: NOTIFY_WINDOW_MS,
+        },
+        {
+          key: `notify-drop-log:silenced:${recipientId}`,
+          max: NOTIFY_SILENCE_LOG_MAX,
+          windowMs: NOTIFY_WINDOW_MS,
+        },
       ],
       {
         msg: 'Notification email dropped: this recipient is over their total budget',

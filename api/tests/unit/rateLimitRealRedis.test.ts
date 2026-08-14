@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach, vi } from 'vitest';
-import { consumeRateLimit, resetRateLimiter } from '../../src/services/rateLimit';
+import { consumeBudgets, consumeRateLimit, resetRateLimiter } from '../../src/services/rateLimit';
 import { withNotificationBudget } from '../../src/services/notificationBudget';
 import { logger } from '../../src/utils/logger';
 import { closeRealRedis, openRealRedis, realRedisPrefix, redisTestUrl } from '../helpers/realRedis';
@@ -197,5 +197,56 @@ describe.skipIf(!redisTestUrl)('the shipped rate limit scripts on a real Redis',
     expect(await client.get(collapse)).toBeNull();
     expect(await client.pTTL(collapse)).toBe(-2);
     expect(await client.get(`ratelimit:notify-pair:${recipient}:actor`)).toBe('1');
+  });
+  // The reason a budget carries its own window: the auth limiter spends three
+  // that reset a minute, a quarter of an hour and an hour apart, and before this
+  // it could only spend them one call at a time — which is how an attempt the
+  // first one refused still drew down the third.
+  it('gives each budget in one set the expiry that belongs to it', async () => {
+    const minute = named('mixed-minute');
+    const hour = named('mixed-hour');
+
+    expect(
+      await consumeBudgets(
+        [
+          { key: minute, max: 5, windowMs: 60_000 },
+          { key: hour, max: 100, windowMs: 3_600_000 },
+        ],
+        Date.now()
+      )
+    ).toBeNull();
+
+    expect(await stored('mixed-minute')).toBe('1');
+    expect(await stored('mixed-hour')).toBe('1');
+    expect(await ttl('mixed-minute')).toBeGreaterThan(50_000);
+    expect(await ttl('mixed-minute')).toBeLessThanOrEqual(60_000);
+    expect(await ttl('mixed-hour')).toBeGreaterThan(3_500_000);
+    expect(await ttl('mixed-hour')).toBeLessThanOrEqual(3_600_000);
+  });
+
+  // Pinned here as well as in the fallback's own tests: this is the input where
+  // the two could disagree with no caller the wiser.
+  it('refuses a budget of zero with no counter stored yet', async () => {
+    expect(
+      await consumeBudgets([{ key: named('never'), max: 0, windowMs: 60_000 }], Date.now())
+    ).toMatchObject({ key: named('never') });
+    expect(await stored('never')).toBeNull();
+  });
+
+  it('spends none of a mixed-window set when any one of them is full', async () => {
+    const short = named('atomic-short');
+    const long = named('atomic-long');
+    const budgets = [
+      { key: short, max: 1, windowMs: 60_000 },
+      { key: long, max: 100, windowMs: 3_600_000 },
+    ];
+
+    expect(await consumeBudgets(budgets, Date.now())).toBeNull();
+    expect(await consumeBudgets(budgets, Date.now())).toMatchObject({ key: short });
+
+    // The refusal cost the long budget nothing, which is the property the auth
+    // limiter depends on: a refused sign-in never reaches a password hash, so it
+    // must not draw down the ceiling a whole office shares.
+    expect(await stored('atomic-long')).toBe('1');
   });
 });
