@@ -3,18 +3,49 @@
 Backend for "Critical Path". Plain
 Postgres + Kysely — no Supabase, no Docker, no OpenTelemetry.
 
+# Package manager
+
+pnpm, pinned by `packageManager` in each package.json. **Three packages, three
+lockfiles, three `pnpm-workspace.yaml` files** — root, `cli/`, `preview-edge/` —
+and deliberately not one pnpm workspace. Install each where it lives:
+`pnpm install`, `pnpm -C cli install`, `pnpm -C preview-edge install`. The
+separate lockfiles are what keep `deploy.yaml`'s path filter exact; a shared one
+would make a CLI dependency bump redeploy the production API.
+
+`pnpm-workspace.yaml` is a settings file here, not a workspace declaration: none
+of the three has a `packages:` key. pnpm 11 reads settings from nowhere else —
+not `.npmrc` beyond auth and registry, not package.json's `pnpm` field, not npm's
+`overrides`. Keys are camelCase, and a kebab-case one is dropped without a word.
+
+All three files turn `verifyDepsBeforeRun` **off**, and the root file's comment
+records the two measurements behind that. It fails on a nested package.json even
+when that package is not a member, and it fails under `CI` because pnpm computes
+a different `enableGlobalVirtualStore` default there than the install recorded —
+which is what killed every `check:test-guards` child in the web repo, since each
+is spawned with `CI=1`. Both failures survive `pnpm install`. Off is what npm did.
+
+`allowBuilds` gates whether a dependency may run install scripts, and
+`strictDepBuilds` fails the install on any that is unlisted — a denial counts,
+an omission does not, and each file rules only on its own tree. The root allows
+`argon2` and `esbuild` and denies `@scarf/scarf` in writing; `cli/` and
+`preview-edge/` each allow `esbuild` alone.
+
+Beware `pnpm run x -- <arg>`: pnpm forwards the `--` into argv where npm dropped
+it, and vitest treats it as end-of-options. `pnpm test -- --shard=1/4` runs the
+entire suite and passes.
+
 # Companion repository
 
 `../critical-path-web` is the Svelte 5 frontend for this API. Run the API
-first (`npm run dev`, port 3001), then the web app (`npm run dev` in
+first (`pnpm run dev`, port 3001), then the web app (`pnpm run dev` in
 `../critical-path-web`, port 5173) — Vite proxies `/api` and `/ws` to
 `localhost:3001`.
 
 Both the web app and the `cli/` package generate their API client from this
 repo's OpenAPI spec. A change to any request/response schema must regenerate
-the committed clients and commit them together: `npm run --prefix cli
-generate-api` here and `npm run generate:api` in `../critical-path-web`.
-Neither needs `npm run openapi:dump` first — both generators re-dump before
+the committed clients and commit them together: `pnpm -C cli run
+generate-api` here and `pnpm run generate:api` in `../critical-path-web`.
+Neither needs `pnpm run openapi:dump` first — both generators re-dump before
 reading, because the dump is a pure function of `src/` (no database, under two
 seconds) and producing one is cheaper than reasoning about whether the old one
 is stale. See `../critical-path-web/CLAUDE.md` for the frontend's
@@ -123,8 +154,8 @@ web app and the CLI generate from it.
     name someone. `publishAfterCommit` therefore takes `CallerPayload<T>`, the
     payload minus the field it fills in from the session; `publish` still takes
     the whole thing.
-    After changing a payload run `npm run realtime:dump` and
-    `npm run --prefix cli generate-realtime`, and commit the regenerated
+    After changing a payload run `pnpm run realtime:dump` and
+    `pnpm -C cli run generate-realtime`, and commit the regenerated
     `cli/src/api/realtime.generated.ts`. The dump itself is gitignored like
     `openapi.json`; what the clients check is that theirs is not older than this
     repo's HEAD.
@@ -205,7 +236,7 @@ web app and the CLI generate from it.
   all. `tests/unit/realtimeEventsDocument.test.ts` holds the table to the codes
   every module in `src/services/realtime` can actually send, and changing it
   carries the same
-  `npm run --prefix cli generate-realtime` obligation a payload change does.
+  `pnpm -C cli run generate-realtime` obligation a payload change does.
 - The realtime bus is in-process by default; when `REDIS_URL` is set (as in
   production, which runs 2+ replicas) publishes fan out via Redis pub/sub so
   every replica delivers to its own sockets. Rate limits also share Redis
@@ -243,20 +274,22 @@ web app and the CLI generate from it.
 
 # CLI
 
-`cli/` is a standalone nested npm package (`critical-path-cli`, command
+`cli/` is a standalone nested package (`critical-path-cli`, command
 `cpath`) — a full CLI client for this API. It deliberately keeps its own
-package-lock and node_modules (`npm ci --prefix cli`) so the deployed image
+pnpm-lock.yaml and node_modules (`pnpm -C cli install --frozen-lockfile`) so the deployed image
 and the deploy workflow's path filters are untouched by CLI changes; never
 add CLI dependencies to the root package.json. CLI tests are part of the root
-`npm test` (they drive the Hono app in-process via `cli/tests/e2e/helpers.ts`);
-CLI checks run from `cli/`: `npm run type-check && npm run lint && npm run
-format:check`. Knip is the exception that covers both from the root, because
+`pnpm test` (they drive the Hono app in-process via `cli/tests/e2e/helpers.ts`);
+CLI checks run from `cli/`: `pnpm run type-check && pnpm run lint &&
+pnpm run format:check`. Knip is the exception that covers both from the root, because
 `cli` is a knip workspace in knip.json — that is what resolves CLI imports
-against `cli/package.json` instead of the root's, and it is unrelated to npm
-workspaces, which this repo still must not use. After changing the API
-surface, run `npm run --prefix cli generate-api` and commit the regenerated
+against `cli/package.json` instead of the root's, and it is unrelated to pnpm
+workspaces, which this repo still must not use. Three lockfiles is what keeps
+`deploy.yaml`'s path filter exact: one shared lockfile would make a CLI
+dependency bump redeploy the production API. After changing the API
+surface, run `pnpm -C cli run generate-api` and commit the regenerated
 `cli/src/api/api.generated.ts`; after changing a realtime payload, run
-`npm run --prefix cli generate-realtime` and commit
+`pnpm -C cli run generate-realtime` and commit
 `cli/src/api/realtime.generated.ts` alongside it. Both re-dump first, so
 `openapi:dump` and `realtime:dump` are only needed to refresh the dumps for
 something else.
@@ -311,24 +344,24 @@ against directly:
 
 # Running things
 
-- `npm run dev` — API on port 3001.
+- `pnpm run dev` — API on port 3001.
 - **Run only the tests your change touches; let CI run the rest.** A single
   file or directory is
   `node --env-file=.env.test node_modules/vitest/vitest.mjs run <path>` and
-  takes seconds. The full `npm test` is ~3 minutes, and running it after every
+  takes seconds. The full `pnpm test` is ~3 minutes, and running it after every
   edit is most of the wall-clock in a long session for almost no extra signal —
   CI runs it on every push, sharded. Reach for the full suite once, before
   opening the PR, and when a change is broad enough that you cannot name the
   files it affects (a shared helper, middleware, a schema everything imports).
-- `npm run test:changed` answers "which files is that" for you: it diffs against
+- `pnpm run test:changed` answers "which files is that" for you: it diffs against
   `origin/main` (pass another base as an argument), including uncommitted and
   untracked files, and runs every test that reaches one through the real module
   graph — so it finds the e2e file that only touches a service through three
-  barrels, which a hand-picked list misses. `npm run test:related -- <paths>`
+  barrels, which a hand-picked list misses. `pnpm run test:related <paths>`
   is the same thing for paths you name yourself. Neither replaces the suite: a
   file nothing imports yet resolves to no tests at all, and a test that breaks
   through shared state rather than an import is invisible to both.
-- `npm test` — full suite (loads `.env.test`, migrates + truncates). It needs
+- `pnpm test` — full suite (loads `.env.test`, migrates + truncates). It needs
   the machine mostly to itself: several e2e tests drive dozens of sequential
   requests inside one `it` against a 30s `testTimeout`, and a browser or a
   benchmark running alongside fails them at exactly 30004ms, which reads like a
@@ -358,18 +391,18 @@ against directly:
   start: a `TRUNCATE` landing under a live run deletes rows it has already
   created, which surfaces as one unrelated test failing on a wrong exit code
   and passing on the rerun. Run suites from separate worktrees to get them in
-  parallel. `npm run test:db:prune` clears databases whose checkout is gone
-  (add `-- --legacy` for unstamped leftovers).
+  parallel. `pnpm run test:db:prune` clears databases whose checkout is gone
+  (add `--legacy` for unstamped leftovers).
 - Two files check the shared Redis path against a real server and skip without
   `REDIS_TEST_URL` in `.env.test` (`redis://127.0.0.1:6379/15`, `brew install
   redis`); CI has one and fails there rather than skipping. Never put
   `REDIS_URL` in `.env.test` — that puts the whole suite on one shared signup
   budget and it collapses into 429s.
-- `npm run type-check`, `npm run lint`, `npm run format`. `type-check` covers
+- `pnpm run type-check`, `pnpm run lint`, `pnpm run format`. `type-check` covers
   `src/`, `tests/`, `scripts/`, `vitest.config.ts` and `cli/` — the root
-  `tsconfig.json` is the check-everything project and emits nothing; `npm run
-  build` uses `tsconfig.build.json`, which is `src/` only. `cli/` is in that
-  project despite being a separate npm package, so an editor resolves its files
+  `tsconfig.json` is the check-everything project and emits nothing;
+  `pnpm run build` uses `tsconfig.build.json`, which is `src/` only. `cli/` is in that
+  project despite being a separate package, so an editor resolves its files
   against real options; left out, every file under `cli/` falls back to an
   inferred project and reads as a wall of "cannot find module" that has nothing
   to do with the code. In tests
@@ -379,18 +412,20 @@ against directly:
   matters rather than trying to type the client.
 - `scripts/new-worktree.sh <branch> [base-ref]` creates a worktree that can run
   all of the above: it branches, adds the worktree under
-  `~/.worktrees/<repo>/<branch>`, symlinks `node_modules` and `cli/node_modules`
-  from the main checkout by absolute path, and copies the untracked `.env` and
-  `.env.test`. A worktree made by hand and missing any of those fails the checks
-  for reasons that have nothing to do with the change in it — a missing
-  `cli/node_modules` in particular fails only the CLI tests, deep into a run.
+  `~/.worktrees/<repo>/<branch>`, runs `pnpm install` in each of the three
+  packages, and copies the untracked `.env` and `.env.test`. A worktree made by
+  hand and missing any of those fails the checks for reasons that have nothing to
+  do with the change in it — an uninstalled `cli/` in particular fails only the
+  CLI tests, deep into a run.
   The script resolves everything from the checkout it is run in, so it works
   from a sibling project too.
-- A worktree that already exists but predates the script needs `node_modules`
-  symlinked from the main checkout
-  (`ln -s /absolute/path/to/repo/node_modules node_modules`) rather than a
-  second `npm install`. Never put one inside the repository: it is a second full
-  copy of the codebase that every recursive search has to walk.
+- A worktree that already exists but predates the script just needs `pnpm install`
+  in each package directory. It is cheap: pnpm hardlinks from one
+  content-addressable store, so a second checkout costs inodes rather than
+  downloads. Do not symlink `node_modules` back to the main checkout — an install
+  from the worktree would then rewrite the tree the main checkout is using. Never
+  put a worktree inside the repository: it is a second full copy of the codebase
+  that every recursive search has to walk.
 
 # Migration workflow
 
@@ -400,8 +435,8 @@ backward-compatible with the previous release (no dropping/renaming columns
 the running code still reads; do that in a follow-up release).
 
 1. Add `src/db/migrations/NNNN_name.ts` exporting `up`/`down`.
-2. `npm run migrate` and `npm run migrate:test`.
-3. Regenerate committed types: `npm run kysely-codegen`. It takes no
+2. `pnpm run migrate` and `pnpm run migrate:test`.
+3. Regenerate committed types: `pnpm run kysely-codegen`. It takes no
    `DATABASE_URL` and never reads a database you develop against — it migrates
    a scratch database from `src/db/migrations`, introspects that, formats the
    output, and drops it, so what lands in the commit is a function of the
@@ -409,7 +444,7 @@ the running code still reads; do that in a follow-up release).
    how a column left behind by an abandoned branch gets committed looking
    exactly like a real one. The scratch database is named per checkout, so
    parallel worktrees can regenerate at once, and it carries the same checkout
-   stamp the test databases do, so `npm run test:db:prune` reclaims one an
+   stamp the test databases do, so `pnpm run test:db:prune` reclaims one an
    interrupted run left behind. `kysely-codegen` is in knip's
    `ignoreDependencies` because that script spawns the binary rather than
    importing it, which is not a reference knip can see.

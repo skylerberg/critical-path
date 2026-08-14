@@ -14,10 +14,10 @@ createdb game_dev
 createdb game_dev_test
 
 cp .env.example .env        # defaults expect role `skylerberg`, no password
-npm install                 # also activates the .githooks post-commit hook
+pnpm install                 # also activates the .githooks post-commit hook
 
-npm run migrate             # migrate the dev database
-npm run migrate:test        # migrate the test database
+pnpm run migrate             # migrate the dev database
+pnpm run migrate:test        # migrate the test database
 ```
 
 Create `.env.test` for the test suite:
@@ -36,12 +36,12 @@ share a test database. See [Testing](#testing).
 ## Development
 
 ```sh
-npm run dev                 # watch mode on http://localhost:3001
-npm start                   # run once
+pnpm run dev                 # watch mode on http://localhost:3001
+pnpm start                   # run once
 ```
 
 Swagger UI at `http://localhost:3001/api/docs`, spec at `/api/openapi.json`.
-`npm run openapi:dump` writes the post-processed spec to `./openapi.json`
+`pnpm run openapi:dump` writes the post-processed spec to `./openapi.json`
 without starting a server. The page serves Swagger UI's own bundle out of the
 image (`swagger-ui-dist`, two files, at `/api/docs/static/…`) rather than from a
 CDN: one host serves the SPA and this API, and the SPA keeps its session token in
@@ -2521,15 +2521,15 @@ Migrations live in `src/db/migrations/` (Kysely `Migrator`, numbered
 `0001_name.ts` files exporting `up`/`down`).
 
 ```sh
-npm run migrate             # dev DB to latest
-npm run migrate:down        # dev DB one step down
-npm run migrate:test        # test DB to latest
+pnpm run migrate             # dev DB to latest
+pnpm run migrate:down        # dev DB one step down
+pnpm run migrate:test        # test DB to latest
 ```
 
 After changing the schema, regenerate `src/db/types.ts` (committed):
 
 ```sh
-DATABASE_URL=postgres://skylerberg@127.0.0.1:5432/game_dev npm run kysely-codegen
+DATABASE_URL=postgres://skylerberg@127.0.0.1:5432/game_dev pnpm run kysely-codegen
 ```
 
 `kysely-codegen` reads the connection from the `DATABASE_URL` environment
@@ -2538,10 +2538,10 @@ variable — it does not use `.env`'s `DB_*` variables.
 ## Testing
 
 ```sh
-npm test                    # full suite against this checkout's own database
-npm run test:watch
-npm run test:coverage
-npm run test:db:prune       # drop test databases whose checkout is gone
+pnpm test                    # full suite against this checkout's own database
+pnpm run test:watch
+pnpm run test:coverage
+pnpm run test:db:prune       # drop test databases whose checkout is gone
 ```
 
 The suite loads `.env.test`, migrates the test DB in global setup, and
@@ -2565,7 +2565,7 @@ copy the same `.env.test`. Two suites started in the _same_ checkout still
 share its database and will still disturb each other — run them from separate
 worktrees.
 
-`npm run migrate:test` reaches the same database via `scripts/with-test-db.ts`.
+`pnpm run migrate:test` reaches the same database via `scripts/with-test-db.ts`.
 Set `TEST_DB_NAME` to override the derivation entirely, `DB_MAINTENANCE_DATABASE`
 (default `postgres`) to change where `CREATE DATABASE` is issued, and
 `DB_POOL_MAX` (default 10, and 5 under vitest) to keep concurrent suites inside
@@ -2573,8 +2573,8 @@ Set `TEST_DB_NAME` to override the derivation entirely, `DB_MAINTENANCE_DATABASE
 
 Every run drops databases whose stamped checkout no longer exists. Databases
 carrying no stamp — from before this scheme, or from another tool — are never
-removed automatically; `npm run test:db:prune` lists them and `npm run
-test:db:prune -- --legacy` drops them.
+removed automatically; `pnpm run test:db:prune` lists them and
+`pnpm run test:db:prune --legacy` drops them.
 
 `tests/setup/resetProcessState.ts` clears the process-global state no test owns
 — the in-process rate limiter's windows and the job runner's in-flight slot
@@ -2622,9 +2622,9 @@ budget and the run would collapse into 429s.
 ## Checks
 
 ```sh
-npm run type-check
-npm run lint
-npm run format
+pnpm run type-check
+pnpm run lint
+pnpm run format
 ```
 
 ## Benchmarks
@@ -2632,12 +2632,12 @@ npm run format
 `bench/` seeds a large instance into a database of its own, drives the app
 in-process and reports p50/p95, statement counts, time spent in Postgres and
 payload size per endpoint. It runs on demand — never in CI, never as part of
-`npm test`.
+`pnpm test`.
 
 ```sh
-npm run bench                 # ~37k cards, seeds in seconds
-npm run bench:heavy           # ~372k cards
-npm run bench -- --explain    # plus the plan for each scenario's slowest statement
+pnpm run bench                 # ~37k cards, seeds in seconds
+pnpm run bench:heavy           # ~372k cards
+pnpm run bench --explain    # plus the plan for each scenario's slowest statement
 ```
 
 `bench/README.md` covers the tiers, the seeded landmarks and how to add a
@@ -2646,14 +2646,14 @@ what is still unbounded and why, and what was checked and cleared.
 
 ## CLI (`cpath`)
 
-A full command-line client lives in `cli/` as a standalone npm package
+A full command-line client lives in `cli/` as a standalone package
 (`critical-path-cli`). It has its own lockfile and `node_modules` on purpose:
 nothing about the deployed API image or the deploy workflow changes when the
 CLI changes.
 
 ```sh
-npm ci --prefix cli         # once; also required before running the CLI tests
-cd cli && npm link          # installs the global `cpath` command
+pnpm -C cli install --frozen-lockfile         # once; also required before running the CLI tests
+pnpm add --global ./cli     # installs the global `cpath` command
 ```
 
 Authenticate — the password is prompted (or piped via `--password-stdin`) and
@@ -2837,7 +2837,7 @@ app and the API need not share an origin.
 After changing the API surface, regenerate the CLI's committed types:
 
 ```sh
-npm run openapi:dump && npm run --prefix cli generate-api
+pnpm run openapi:dump && pnpm -C cli run generate-api
 ```
 
 ## Known limitations (v1)

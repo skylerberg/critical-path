@@ -27,10 +27,10 @@ if [ -z "$candidates" ]; then
   exit 0
 fi
 
-npx eslint --fix $candidates || true
+pnpm exec eslint --fix $candidates || true
 # --log-level warn: silent when it succeeds, still loud on a syntax error.
 # Without it this prints a line per file on every commit.
-npx prettier --write --log-level warn $candidates || true
+pnpm exec prettier --write --log-level warn $candidates || true
 
 changed=""
 for f in $candidates; do

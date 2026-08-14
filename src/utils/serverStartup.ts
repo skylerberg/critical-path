@@ -2,7 +2,7 @@ import { errorText } from './errors';
 
 // A listen failure is fatal in a way the process-wide uncaughtException handler
 // cannot express: that handler logs and carries on, which is right for a request
-// that threw and wrong for a server that never bound. Left to it, `npm run dev`
+// that threw and wrong for a server that never bound. Left to it, `pnpm run dev`
 // stays alive under --watch with no server, and a health check against the port
 // answers from whatever already owns it — so the wrong build looks healthy.
 export function startupFailureMessage(error: NodeJS.ErrnoException, port: number): string {

@@ -1,10 +1,12 @@
 FROM node:24-alpine AS builder
 WORKDIR /app
-COPY package.json package-lock.json ./
-RUN npm ci
+RUN npm install -g pnpm@11.21.0
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+RUN pnpm install --frozen-lockfile
 COPY index.ts tsconfig.json ./
-RUN npm run build
-RUN npm prune --omit=dev
+RUN pnpm run build
+# See the api Dockerfile: a second --prod install, not a prune.
+RUN pnpm install --frozen-lockfile --prod
 
 FROM node:24-alpine
 WORKDIR /app

@@ -21,7 +21,7 @@ const OUT_FILE = './src/db/types.generated.ts';
 //
 // Named per checkout, the same as the test databases and for the same reason:
 // two worktrees can regenerate at once. It carries the checkout stamp too, so
-// `npm run test:db:prune` reclaims one this script failed to drop.
+// `pnpm run test:db:prune` reclaims one this script failed to drop.
 const scratchDatabase = assertResettableDatabaseName(
   `${baseDatabaseName()}_codegen_${createHash('sha256').update(checkoutRoot).digest('hex').slice(0, 8)}`
 );
@@ -87,7 +87,7 @@ try {
   if (dropped.length === 0) {
     console.warn(
       `Left ${scratchDatabase} behind: something still holds a connection to it. ` +
-        'The next run drops it first, or `npm run test:db:prune` will once this checkout is gone.'
+        'The next run drops it first, or `pnpm run test:db:prune` will once this checkout is gone.'
     );
   }
 }

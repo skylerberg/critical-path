@@ -16,7 +16,7 @@ export async function setup() {
   if (env.environment !== 'test') {
     throw new Error(
       `Refusing to run tests against ENVIRONMENT=${env.environment} (database ${env.db.database}). ` +
-        'The suite truncates every table; run via npm test so .env.test is loaded.'
+        'The suite truncates every table; run via pnpm test so .env.test is loaded.'
     );
   }
 
