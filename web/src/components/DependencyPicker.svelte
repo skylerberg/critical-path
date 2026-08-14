@@ -149,7 +149,7 @@
               onkeydown={(event) => onkeydown(event, index)}
               onfocus={() => nav.highlight(rowKey(row))}
               onpointermove={() => nav.highlight(rowKey(row))}
-              class="flex min-h-11 w-full cursor-pointer items-center gap-2 border-l-2 px-3 text-left text-sm transition-colors focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent {index ===
+              class="flex min-h-11 w-full cursor-pointer items-center gap-2 border-l-2 px-3 text-left text-sm transition-colors focus-ring-inset {index ===
               nav.index
                 ? 'border-accent bg-accent-soft text-ink'
                 : 'border-transparent hover:bg-accent-soft'} {row.kind === 'create'

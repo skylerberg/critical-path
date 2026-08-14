@@ -997,9 +997,7 @@ describe('TaskCard selection', () => {
 
     const overlay = screen.getByRole('link', { name: task.title });
 
-    expect(overlay.classList).toContain('focus-visible:outline-2');
-    expect(overlay.classList).toContain('focus-visible:outline-accent');
-    expect(overlay.classList).toContain('focus-visible:outline-offset-0');
+    expect(overlay.classList).toContain('focus-ring-flush');
   });
 
   it('draws no checkbox on a readonly card', () => {

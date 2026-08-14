@@ -282,8 +282,7 @@ describe('DependencyPicker', () => {
       expect(first.classList).not.toContain('bg-accent-soft');
 
       for (const row of [first, second]) {
-        expect(row.classList).toContain('focus-visible:outline-accent');
-        expect(row.classList).toContain('focus-visible:-outline-offset-2');
+        expect(row.classList).toContain('focus-ring-inset');
       }
     });
 

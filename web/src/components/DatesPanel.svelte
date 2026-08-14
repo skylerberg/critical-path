@@ -123,7 +123,7 @@
         <button
           type="button"
           onclick={remove}
-          class="flex min-h-11 cursor-pointer items-center rounded-md px-3 text-sm text-muted hover:bg-accent-soft hover:text-danger focus-visible:outline-2 focus-visible:outline-accent"
+          class="flex min-h-11 cursor-pointer items-center rounded-md px-3 text-sm text-muted hover:bg-accent-soft hover:text-danger focus-ring-flush"
         >
           Remove
         </button>

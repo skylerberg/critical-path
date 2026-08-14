@@ -109,13 +109,45 @@
    with a border-colour swap as its only focused state — which is what most of the
    text fields here had, and what the permanently-border-accent ones had instead of
    any state at all. An outline rather than a ring: it follows border-radius, costs
-   no layout, and survives inside the overflow-hidden scrollers on the board. */
+   no layout, and survives inside the overflow-hidden scrollers on the board.
+
+   Three placements, differing only in where the ring sits relative to the box.
+   They were spelled out class-by-class at 22 sites before they were named here,
+   which is why two of them had drifted onto the browser's own ring instead:
+
+     focus-ring        outside, for a control with room around it
+     focus-ring-flush  on the edge, for something filling its container — a card
+                       in a scrolling column, an inset:0 overlay link
+     focus-ring-inset  inside, for a full-width row in a rounded popup, where an
+                       outside ring is clipped by the container's own corner
+
+   Not covered: the two cards that raise the ring to a parent with
+   `has-[a:focus-visible]:`, since the variant is the parent's, not the control's.
+   `grep -rn 'has-\[a:focus-visible\]' src` is both of them. */
 @utility focus-ring {
   @variant focus-visible {
     outline-width: 2px;
     outline-style: solid;
     outline-color: var(--cp-accent);
     outline-offset: 2px;
+  }
+}
+
+@utility focus-ring-flush {
+  @variant focus-visible {
+    outline-width: 2px;
+    outline-style: solid;
+    outline-color: var(--cp-accent);
+    outline-offset: 0;
+  }
+}
+
+@utility focus-ring-inset {
+  @variant focus-visible {
+    outline-width: 2px;
+    outline-style: solid;
+    outline-color: var(--cp-accent);
+    outline-offset: -2px;
   }
 }
 

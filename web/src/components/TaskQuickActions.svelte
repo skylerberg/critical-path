@@ -216,7 +216,7 @@
     aria-expanded={open === id}
     aria-controls={open === id ? panelId : undefined}
     onclick={activate}
-    class="inline-flex min-h-11 min-w-11 cursor-pointer items-center gap-1.5 rounded-md px-3 text-xs font-medium transition-colors focus-visible:outline-2 focus-visible:outline-accent {open ===
+    class="inline-flex min-h-11 min-w-11 cursor-pointer items-center gap-1.5 rounded-md px-3 text-xs font-medium transition-colors focus-ring-flush {open ===
     id
       ? 'bg-accent-soft text-accent-strong'
       : 'text-muted hover:bg-accent-soft hover:text-ink'}"
@@ -258,7 +258,7 @@
                 type="button"
                 aria-current={column.id === task?.column_id ? 'true' : undefined}
                 onclick={() => moveTo(column.id)}
-                class="flex min-h-11 w-full cursor-pointer items-center gap-2 rounded-md px-3 text-left text-sm hover:bg-accent-soft focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent {column.id ===
+                class="flex min-h-11 w-full cursor-pointer items-center gap-2 rounded-md px-3 text-left text-sm hover:bg-accent-soft focus-ring-inset {column.id ===
                 task?.column_id
                   ? 'font-medium text-accent-strong'
                   : ''}"

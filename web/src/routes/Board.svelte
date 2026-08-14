@@ -47,7 +47,7 @@
 
   let { projectId, readonly = false }: Props = $props();
 
-  const cardClass = 'rounded-md focus-visible:outline-2 focus-visible:outline-accent';
+  const cardClass = 'rounded-md focus-ring-flush';
 
   // Svelte's animate: directive measures EVERY item in the list with two
   // getBoundingClientRect() calls each time the list changes — and a drag

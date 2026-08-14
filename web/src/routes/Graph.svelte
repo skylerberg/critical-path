@@ -834,7 +834,7 @@
                   ? 'Retry loading blocking tasks in other projects'
                   : `Show ${n.count} blocking task${n.count === 1 ? '' : 's'} in other projects`}
                 onclick={() => expandCrossProject(n.hostTaskId)}
-                class="flex h-full w-full cursor-pointer items-center justify-center gap-2 rounded-[10px] px-3 text-[13px] text-muted hover:text-ink focus-visible:outline-2 focus-visible:outline-accent disabled:cursor-default"
+                class="flex h-full w-full cursor-pointer items-center justify-center gap-2 rounded-[10px] px-3 text-[13px] text-muted hover:text-ink focus-ring-flush disabled:cursor-default"
               >
                 {#if crossEntry?.loading === true}
                   <Spinner size="sm" label="Loading tasks in other projects" />

@@ -67,7 +67,7 @@
         <button
           type="button"
           onclick={() => crossProjectDeps.refresh(taskId)}
-          class="cursor-pointer underline focus-visible:outline-2 focus-visible:outline-accent"
+          class="cursor-pointer underline focus-ring-flush"
         >
           Try again
         </button>

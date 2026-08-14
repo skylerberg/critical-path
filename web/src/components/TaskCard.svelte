@@ -235,7 +235,7 @@
         : taskHref(task.id, task.title) + board.filterSearch}
       draggable="false"
       aria-label={shownTitle}
-      class="absolute inset-0 rounded-md focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-accent"
+      class="absolute inset-0 rounded-md focus-ring-flush"
     ></a>
   {/if}
   <!-- Coalesced: a pod predating covers omits cover_image_url. Truthy rather than

@@ -11,7 +11,7 @@
   const shown = $derived(count > 0 && board.canEdit);
 
   const buttonClass =
-    'inline-flex min-h-11 min-w-11 shrink-0 cursor-pointer items-center justify-center gap-2 rounded-md px-2 text-sm font-medium hover:bg-accent-soft focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent sm:px-3';
+    'inline-flex min-h-11 min-w-11 shrink-0 cursor-pointer items-center justify-center gap-2 rounded-md px-2 text-sm font-medium hover:bg-accent-soft focus-ring-inset sm:px-3';
 
   async function clearSelection(): Promise<void> {
     const cursorId = selection.cursorTaskId;
