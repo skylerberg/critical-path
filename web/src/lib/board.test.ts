@@ -1340,6 +1340,94 @@ describe('board store mutations', () => {
     submit.mockRestore();
   });
 
+  it('renameColumn renames the column and PATCHes the new name', async () => {
+    await board.renameColumn('c1', 'Backlog');
+
+    expect(board.columns.find((c) => c.id === 'c1')?.name).toBe('Backlog');
+    const request = requestAt(0);
+    expect(request.method).toBe('PATCH');
+    expect(new URL(request.url).pathname).toBe('/api/columns/c1');
+    expect(await request.json()).toEqual({ name: 'Backlog' });
+  });
+
+  it('renameColumn toasts and refetches the board rather than rolling the name back', async () => {
+    mockRoutes((request, url) =>
+      request.method === 'PATCH' && url.pathname === '/api/columns/c1'
+        ? jsonResponse(422, { error: 'Name too long' })
+        : undefined
+    );
+
+    await board.renameColumn('c1', 'Backlog');
+
+    expect(requestAt(1).method).toBe('GET');
+    expect(board.columns.find((c) => c.id === 'c1')?.name).toBe('Todo');
+    expect(toasts.toasts.map((t) => t.message)).toEqual(['Name too long']);
+  });
+
+  it('toggleColumnDone flips the flag both ways and PATCHes each new value', async () => {
+    await board.toggleColumnDone('c1');
+    await board.toggleColumnDone('c2');
+
+    expect(board.columns.find((c) => c.id === 'c1')?.is_done).toBe(true);
+    expect(board.columns.find((c) => c.id === 'c2')?.is_done).toBe(false);
+    expect(new URL(requestAt(0).url).pathname).toBe('/api/columns/c1');
+    expect(await requestAt(0).json()).toEqual({ is_done: true });
+    expect(await requestAt(1).json()).toEqual({ is_done: false });
+  });
+
+  // The label is the unsynced-changes panel's description of a queued toggle, and
+  // it names the state the column is moving to rather than the one it left.
+  it('toggleColumnDone names the state it is moving to', async () => {
+    const submit = vi.spyOn(outbox, 'submit');
+
+    await board.toggleColumnDone('c1');
+    await board.toggleColumnDone('c2');
+
+    expect(submit.mock.calls.map((call) => call[0].label)).toEqual([
+      'Marked “Todo” as done',
+      'Marked “Done” as not done',
+    ]);
+    submit.mockRestore();
+  });
+
+  it('toggleColumnDone toasts and refetches the board rather than rolling the flag back', async () => {
+    mockRoutes((request, url) =>
+      request.method === 'PATCH' && url.pathname === '/api/columns/c1'
+        ? jsonResponse(422, { error: 'Nope' })
+        : undefined
+    );
+
+    await board.toggleColumnDone('c1');
+
+    expect(requestAt(1).method).toBe('GET');
+    expect(board.columns.find((c) => c.id === 'c1')?.is_done).toBe(false);
+    expect(toasts.toasts.map((t) => t.message)).toEqual(['Nope']);
+  });
+
+  it('setTaskAssignees applies optimistically and PUTs the full set', async () => {
+    await board.setTaskAssignees('t2', ['u-alan']);
+
+    expect(board.tasks.find((t) => t.id === 't2')?.assignee_ids).toEqual(['u-alan']);
+    const request = requestAt(0);
+    expect(request.method).toBe('PUT');
+    expect(new URL(request.url).pathname).toBe('/api/tasks/t2/assignees');
+    expect(await request.json()).toEqual({ user_ids: ['u-alan'] });
+  });
+
+  it('setTaskAssignees toasts and refetches the board rather than rolling the set back', async () => {
+    mockRoutes((request, url) =>
+      request.method === 'PUT' && url.pathname === '/api/tasks/t2/assignees'
+        ? jsonResponse(422, { error: 'Not a member' })
+        : undefined
+    );
+
+    await board.setTaskAssignees('t2', ['u-alan']);
+
+    expect(requestAt(1).method).toBe('GET');
+    expect(board.tasks.find((t) => t.id === 't2')?.assignee_ids).toEqual([]);
+    expect(toasts.toasts.map((t) => t.message)).toEqual(['Not a member']);
+  });
+
   it('setTaskLabels applies optimistically and PUTs the full set', async () => {
     await board.setTaskLabels('t2', ['l1']);
 
@@ -2191,6 +2279,34 @@ describe('archive', () => {
     release(jsonResponse(200, { tasks: [] }));
     await pending;
 
+    expect(board.archivedLoaded).toBe(true);
+    expect(board.archivedLoading).toBe(false);
+  });
+
+  // The failure is a whole-panel error state, so an older one landing on top of a
+  // list that has since arrived replaces rows the user is reading with a retry.
+  it('loadArchived leaves a newer archive alone when an older failure lands after it', async () => {
+    let failStale!: () => void;
+    fetchMock.mockImplementationOnce(
+      async () =>
+        new Promise<Response>((resolve) => {
+          failStale = () => resolve(jsonResponse(500, { error: 'nope' }));
+        })
+    );
+    const stale = board.loadArchived();
+
+    mockRoutes((request, url) =>
+      request.method === 'GET' && url.pathname === '/api/projects/p1/archived-tasks'
+        ? jsonResponse(200, { tasks: [archivedTask('t9', 'c1', 'Old')] })
+        : undefined
+    );
+    await board.loadArchived();
+
+    failStale();
+    await stale;
+
+    expect(board.archivedError).toBeNull();
+    expect(board.archivedTasks.map((t) => t.id)).toEqual(['t9']);
     expect(board.archivedLoaded).toBe(true);
     expect(board.archivedLoading).toBe(false);
   });
@@ -3492,6 +3608,34 @@ describe('board store checklists', () => {
     expect(counts()).toEqual([1, 1]);
   });
 
+  it('setChecklistItemChecked unchecking gives the done count back and PATCHes false', async () => {
+    board.taskChecklists = { t1: [serverChecklistItem('untick me', 'ci1', 1000, true)] };
+    board.tasks = board.tasks.map((t) =>
+      t.id === 't1' ? { ...t, checklist_item_count: 1, checklist_done_count: 1 } : t
+    );
+
+    await board.setChecklistItemChecked('t1', 'ci1', false);
+
+    expect(counts()).toEqual([1, 0]);
+    expect(board.taskChecklists.t1![0]!.checked).toBe(false);
+    expect(await requestAt(0).json()).toEqual({ checked: false });
+  });
+
+  // Both halves of the label the unsynced-changes panel shows for a queued tick.
+  it('setChecklistItemChecked names checking and unchecking apart', async () => {
+    board.taskChecklists = { t1: [serverChecklistItem('feed the cat', 'ci1')] };
+    const submit = vi.spyOn(outbox, 'submit');
+
+    await board.setChecklistItemChecked('t1', 'ci1', true);
+    await board.setChecklistItemChecked('t1', 'ci1', false);
+
+    expect(submit.mock.calls.map((call) => call[0].label)).toEqual([
+      'Checked “feed the cat”',
+      'Unchecked “feed the cat”',
+    ]);
+    submit.mockRestore();
+  });
+
   it('renameChecklistItem patches only the text and adopts the server row', async () => {
     board.taskChecklists = { t1: [serverChecklistItem('before', 'ci1')] };
 
@@ -3712,6 +3856,14 @@ describe('board store activity refresh', () => {
     await board.setTaskLabels('t1', ['l1']);
 
     expect(requestLines()).toEqual(['PUT /api/tasks/t1/labels', 'GET /api/tasks/t1/activity']);
+  });
+
+  it('refetches the log after the assignee write, not before it', async () => {
+    await openLog();
+
+    await board.setTaskAssignees('t1', ['u-alan']);
+
+    expect(requestLines()).toEqual(['PUT /api/tasks/t1/assignees', 'GET /api/tasks/t1/activity']);
   });
 
   it('refetches after a move, an archive and a blocker change', async () => {

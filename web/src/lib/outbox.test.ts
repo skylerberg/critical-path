@@ -268,6 +268,30 @@ describe('when a replayed change cannot be applied', () => {
     expect(outbox.count).toBe(0);
   });
 
+  // The 403 half of the same arm: the card is still there, so "no longer on the
+  // board" would send the user looking for a card they can see and cannot write.
+  it('says access, not absence, when the card is refused rather than missing', async () => {
+    unreachable();
+    await outbox.submit(edit({ label: 'rename' }));
+    await outbox.submit(edit({ label: 'label change' }));
+    await outbox.submit(otherTaskEdit('elsewhere'));
+
+    fetchMock.mockReset();
+    fetchMock.mockResolvedValueOnce(jsonResponse(403, { error: 'Forbidden' }));
+    alwaysRespond(200);
+    await outbox.drain();
+
+    expect(outbox.issues).toHaveLength(1);
+    expect(outbox.issues[0]).toMatchObject({ reason: 'forbidden' });
+    expect(outbox.issues[0]?.detail).toBe(
+      'You no longer have access, so 2 of your changes could not be applied.'
+    );
+    // The second doomed op is forgotten rather than retried: two requests went
+    // out, the refusal and the unrelated card's edit.
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(outbox.count).toBe(0);
+  });
+
   it('keeps the queue when the session is rejected rather than discarding the work', async () => {
     unreachable();
     await outbox.submit(edit({ label: 'first' }));

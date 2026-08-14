@@ -229,6 +229,95 @@ export const guards = [
     tests: ['src/lib/connectivity.svelte.test.ts'],
   },
   {
+    // The three below are the methods coverage found with no non-spy call site
+    // anywhere in the suite, so nothing had ever run their bodies. Each guard
+    // takes the optimistic half, which is the half a call-through spy asserting
+    // `toHaveBeenCalledWith` still cannot see.
+    name: 'setTaskAssignees applies the set to the card it names',
+    testName: 'setTaskAssignees applies optimistically and PUTs the full set',
+    file: 'src/lib/board.svelte.ts',
+    find: '    this.tasks = patchById(this.tasks, taskId, (task) => ({ ...task, assignee_ids: userIds }));',
+    replace: '    this.tasks = patchById(this.tasks, taskId, (task) => ({ ...task }));',
+    tests: ['src/lib/board.test.ts'],
+  },
+  {
+    name: 'renameColumn renames the column before the server answers',
+    testName: 'renameColumn renames the column and PATCHes the new name',
+    file: 'src/lib/board.svelte.ts',
+    find: '    this.columns = this.columns.map((column) =>\n      column.id === columnId ? { ...column, name } : column\n    );',
+    replace: '    this.columns = this.columns.map((column) => column);',
+    tests: ['src/lib/board.test.ts'],
+  },
+  {
+    name: 'toggleColumnDone flips the column before the server answers',
+    testName: 'toggleColumnDone flips the flag both ways and PATCHes each new value',
+    file: 'src/lib/board.svelte.ts',
+    find: '    this.columns = this.columns.map((c) => (c.id === columnId ? { ...c, is_done } : c));',
+    replace: '    this.columns = this.columns.map((c) => c);',
+    tests: ['src/lib/board.test.ts'],
+  },
+  {
+    // Only the checking half was ever exercised, so the decrement was free to be
+    // an increment: unticking an item raised the done count past the total.
+    name: 'unticking a checklist item gives the done count back',
+    testName: 'setChecklistItemChecked unchecking gives the done count back and PATCHes false',
+    file: 'src/lib/board-checklists.svelte.ts',
+    find: '        done: checked ? done + 1 : done - 1,',
+    replace: '        done: done + 1,',
+    tests: ['src/lib/board.test.ts'],
+  },
+  {
+    // 403 and 404 share one arm, and only the 404 half had a test: the card is
+    // still on the board, so "no longer on the board" sends the reader looking
+    // for a card they can see and cannot write.
+    name: 'a refused card is reported as access, not as absence',
+    testName: 'says access, not absence, when the card is refused rather than missing',
+    file: 'src/lib/outbox.svelte.ts',
+    find: "        reason: error.status === 404 ? 'gone' : 'forbidden',",
+    replace: "        reason: 'gone',",
+    tests: ['src/lib/outbox.test.ts'],
+  },
+  {
+    // Flipped rather than deleted, and that is the finding: `null < 'V0…'` is
+    // false, so removing this line falls through to the key comparison and
+    // returns the same 1. Only the sign is observable.
+    name: 'an unkeyed row sorts last from either side',
+    testName: 'sorts an unkeyed row after a keyed one, whichever side it is on',
+    file: 'src/lib/ranks.ts',
+    find: '  if (a.sort_key === null) return 1;',
+    replace: '  if (a.sort_key === null) return -1;',
+    tests: ['src/lib/ranks.test.ts'],
+  },
+  {
+    // Three of the twelve sites where a response can outlive the state it was
+    // asked for, one per distinct consequence: rows cleared under the reader,
+    // an error painted over content that has since arrived, and an entry
+    // resurrected for a panel that is closed.
+    name: 'a search failure that lost the race clears nobody’s rows',
+    testName: 'discards a failure that lost the race with a newer query',
+    file: 'src/lib/search.svelte.ts',
+    find: '    } catch (error) {\n      if (token !== this.#token) {\n        return;\n      }',
+    replace: '    } catch (error) {',
+    tests: ['src/lib/search.test.ts'],
+  },
+  {
+    name: 'a late archive failure does not take down a loaded archive',
+    testName: 'loadArchived leaves a newer archive alone when an older failure lands after it',
+    file: 'src/lib/board.svelte.ts',
+    find: "    } catch (error) {\n      if (token !== this.#archivedToken) {\n        return;\n      }\n      this.archivedError = apiMessage(error, 'Failed to load the archive');",
+    replace:
+      "    } catch (error) {\n      this.archivedError = apiMessage(error, 'Failed to load the archive');",
+    tests: ['src/lib/board.test.ts'],
+  },
+  {
+    name: 'a forgotten task’s failure does not put its panel back',
+    testName: 'writes nothing for a task forgotten while its read was failing',
+    file: 'src/lib/crossProjectDeps.svelte.ts',
+    find: '    } catch (error) {\n      if (this.#tokens.get(taskId) !== token) return;',
+    replace: '    } catch (error) {',
+    tests: ['src/lib/crossProjectDeps.test.ts'],
+  },
+  {
     // The store flag and the pure state function are each tested alone, so this
     // one property is the whole of the wire between them: a literal here
     // typechecks and leaves every other test green.

@@ -122,6 +122,32 @@ describe('crossProjectDeps store', () => {
     expect(crossProjectDeps.get('t1')).toBeUndefined();
   });
 
+  // The entry is the panel's whole state, so a failure landing for a task that is
+  // no longer watched re-creates a row — an error one — for a closed panel, and
+  // after a sign-out it re-creates it under the next account.
+  it('writes nothing for a task forgotten while its read was failing', async () => {
+    let fail!: () => void;
+    fetchMock.mockImplementationOnce(
+      async () =>
+        new Promise<Response>((resolve) => {
+          fail = () => resolve(jsonResponse(500, { error: 'boom' }));
+        })
+    );
+    crossProjectDeps.ensure('t1');
+    await vi.waitFor(() => expect(fail).toBeDefined());
+
+    crossProjectDeps.forget('t1');
+    fail();
+
+    // Control: an identical failure that was never forgotten does land, and it
+    // started later — so once it has, the forgotten one has had its turn too.
+    fetchMock.mockImplementation(async () => jsonResponse(500, { error: 'boom' }));
+    crossProjectDeps.ensure('t2');
+    await vi.waitFor(() => expect(crossProjectDeps.get('t2')?.error).toBe(true));
+
+    expect(crossProjectDeps.get('t1')).toBeUndefined();
+  });
+
   it('forget drops one task without touching the others', async () => {
     crossProjectDeps.ensure('t1');
     await settle();

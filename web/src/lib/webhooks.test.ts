@@ -124,6 +124,27 @@ describe('webhooks store', () => {
     expect(webhooks.list.map((w) => w.secret)).toEqual(['real']);
   });
 
+  // The failure is the whole panel's state, so an older one landing on top of a
+  // list that has since arrived replaces the rows with a retry prompt.
+  it('leaves a loaded list alone when an older failure lands after it', async () => {
+    let failStale!: () => void;
+    fetchMock.mockReturnValueOnce(
+      new Promise<Response>((resolve) => {
+        failStale = () => resolve(jsonResponse(500, { error: 'Boom' }));
+      })
+    );
+    const stale = webhooks.load('p-1');
+
+    await loadWith([webhook()]);
+
+    failStale();
+    await stale;
+
+    expect(webhooks.loadError).toBeNull();
+    expect(webhooks.list.map((w) => w.id)).toEqual(['w-1']);
+    expect(webhooks.loaded).toBe(true);
+  });
+
   it('discards a load that was in flight when the session ended', async () => {
     let settle: (response: Response) => void = () => {};
     fetchMock.mockReturnValueOnce(
@@ -250,6 +271,60 @@ describe('webhooks store', () => {
 
     fetchMock.mockResolvedValueOnce(jsonResponse(200, { deliveries: [delivery()] }));
     await webhooks.loadDeliveries('w-1');
+
+    expect(webhooks.deliveriesError['w-1']).toBeUndefined();
+    expect(webhooks.deliveries['w-1']).toEqual([delivery()]);
+  });
+
+  it('ignores a delivery log the panel has already moved off', async () => {
+    await loadWith([webhook(), webhook({ id: 'w-2' })]);
+
+    let settleStale!: (response: Response) => void;
+    fetchMock.mockReturnValueOnce(
+      new Promise<Response>((resolve) => {
+        settleStale = resolve;
+      })
+    );
+    const stale = webhooks.loadDeliveries('w-1');
+
+    let settleOpen!: (response: Response) => void;
+    fetchMock.mockReturnValueOnce(
+      new Promise<Response>((resolve) => {
+        settleOpen = resolve;
+      })
+    );
+    const open = webhooks.loadDeliveries('w-2');
+
+    settleStale(jsonResponse(200, { deliveries: [delivery()] }));
+    await stale;
+
+    expect(webhooks.deliveries['w-1']).toBeUndefined();
+    // The spinner still belongs to the log that is still loading.
+    expect(webhooks.deliveriesLoading).toBe('w-2');
+
+    settleOpen(jsonResponse(200, { deliveries: [delivery({ id: 'd-2', webhook_id: 'w-2' })] }));
+    await open;
+
+    expect(webhooks.deliveries['w-2'].map((d) => d.id)).toEqual(['d-2']);
+    expect(webhooks.deliveriesLoading).toBeNull();
+  });
+
+  it('leaves a reloaded delivery log alone when the failure it replaced lands late', async () => {
+    await loadWith([webhook()]);
+
+    let failStale!: () => void;
+    fetchMock.mockReturnValueOnce(
+      new Promise<Response>((resolve) => {
+        failStale = () => resolve(jsonResponse(500, { error: 'Internal Server Error' }));
+      })
+    );
+    const stale = webhooks.loadDeliveries('w-1');
+
+    fetchMock.mockResolvedValueOnce(jsonResponse(200, { deliveries: [delivery()] }));
+    await webhooks.loadDeliveries('w-1');
+
+    failStale();
+    await stale;
 
     expect(webhooks.deliveriesError['w-1']).toBeUndefined();
     expect(webhooks.deliveries['w-1']).toEqual([delivery()]);

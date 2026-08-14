@@ -48,6 +48,16 @@ describe('byRank', () => {
   it('sorts a keyed row ahead of an unkeyed one', () => {
     expect(byRank(item('a', k(0)), item('b', null))).toBeLessThan(0);
   });
+
+  // The same contract with the unkeyed row on the left. Deleting that arm is
+  // invisible — `null < 'V0…'` is false, so the key comparison below returns the
+  // same 1 — which is why the guard on it flips the sign rather than removing it.
+  it('sorts an unkeyed row after a keyed one, whichever side it is on', () => {
+    expect(byRank(item('a', null), item('b', k(0)))).toBeGreaterThan(0);
+
+    const rows: Ranked[] = [item('a', null), item('b', k(0))];
+    expect([...rows].sort(byRank).map((row) => row.id)).toEqual(['b', 'a']);
+  });
 });
 
 describe('the Keyed requirement on the append family', () => {
