@@ -67,7 +67,9 @@
 
   function moveTo(columnId: string): void {
     if (task !== undefined && columnId !== task.column_id) {
-      void board.moveTask(taskId, columnId, append(board.tasksInColumn(columnId)));
+      void board.moveTask(taskId, columnId, append(board.tasksInColumn(columnId)), {
+        kind: 'append',
+      });
     }
     close({ restoreFocus: true });
   }

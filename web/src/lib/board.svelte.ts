@@ -36,6 +36,7 @@ import {
   append,
   appendRun,
   byRank,
+  neighborIds,
   neighborsAfterDrop,
   placeAtIndex,
   placeBetweenNeighbors,
@@ -99,12 +100,29 @@ export type TaskUpdateOutcome =
   | { status: 'error' };
 
 // Anchors on the visual neighbor above the drop, so it stays correct when the
-// display order is a filtered partition rather than pure rank order. Both this
-// and the neighbors a queued move remembers come from `neighborsAfterDrop`, so
-// what gets sent now and what gets replayed later cannot describe different drops.
-export function placementAfterDrop(items: readonly Keyed[], movedId: string): Placement {
+// display order is a filtered partition rather than pure rank order. The key and
+// the neighbors are one computation handed back together, which is what makes
+// "the move sent now and the move replayed later are the same drop" a fact about
+// the code rather than a hope about its callers: until `moveTask` lost its
+// default intent, this returned the key alone and every queued drag replayed as
+// an append.
+//
+// `moveColumn` and `moveChecklistItem` still take only the placement half, so a
+// reorder made offline still replays a stale key (issue #203).
+//
+// Null for a drop that landed nowhere — the moved id is not among `items` — so a
+// nonsensical finalize writes nothing rather than moving a card the user never
+// dropped.
+export function placementAfterDrop(
+  items: readonly Keyed[],
+  movedId: string
+): { placement: Placement; intent: Neighbors } | null {
+  const intent = neighborsAfterDrop(items, movedId);
+  if (intent === null) {
+    return null;
+  }
   const others = items.filter((item) => item.id !== movedId);
-  return placeBetweenNeighbors(others, neighborsAfterDrop(items, movedId)).placement;
+  return { placement: placeBetweenNeighbors(others, intent).placement, intent };
 }
 
 // How long the payload that located a card may stand in for the card's own first
@@ -844,18 +862,20 @@ class BoardStore {
   }
 
   /**
-   * `intent` is the same drop expressed as the cards it landed between, and it
+   * `intent` is the same move expressed as the cards it landed between, and it
    * is what gets queued when this cannot be sent now. A `sort_key` is only
    * meaningful against the board it was computed from, so replaying one minutes
    * later would drop the card wherever that key happens to fall; the neighbors
-   * still mean what the user meant. Defaults to the end of the column, which is
-   * what the callers that append actually intend.
+   * still mean what the user meant. Required, and with no default: a caller that
+   * says nothing and a caller that means the end of the column are different
+   * moves, and spelling both of them as a pair of nulls is what made every
+   * queued drag replay as an append.
    */
   async moveTask(
     taskId: string,
     columnId: string,
     placement: Placement,
-    intent: Neighbors = { afterId: null, beforeId: null }
+    intent: Neighbors
   ): Promise<void> {
     this.tasks = this.tasks.map((task) =>
       task.id === taskId ? { ...task, column_id: columnId, ...placement } : task
@@ -865,7 +885,7 @@ class BoardStore {
       entityId: taskId,
       label: `Moved “${truncateTitle(title)}”`,
       semantics: 'move',
-      move: { columnId, ...intent },
+      move: { columnId, ...neighborIds(intent) },
       request: {
         method: 'PATCH',
         path: '/api/tasks/{id}',
@@ -885,7 +905,9 @@ class BoardStore {
     if (doneColumn === undefined) {
       return false;
     }
-    void this.moveTask(taskId, doneColumn.id, append(this.tasksInColumn(doneColumn.id)));
+    void this.moveTask(taskId, doneColumn.id, append(this.tasksInColumn(doneColumn.id)), {
+      kind: 'append',
+    });
     return true;
   }
 

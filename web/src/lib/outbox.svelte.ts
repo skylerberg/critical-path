@@ -12,7 +12,7 @@ import {
   type ConflictContext,
   type SerializedRequest,
 } from './outbox-ops';
-import { byRank, placeBetweenNeighbors, type Keyed } from './ranks';
+import { byRank, neighborsFromIds, placeBetweenNeighbors, type Keyed } from './ranks';
 import { session } from './session.svelte';
 
 // A queue is a promise that the work is still coming, and an unbounded one is a
@@ -499,10 +499,10 @@ class OutboxStore {
     const siblings = board.tasks
       .filter((task) => task.column_id === move.columnId && task.id !== op.entityId)
       .sort(byRank);
-    const { placement, exact } = placeBetweenNeighbors(siblings, {
-      afterId: move.afterId,
-      beforeId: move.beforeId,
-    });
+    const { placement, exact } = placeBetweenNeighbors(
+      siblings,
+      neighborsFromIds(move.afterId, move.beforeId)
+    );
     const body = { ...(op.request.body as Record<string, unknown>), ...placement };
     return { request: { ...op.request, body }, exact };
   }

@@ -141,18 +141,31 @@ describe('QuickMoveMenu', () => {
   // 'Cut cards' then 'Print rules' — rather than an exact key, which the
   // generator is free to choose.
   it.each([
-    ['Top (before "Cut cards")', null, CUT_CARDS_KEY],
-    ['Before "Print rules"', CUT_CARDS_KEY, PRINT_RULES_KEY],
-    ['Bottom (after "Print rules")', PRINT_RULES_KEY, null],
-  ])('places the card at %s', async (row, after, before) => {
+    [
+      'Top (before "Cut cards")',
+      null,
+      CUT_CARDS_KEY,
+      { kind: 'between', afterId: null, beforeId: 't2' },
+    ],
+    [
+      'Before "Print rules"',
+      CUT_CARDS_KEY,
+      PRINT_RULES_KEY,
+      { kind: 'between', afterId: 't2', beforeId: 't3' },
+    ],
+    [
+      'Bottom (after "Print rules")',
+      PRINT_RULES_KEY,
+      null,
+      { kind: 'between', afterId: 't3', beforeId: null },
+    ],
+  ])('places the card at %s', async (row, after, before, intent) => {
     open();
     await chooseColumn('Doing');
 
     await fireEvent.click(screen.getByRole('button', { name: row }));
 
-    expect(moveTask).toHaveBeenCalledWith('t1', 'doing', {
-      sort_key: expect.any(String),
-    });
+    expect(moveTask).toHaveBeenCalledWith('t1', 'doing', { sort_key: expect.any(String) }, intent);
     const placed = moveTask.mock.calls[0]![2].sort_key;
     if (after !== null) expect(placed > after).toBe(true);
     if (before !== null) expect(placed < before).toBe(true);
@@ -163,9 +176,12 @@ describe('QuickMoveMenu', () => {
 
     await chooseColumn('Done');
 
-    expect(moveTask).toHaveBeenCalledWith('t1', 'done', {
-      sort_key: expect.any(String),
-    });
+    expect(moveTask).toHaveBeenCalledWith(
+      't1',
+      'done',
+      { sort_key: expect.any(String) },
+      { kind: 'append' }
+    );
     expect(onclose).toHaveBeenCalledTimes(1);
     expect(screen.queryByLabelText('Search positions')).toBeNull();
   });
@@ -189,9 +205,12 @@ describe('QuickMoveMenu', () => {
     await fireEvent.keyDown(input, { key: 'ArrowDown' });
     await fireEvent.keyDown(input, { key: 'Enter' });
 
-    expect(moveTask).toHaveBeenCalledWith('t1', 'doing', {
-      sort_key: expect.any(String),
-    });
+    expect(moveTask).toHaveBeenCalledWith(
+      't1',
+      'doing',
+      { sort_key: expect.any(String) },
+      { kind: 'between', afterId: 't2', beforeId: 't3' }
+    );
   });
 
   it('clamps at the top', async () => {
@@ -204,7 +223,12 @@ describe('QuickMoveMenu', () => {
     await fireEvent.keyDown(input, { key: 'ArrowUp' });
     await fireEvent.keyDown(input, { key: 'Enter' });
 
-    expect(moveTask).toHaveBeenCalledWith('t1', 'doing', { sort_key: expect.any(String) });
+    expect(moveTask).toHaveBeenCalledWith(
+      't1',
+      'doing',
+      { sort_key: expect.any(String) },
+      { kind: 'between', afterId: null, beforeId: 't2' }
+    );
   });
 
   it('re-resolves the anchor at commit time, so a card inserted meanwhile does not shift the slot', async () => {
@@ -231,9 +255,12 @@ describe('QuickMoveMenu', () => {
 
     await fireEvent.keyDown(input, { key: 'Enter' });
 
-    expect(moveTask).toHaveBeenCalledWith('t1', 'doing', {
-      sort_key: expect.any(String),
-    });
+    expect(moveTask).toHaveBeenCalledWith(
+      't1',
+      'doing',
+      { sort_key: expect.any(String) },
+      { kind: 'between', afterId: 't2', beforeId: 't3' }
+    );
     await waitFor(() => {
       expect(announcer.message).toBe('Moved "Design cards" to Doing, position 3 of 4');
     });
@@ -249,9 +276,12 @@ describe('QuickMoveMenu', () => {
     board.tasks = board.tasks.filter((t) => t.id !== 't3');
     anchorRow.click();
 
-    expect(moveTask).toHaveBeenCalledWith('t1', 'doing', {
-      sort_key: expect.any(String),
-    });
+    expect(moveTask).toHaveBeenCalledWith(
+      't1',
+      'doing',
+      { sort_key: expect.any(String) },
+      { kind: 'between', afterId: 't2', beforeId: null }
+    );
   });
 
   it('unwinds the query first and the step second on Escape', async () => {

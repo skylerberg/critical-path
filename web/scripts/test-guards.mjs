@@ -125,6 +125,35 @@ export const guards = [
     tests: ['src/lib/sync-state.test.ts'],
   },
   {
+    name: 'a dropped card queues the cards it landed between',
+    testName: 'queues the cards the dropped card landed between',
+    file: 'src/routes/Board.svelte',
+    find: '      void board.moveTask(event.detail.info.id, columnId, drop.placement, drop.intent);',
+    // The regression this is aimed at is not "the argument goes away" — the type
+    // refuses that now — but an append passed because it compiles, which is what
+    // the missing argument used to mean and what nothing used to notice.
+    replace:
+      "      void board.moveTask(event.detail.info.id, columnId, drop.placement, { kind: 'append' });",
+    tests: ['src/routes/Board.test.ts'],
+  },
+  {
+    name: 'a drop that landed nowhere is not an append',
+    testName: 'declines to name neighbors for a card that is not in the list',
+    file: 'src/lib/ranks.ts',
+    find: '  if (index === -1) {\n    return null;\n  }',
+    replace: "  if (index === -1) {\n    return { kind: 'append' };\n  }",
+    tests: ['src/lib/ranks.test.ts'],
+  },
+  {
+    name: 'the move menu queues the slot it aimed at',
+    testName: 'places the card at',
+    file: 'src/components/QuickMoveMenu.svelte',
+    find: '    void ctx.moveTask(taskId, column.id, placeAtIndex(rest, index), neighborsAtIndex(rest, index));',
+    replace:
+      "    void ctx.moveTask(taskId, column.id, placeAtIndex(rest, index), { kind: 'append' });",
+    tests: ['src/components/QuickMoveMenu.test.ts'],
+  },
+  {
     name: 'the reachability seed lowers but never raises',
     testName: 'does not let the interface overwrite an answer already given',
     file: 'src/lib/connectivity.svelte.ts',

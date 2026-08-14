@@ -101,7 +101,12 @@ describe('TaskQuickActions', () => {
       })
     );
 
-    expect(spy).toHaveBeenCalledWith('t1', 'c2', { sort_key: expect.any(String) });
+    expect(spy).toHaveBeenCalledWith(
+      't1',
+      'c2',
+      { sort_key: expect.any(String) },
+      { kind: 'append' }
+    );
     expect(screen.queryByRole('group', { name: 'Move to column' })).toBeNull();
   });
 

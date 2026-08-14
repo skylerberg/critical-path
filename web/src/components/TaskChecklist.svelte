@@ -117,11 +117,11 @@
     if (origin === items.findIndex((item) => item.id === event.detail.info.id)) {
       return;
     }
-    void board.moveChecklistItem(
-      taskId,
-      event.detail.info.id,
-      placementAfterDrop(items, event.detail.info.id)
-    );
+    const drop = placementAfterDrop(items, event.detail.info.id);
+    if (drop === null) {
+      return;
+    }
+    void board.moveChecklistItem(taskId, event.detail.info.id, drop.placement);
   }
 
   // The quick bar reveals an empty checklist; the field it should land in is here.

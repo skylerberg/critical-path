@@ -5,6 +5,7 @@ import {
   between,
   byRank,
   neighborsAfterDrop,
+  neighborsAtIndex,
   placeAtIndex,
   placeBetweenNeighbors,
   reorderRankUpdates,
@@ -65,7 +66,7 @@ describe('the Keyed requirement on the append family', () => {
       // @ts-expect-error - placeAtIndex takes Keyed[]
       placeAtIndex(rows, 0);
       // @ts-expect-error - placeBetweenNeighbors takes Keyed[]
-      placeBetweenNeighbors(rows, { afterId: null, beforeId: null });
+      placeBetweenNeighbors(rows, { kind: 'append' });
     };
     expect(neverRun).toBeTypeOf('function');
   });
@@ -171,12 +172,17 @@ describe('neighbors as the durable form of a drop', () => {
     const items = rows(k(0), k(1), k(2));
     // Moving the last card into the middle.
     const display = [items[0]!, items[2]!, items[1]!];
-    expect(neighborsAfterDrop(display, 't2')).toEqual({ afterId: 't0', beforeId: 't1' });
+    expect(neighborsAfterDrop(display, 't2')).toEqual({
+      kind: 'between',
+      afterId: 't0',
+      beforeId: 't1',
+    });
   });
 
   it('has no anchor above it at the top of the list', () => {
     const items = rows(k(0), k(1));
     expect(neighborsAfterDrop([items[1]!, items[0]!], 't1')).toEqual({
+      kind: 'between',
       afterId: null,
       beforeId: 't0',
     });
@@ -184,7 +190,17 @@ describe('neighbors as the durable form of a drop', () => {
 
   it('has no anchor below it at the end of the list', () => {
     const items = rows(k(0), k(1));
-    expect(neighborsAfterDrop(items, 't1')).toEqual({ afterId: 't0', beforeId: null });
+    expect(neighborsAfterDrop(items, 't1')).toEqual({
+      kind: 'between',
+      afterId: 't0',
+      beforeId: null,
+    });
+  });
+
+  // Not an append: a drop whose card is not in the list it landed in describes
+  // nothing, and the caller has to be able to tell that from the end of a column.
+  it('declines to name neighbors for a card that is not in the list', () => {
+    expect(neighborsAfterDrop(rows(k(0), k(1)), 'missing')).toBeNull();
   });
 
   // The property that makes a queued move survive: what gets sent now and what
@@ -193,10 +209,42 @@ describe('neighbors as the durable form of a drop', () => {
     const items = rows(k(0), k(1), k(2));
     const display = [items[0]!, items[2]!, items[1]!];
     const others = display.filter((item) => item.id !== 't2');
-    expect(placeBetweenNeighbors(others, neighborsAfterDrop(display, 't2'))).toEqual({
-      placement: placementAfterDrop(display, 't2'),
+    expect(placeBetweenNeighbors(others, neighborsAfterDrop(display, 't2')!)).toEqual({
+      placement: placementAfterDrop(display, 't2')!.placement,
       exact: true,
     });
+  });
+});
+
+// The pairing for `placeAtIndex`, and the only thing a menu that names a slot
+// has to queue: the same index, said in terms that survive the list changing.
+describe('neighborsAtIndex', () => {
+  const list = ranked(item('a', k(0)), item('b', k(1)), item('c', k(2)));
+
+  it('has nothing either side of it in an empty list', () => {
+    expect(neighborsAtIndex([], 0)).toEqual({ kind: 'append' });
+  });
+
+  it('names only the card below at the top', () => {
+    expect(neighborsAtIndex(list, 0)).toEqual({ kind: 'between', afterId: null, beforeId: 'a' });
+  });
+
+  it('names the cards either side of an interior slot', () => {
+    expect(neighborsAtIndex(list, 1)).toEqual({ kind: 'between', afterId: 'a', beforeId: 'b' });
+  });
+
+  it('names only the card above at the end', () => {
+    expect(neighborsAtIndex(list, list.length)).toEqual({
+      kind: 'between',
+      afterId: 'c',
+      beforeId: null,
+    });
+  });
+
+  // Its one caller clamps to the length, so an index beyond that is nobody's
+  // slot: it names no card on either side and means the end of the list.
+  it('names nothing at all for an index past the end', () => {
+    expect(neighborsAtIndex(list, 9)).toEqual({ kind: 'append' });
   });
 });
 
@@ -207,7 +255,7 @@ describe('placeBetweenNeighbors', () => {
         { id: 'a', sort_key: k(0) },
         { id: 'b', sort_key: k(1) },
       ],
-      { afterId: 'a', beforeId: 'b' }
+      { kind: 'between', afterId: 'a', beforeId: 'b' }
     );
     expect(result.exact).toBe(true);
     expect(result.placement.sort_key > k(0) && result.placement.sort_key < k(1)).toBe(true);
@@ -219,7 +267,7 @@ describe('placeBetweenNeighbors', () => {
         { id: 'a', sort_key: k(0) },
         { id: 'c', sort_key: k(5) },
       ],
-      { afterId: 'a', beforeId: 'gone' }
+      { kind: 'between', afterId: 'a', beforeId: 'gone' }
     );
     expect(result.exact).toBe(true);
     expect(result.placement.sort_key > k(0) && result.placement.sort_key < k(5)).toBe(true);
@@ -228,6 +276,7 @@ describe('placeBetweenNeighbors', () => {
   // Reported rather than silently landing somewhere arbitrary.
   it('is inexact when the cards it was dropped between are both gone', () => {
     const result = placeBetweenNeighbors([{ id: 'c', sort_key: k(5) }], {
+      kind: 'between',
       afterId: 'gone',
       beforeId: 'also-gone',
     });
@@ -236,10 +285,18 @@ describe('placeBetweenNeighbors', () => {
   });
 
   it('is exact when the end of the list is what was actually asked for', () => {
-    const result = placeBetweenNeighbors([{ id: 'c', sort_key: k(5) }], {
-      afterId: null,
-      beforeId: null,
-    });
+    const result = placeBetweenNeighbors([{ id: 'c', sort_key: k(5) }], { kind: 'append' });
     expect(result.exact).toBe(true);
+  });
+});
+
+// The guard on the whole arrangement, and it defends itself: collapsing the two
+// `between` arms of `Neighbors` back into one nullable arm makes this directive
+// unused, which is itself an error, so the type cannot be quietly softened back
+// into one that admits the value the split exists to forbid.
+describe('the two between arms', () => {
+  it('has no spelling for a move that landed nowhere', () => {
+    // @ts-expect-error - the empty pair is `{ kind: 'append' }` or it is nothing
+    placeBetweenNeighbors([], { kind: 'between', afterId: null, beforeId: null });
   });
 });

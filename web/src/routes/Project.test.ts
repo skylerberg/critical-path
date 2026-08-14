@@ -461,9 +461,12 @@ describe('Project', () => {
       await fireEvent.click(within(menu).getByRole('button', { name: /^Done/ }));
       await fireEvent.click(within(menu).getByRole('button', { name: /^Top/ }));
 
-      expect(moveTask).toHaveBeenCalledWith(T1, 'done', {
-        sort_key: expect.any(String),
-      });
+      expect(moveTask).toHaveBeenCalledWith(
+        T1,
+        'done',
+        { sort_key: expect.any(String) },
+        { kind: 'between', afterId: null, beforeId: T2 }
+      );
       const overlay = screen.getByLabelText('Task title').closest('dialog')!;
       await waitFor(() => {
         expect(

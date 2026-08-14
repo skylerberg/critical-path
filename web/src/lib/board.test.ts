@@ -10,6 +10,7 @@ import { realtimeCoverage } from './realtime-coverage.svelte';
 import { router } from './router.svelte';
 import { selection } from './selection.svelte';
 import { session } from './session.svelte';
+import type { Keyed, Placement } from './ranks';
 import { projectHref, taskHref } from './short-links';
 import { testUuid } from './test-ids';
 import { taskActivity } from './taskActivity.svelte';
@@ -916,7 +917,7 @@ describe('board store mutations', () => {
   });
 
   it('moveTask applies optimistically and sends exactly one PATCH', async () => {
-    await board.moveTask('t1', 'c2', { sort_key: 'V3000' });
+    await board.moveTask('t1', 'c2', { sort_key: 'V3000' }, { kind: 'append' });
 
     const moved = board.tasks.find((t) => t.id === 't1');
     expect(moved?.column_id).toBe('c2');
@@ -935,7 +936,7 @@ describe('board store mutations', () => {
       request.method === 'PATCH' ? jsonResponse(422, { error: 'nope' }) : undefined
     );
 
-    await board.moveTask('t1', 'c2', { sort_key: 'V3000' });
+    await board.moveTask('t1', 'c2', { sort_key: 'V3000' }, { kind: 'append' });
 
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(requestAt(1).method).toBe('GET');
@@ -3716,7 +3717,7 @@ describe('board store activity refresh', () => {
   it('refetches after a move, an archive and a blocker change', async () => {
     await openLog();
 
-    await board.moveTask('t1', 'c2', { sort_key: 'V3000' });
+    await board.moveTask('t1', 'c2', { sort_key: 'V3000' }, { kind: 'append' });
     vi.advanceTimersByTime(1000);
     await board.removeBlocker('t1', 't2');
     vi.advanceTimersByTime(1000);
@@ -3770,10 +3771,12 @@ describe('board store activity refresh', () => {
 });
 
 describe('placementAfterDrop', () => {
+  // Every case here is about where the drop landed; the null arm has its own.
+  const place = (items: readonly Keyed[], movedId: string): Placement =>
+    placementAfterDrop(items, movedId)!.placement;
+
   it('drops into an empty zone with a usable key', () => {
-    expect(placementAfterDrop([{ id: 'm', sort_key: 'V1' }], 'm').sort_key.length).toBeGreaterThan(
-      0
-    );
+    expect(place([{ id: 'm', sort_key: 'V1' }], 'm').sort_key.length).toBeGreaterThan(0);
   });
 
   it('drops between two tasks, ranking strictly between them', () => {
@@ -3782,7 +3785,7 @@ describe('placementAfterDrop', () => {
       { id: 'm', sort_key: 'V9' },
       { id: 'b', sort_key: 'V3' },
     ];
-    const placed = placementAfterDrop(items, 'm');
+    const placed = place(items, 'm');
     expect(placed.sort_key > 'V2').toBe(true);
     expect(placed.sort_key < 'V3').toBe(true);
   });
@@ -3793,7 +3796,7 @@ describe('placementAfterDrop', () => {
       { id: 'a', sort_key: 'V2' },
       { id: 'b', sort_key: 'V3' },
     ];
-    expect(placementAfterDrop(items, 'm').sort_key < 'V2').toBe(true);
+    expect(place(items, 'm').sort_key < 'V2').toBe(true);
   });
 
   it('drops at the end after the last task', () => {
@@ -3802,15 +3805,15 @@ describe('placementAfterDrop', () => {
       { id: 'b', sort_key: 'V3' },
       { id: 'm', sort_key: 'V1' },
     ];
-    expect(placementAfterDrop(items, 'm').sort_key > 'V3').toBe(true);
+    expect(place(items, 'm').sort_key > 'V3').toBe(true);
   });
 
-  it('appends when the moved id is not in the items', () => {
+  it('declines to place a moved id that is not in the items', () => {
     const items = [
       { id: 'a', sort_key: 'V2' },
       { id: 'b', sort_key: 'V3' },
     ];
-    expect(placementAfterDrop(items, 'missing').sort_key > 'V3').toBe(true);
+    expect(placementAfterDrop(items, 'missing')).toBeNull();
   });
 
   it('lands between the card above and the next real key in an unsorted display array', () => {
@@ -3820,7 +3823,7 @@ describe('placementAfterDrop', () => {
       { id: 'dim1', sort_key: 'V4' },
       { id: 'dim2', sort_key: 'V3' },
     ];
-    const placed = placementAfterDrop(items, 'm');
+    const placed = place(items, 'm');
     expect(placed.sort_key > 'V2').toBe(true);
     expect(placed.sort_key < 'V3').toBe(true);
   });
@@ -3831,7 +3834,7 @@ describe('placementAfterDrop', () => {
       { id: 'match', sort_key: 'V5' },
       { id: 'dim', sort_key: 'V3' },
     ];
-    expect(placementAfterDrop(items, 'm').sort_key < 'V3').toBe(true);
+    expect(place(items, 'm').sort_key < 'V3').toBe(true);
   });
 
   it('appends after the highest-ranked card even when it is not displayed last', () => {
@@ -3841,7 +3844,7 @@ describe('placementAfterDrop', () => {
       { id: 'dim1', sort_key: 'V3' },
       { id: 'dim2', sort_key: 'V4' },
     ];
-    expect(placementAfterDrop(items, 'm').sort_key > 'V5').toBe(true);
+    expect(place(items, 'm').sort_key > 'V5').toBe(true);
   });
 
   // Two rows can share a key until the unique index lands. The drop still has
@@ -3853,7 +3856,7 @@ describe('placementAfterDrop', () => {
       { id: 'b', sort_key: 'V2' },
       { id: 'c', sort_key: 'V3' },
     ];
-    const placed = placementAfterDrop(items, 'm');
+    const placed = place(items, 'm');
     expect(placed.sort_key > 'V2').toBe(true);
     expect(placed.sort_key < 'V3').toBe(true);
   });
@@ -4004,7 +4007,7 @@ describe('board store canEdit', () => {
       return undefined;
     });
 
-    await board.moveTask('t1', 'c2', { sort_key: 'V1000' });
+    await board.moveTask('t1', 'c2', { sort_key: 'V1000' }, { kind: 'append' });
 
     expect(toasts.toasts.map((t) => t.message)).toContain('Read-only access to this project');
     expect(board.canEdit).toBe(false);
