@@ -48,7 +48,7 @@ describe('BulkLabelMenu', () => {
     }
 
     it('acts on the first row when Enter comes with no arrow', async () => {
-      const bulkSetLabel = vi.spyOn(board, 'bulkSetLabel').mockResolvedValue();
+      const bulkSetLabel = vi.spyOn(board, 'bulkSetLabel');
       render(BulkLabelMenu, { onclose: () => {} });
 
       await fireEvent.keyDown(filter(), { key: 'Enter' });
@@ -57,7 +57,7 @@ describe('BulkLabelMenu', () => {
     });
 
     it('moves down to the second row', async () => {
-      const bulkSetLabel = vi.spyOn(board, 'bulkSetLabel').mockResolvedValue();
+      const bulkSetLabel = vi.spyOn(board, 'bulkSetLabel');
       render(BulkLabelMenu, { onclose: () => {} });
 
       await fireEvent.keyDown(filter(), { key: 'ArrowDown' });
@@ -67,7 +67,7 @@ describe('BulkLabelMenu', () => {
     });
 
     it('clamps at the top', async () => {
-      const bulkSetLabel = vi.spyOn(board, 'bulkSetLabel').mockResolvedValue();
+      const bulkSetLabel = vi.spyOn(board, 'bulkSetLabel');
       render(BulkLabelMenu, { onclose: () => {} });
 
       await fireEvent.keyDown(filter(), { key: 'ArrowDown' });
@@ -82,7 +82,7 @@ describe('BulkLabelMenu', () => {
     // "art" across the whole selection — the label that slid under the highlight,
     // not the one the user arrowed onto.
     it('stays on its label when a teammate inserts one above it', async () => {
-      const bulkSetLabel = vi.spyOn(board, 'bulkSetLabel').mockResolvedValue();
+      const bulkSetLabel = vi.spyOn(board, 'bulkSetLabel');
       render(BulkLabelMenu, { onclose: () => {} });
 
       await fireEvent.keyDown(filter(), { key: 'ArrowDown' });
@@ -94,7 +94,7 @@ describe('BulkLabelMenu', () => {
 
     // Its row is gone; there is no "nearby" label that is a safe guess.
     it('leaves Enter inert when the highlighted label is deleted under it', async () => {
-      const bulkSetLabel = vi.spyOn(board, 'bulkSetLabel').mockResolvedValue();
+      const bulkSetLabel = vi.spyOn(board, 'bulkSetLabel');
       render(BulkLabelMenu, { onclose: () => {} });
 
       await fireEvent.keyDown(filter(), { key: 'ArrowDown' });
@@ -117,7 +117,7 @@ describe('BulkLabelMenu', () => {
     });
 
     it('sends the highlight back to the top when the query changes', async () => {
-      const bulkSetLabel = vi.spyOn(board, 'bulkSetLabel').mockResolvedValue();
+      const bulkSetLabel = vi.spyOn(board, 'bulkSetLabel');
       render(BulkLabelMenu, { onclose: () => {} });
 
       await fireEvent.keyDown(filter(), { key: 'ArrowDown' });
@@ -146,7 +146,7 @@ describe('BulkLabelMenu', () => {
   });
 
   it('turns a partly-applied label on for the whole set in one call', async () => {
-    const bulkSetLabel = vi.spyOn(board, 'bulkSetLabel').mockResolvedValue();
+    const bulkSetLabel = vi.spyOn(board, 'bulkSetLabel');
     render(BulkLabelMenu, { onclose: () => {} });
 
     await fireEvent.click(screen.getByRole('button', { name: /bug/ }));
@@ -156,7 +156,7 @@ describe('BulkLabelMenu', () => {
   });
 
   it('turns a fully-applied label off', async () => {
-    const bulkSetLabel = vi.spyOn(board, 'bulkSetLabel').mockResolvedValue();
+    const bulkSetLabel = vi.spyOn(board, 'bulkSetLabel');
     render(BulkLabelMenu, { onclose: () => {} });
 
     await fireEvent.click(screen.getByRole('button', { name: /art/ }));
@@ -177,7 +177,7 @@ describe('BulkLabelMenu', () => {
   // The rows read the live selection rather than a snapshot taken on open, so the
   // tri-state re-derives too: t1 alone carries "bug", so the row becomes all-on.
   it('drops a card a teammate deleted out of the target set without reopening', async () => {
-    const bulkSetLabel = vi.spyOn(board, 'bulkSetLabel').mockResolvedValue();
+    const bulkSetLabel = vi.spyOn(board, 'bulkSetLabel');
     render(BulkLabelMenu, { onclose: () => {} });
 
     board.tasks = board.tasks.filter((task) => task.id !== 't2');

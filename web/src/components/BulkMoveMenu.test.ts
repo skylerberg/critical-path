@@ -23,7 +23,7 @@ describe('BulkMoveMenu', () => {
   // Held as a row number this moves the whole selection into "Todo" — the column
   // that slid under the highlight, not the one the user arrowed onto.
   it('stays on its column when a teammate inserts one above it', async () => {
-    const bulkMoveTasks = vi.spyOn(board, 'bulkMoveTasks').mockResolvedValue();
+    const bulkMoveTasks = vi.spyOn(board, 'bulkMoveTasks');
     render(BulkMoveMenu, { onclose: () => {} });
 
     const search = screen.getByLabelText('Search columns');
@@ -48,7 +48,7 @@ describe('BulkMoveMenu', () => {
   });
 
   it('clamps at the top', async () => {
-    const bulkMoveTasks = vi.spyOn(board, 'bulkMoveTasks').mockResolvedValue();
+    const bulkMoveTasks = vi.spyOn(board, 'bulkMoveTasks');
     render(BulkMoveMenu, { onclose: () => {} });
 
     const search = screen.getByLabelText('Search columns');
@@ -87,7 +87,7 @@ describe('BulkMoveMenu', () => {
   });
 
   it('moves the whole selection in one call, closes, then announces', async () => {
-    const bulkMoveTasks = vi.spyOn(board, 'bulkMoveTasks').mockResolvedValue();
+    const bulkMoveTasks = vi.spyOn(board, 'bulkMoveTasks');
     const onclose = vi.fn();
     render(BulkMoveMenu, { onclose });
 
@@ -100,7 +100,7 @@ describe('BulkMoveMenu', () => {
   });
 
   it('refuses a second activation before the shell drops it', async () => {
-    const bulkMoveTasks = vi.spyOn(board, 'bulkMoveTasks').mockResolvedValue();
+    const bulkMoveTasks = vi.spyOn(board, 'bulkMoveTasks');
     render(BulkMoveMenu, { onclose: () => {} });
 
     const row = screen.getByRole('button', { name: 'Done' });
@@ -119,7 +119,7 @@ describe('BulkMoveMenu', () => {
   });
 
   it('commits the highlighted column on Enter', async () => {
-    const bulkMoveTasks = vi.spyOn(board, 'bulkMoveTasks').mockResolvedValue();
+    const bulkMoveTasks = vi.spyOn(board, 'bulkMoveTasks');
     render(BulkMoveMenu, { onclose: () => {} });
 
     const search = screen.getByLabelText('Search columns');

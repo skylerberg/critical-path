@@ -661,7 +661,7 @@ describe('TaskDetail', () => {
   });
 
   it('moves the task to the bottom of the column picked from the bar', async () => {
-    const spy = vi.spyOn(board, 'moveTask').mockResolvedValue(undefined);
+    const spy = vi.spyOn(board, 'moveTask');
     renderDetail({ taskId: T1, closePath: BOARD_PATH });
 
     await openQuickAction('Todo');
@@ -680,7 +680,7 @@ describe('TaskDetail', () => {
   });
 
   it('does not move the task when the current column is picked again', async () => {
-    const spy = vi.spyOn(board, 'moveTask').mockResolvedValue(undefined);
+    const spy = vi.spyOn(board, 'moveTask');
     renderDetail({ taskId: T1, closePath: BOARD_PATH });
 
     await openQuickAction('Todo');
@@ -796,7 +796,7 @@ describe('TaskDetail', () => {
   });
 
   it('applies a label from the quick bar, and the section appears with it', async () => {
-    const spy = vi.spyOn(board, 'setTaskLabels').mockResolvedValue(undefined);
+    const spy = vi.spyOn(board, 'setTaskLabels');
     renderDetail({ taskId: T2, closePath: BOARD_PATH });
     expect(screen.queryByRole('heading', { name: 'Labels' })).toBeNull();
 
@@ -835,7 +835,7 @@ describe('TaskDetail', () => {
   });
 
   it('offers no delete: an open card can only be archived, and delete lives in the archive', () => {
-    const deleteSpy = vi.spyOn(board, 'deleteTask').mockResolvedValue();
+    const deleteSpy = vi.spyOn(board, 'deleteTask');
 
     renderDetail({ taskId: T1, closePath: BOARD_PATH });
 
@@ -1077,7 +1077,7 @@ describe('TaskDetail', () => {
       status: 'ok',
       updated_at: SERVER_UPDATED_AT,
     });
-    vi.spyOn(board, 'archiveTask').mockResolvedValue(undefined);
+    vi.spyOn(board, 'archiveTask');
     vi.spyOn(router, 'redirect').mockImplementation(() => {});
     const first = renderDetail({ taskId: T1, closePath: BOARD_PATH });
     await fireEvent.input(screen.getByLabelText('Task title'), {
@@ -1684,7 +1684,7 @@ describe('TaskDetail', () => {
   });
 
   it('lists tasks that depend on this one and removes the reverse relation', async () => {
-    const spy = vi.spyOn(board, 'removeBlocker').mockResolvedValue(undefined);
+    const spy = vi.spyOn(board, 'removeBlocker');
     renderDetail({ taskId: T1, closePath: BOARD_PATH });
 
     expect(screen.getByRole('heading', { name: 'Blocks' })).toBeInTheDocument();

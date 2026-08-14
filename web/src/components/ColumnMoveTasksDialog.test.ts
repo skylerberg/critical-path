@@ -65,7 +65,7 @@ describe('ColumnMoveTasksDialog', () => {
   });
 
   it('moves the cards to the selected target and closes', async () => {
-    const moveTasks = vi.spyOn(board, 'moveTasksToColumn').mockResolvedValue();
+    const moveTasks = vi.spyOn(board, 'moveTasksToColumn');
     const onclose = vi.fn();
 
     render(ColumnMoveTasksDialog, { column: TODO, open: true, onclose });

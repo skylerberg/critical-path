@@ -60,7 +60,7 @@ describe('AssigneeSearchMenu', () => {
   // Held as a row number this assigns whoever slid under the highlight, not the
   // person the user arrowed onto.
   it('stays on its person when a search response inserts someone above', async () => {
-    const setTaskAssignees = vi.spyOn(board, 'setTaskAssignees').mockResolvedValue(undefined);
+    const setTaskAssignees = vi.spyOn(board, 'setTaskAssignees');
     render(AssigneeSearchMenu, { taskId: 't1' });
 
     const input = screen.getByLabelText('Filter users');
@@ -87,7 +87,7 @@ describe('AssigneeSearchMenu', () => {
   });
 
   it('clamps at the top', async () => {
-    const setTaskAssignees = vi.spyOn(board, 'setTaskAssignees').mockResolvedValue(undefined);
+    const setTaskAssignees = vi.spyOn(board, 'setTaskAssignees');
     render(AssigneeSearchMenu, { taskId: 't1' });
 
     const input = screen.getByLabelText('Filter users');
@@ -108,7 +108,7 @@ describe('AssigneeSearchMenu', () => {
   });
 
   it('assigns and unassigns through the same row', async () => {
-    const setTaskAssignees = vi.spyOn(board, 'setTaskAssignees').mockResolvedValue(undefined);
+    const setTaskAssignees = vi.spyOn(board, 'setTaskAssignees');
     render(AssigneeSearchMenu, { taskId: 't1' });
 
     const row = screen.getByRole('button', { name: /Ada Lovelace/ });
@@ -132,7 +132,7 @@ describe('AssigneeSearchMenu', () => {
   });
 
   it('assigns the highlighted person on Enter', async () => {
-    const setTaskAssignees = vi.spyOn(board, 'setTaskAssignees').mockResolvedValue(undefined);
+    const setTaskAssignees = vi.spyOn(board, 'setTaskAssignees');
     render(AssigneeSearchMenu, { taskId: 't1' });
 
     const input = screen.getByLabelText('Filter users');

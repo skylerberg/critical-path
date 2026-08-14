@@ -91,7 +91,7 @@ describe('ColumnHeader options menu', () => {
   });
 
   it('duplicates the column from the menu and closes it', async () => {
-    const duplicate = vi.spyOn(board, 'duplicateColumn').mockResolvedValue(undefined);
+    const duplicate = vi.spyOn(board, 'duplicateColumn');
     renderHeader(TODO);
     await openMenu();
 
@@ -102,7 +102,7 @@ describe('ColumnHeader options menu', () => {
   });
 
   it('toggles the done flag from the menu and keeps it open', async () => {
-    const toggle = vi.spyOn(board, 'toggleColumnDone').mockResolvedValue(undefined);
+    const toggle = vi.spyOn(board, 'toggleColumnDone');
     renderHeader(TODO);
     await openMenu();
 
@@ -219,7 +219,7 @@ describe('ColumnHeader sort submenu', () => {
   });
 
   it('runs a one-shot sort and closes the whole menu', async () => {
-    const sortColumn = vi.spyOn(board, 'sortColumn').mockResolvedValue(undefined);
+    const sortColumn = vi.spyOn(board, 'sortColumn');
     renderHeader(TODO);
     await openMenu();
     await fireEvent.click(screen.getByRole('menuitem', { name: /Sort by/ }));
@@ -266,7 +266,7 @@ describe('ColumnHeader rename', () => {
   }
 
   it('commits a rename left open when the header unmounts', async () => {
-    const rename = vi.spyOn(board, 'renameColumn').mockResolvedValue(undefined);
+    const rename = vi.spyOn(board, 'renameColumn');
     const { unmount } = renderHeader(TODO);
     await fireEvent.input(await startRename(), { target: { value: 'In progress' } });
 
@@ -276,7 +276,7 @@ describe('ColumnHeader rename', () => {
   });
 
   it('still discards a rename cancelled with Escape', async () => {
-    const rename = vi.spyOn(board, 'renameColumn').mockResolvedValue(undefined);
+    const rename = vi.spyOn(board, 'renameColumn');
     const { unmount } = renderHeader(TODO);
     const input = await startRename();
     await fireEvent.input(input, { target: { value: 'Scrapped' } });

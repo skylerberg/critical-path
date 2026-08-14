@@ -80,7 +80,7 @@ describe('TaskDependencies', () => {
   });
 
   it('removes a blocker in the direction it was listed', async () => {
-    const removeBlocker = vi.spyOn(board, 'removeBlocker').mockResolvedValue(undefined);
+    const removeBlocker = vi.spyOn(board, 'removeBlocker');
     board.tasks = [task('t1', { blocker_ids: ['t2'] }), task('t2')];
     render(TaskDependencies, { taskId: 't1' });
 
@@ -91,7 +91,7 @@ describe('TaskDependencies', () => {
   // The reverse relation is stored on the other task, so removing it has to name
   // the dependent as the one holding the blocker.
   it('removes a blocked task by unblocking it from this one', async () => {
-    const removeBlocker = vi.spyOn(board, 'removeBlocker').mockResolvedValue(undefined);
+    const removeBlocker = vi.spyOn(board, 'removeBlocker');
     board.tasks = [task('t1'), task('t3', { blocker_ids: ['t1'] })];
     render(TaskDependencies, { taskId: 't1' });
 

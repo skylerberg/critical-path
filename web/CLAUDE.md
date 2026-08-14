@@ -578,3 +578,26 @@ The side-effecting `import '../api/testUtils'` goes **first** in any test that
 touches the network — it stubs `fetch`, `Request` and `localStorage`, and a
 module that reads them at import time gets the real ones if it loads first. This
 is why the `import-x/order` lint rule exempts `*.test.ts`.
+
+**A UI-layer test may not stub a store mutation to nothing.** `eslint.config.js`
+bans `vi.spyOn(board, 'x').mockResolvedValue()` and its `(undefined)` twin under
+`src/components/**`, `src/routes/**` and `src/lib/shortcuts.test.ts`; the spy
+itself is fine, and so is a stub
+that supplies a return the fixture cannot produce — `mockResolvedValue(task)`,
+`mockReturnValue(false)`, `mockImplementation`. `CommandPalette.test.ts` needs
+`markTaskDone` to return `false` and no honest fixture produces that. The
+most spy-heavy file in the repo, `DependencyPicker.test.ts`, is flagged zero
+times for exactly this reason.
+
+**Do not read the ban as coverage.** Letting the method run does not make the
+component test a store test: `board.archiveTask` was mutated to stop removing the
+card and the call-through `CardMenu.test.ts` stayed 38/38 green — `board.test.ts`
+is what failed. Behaviour belongs in the store's own test. The ban buys two other
+things. A fixture that lies to the store now breaks loudly instead of being
+absorbed: the checklist tests answered every write `204`, so the real store wrote
+`undefined` over the row it had just sent, and the route-aware `fetchMock` at the
+top of `TaskChecklist.test.ts` (and the `PATCH` arm in `TaskAttachments.test.ts`,
+which had the same fixture and happened not to crash) is what the deletion
+forced. The attachments arm crashed nothing, so its rename-on-unmount case reads
+the stored row back — otherwise nothing would fail if the arm were dropped. And a reader can no longer mistake a suppressed method for a tested one,
+which was true of 92 sites across 23 files.

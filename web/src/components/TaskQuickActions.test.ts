@@ -91,7 +91,7 @@ describe('TaskQuickActions', () => {
   });
 
   it('moves the card to the column picked, and closes', async () => {
-    const spy = vi.spyOn(board, 'moveTask').mockResolvedValue(undefined);
+    const spy = vi.spyOn(board, 'moveTask');
     renderBar();
 
     await fireEvent.click(screen.getByRole('button', { name: 'Todo' }));
@@ -111,7 +111,7 @@ describe('TaskQuickActions', () => {
   });
 
   it('leaves the card alone when its current column is picked again', async () => {
-    const spy = vi.spyOn(board, 'moveTask').mockResolvedValue(undefined);
+    const spy = vi.spyOn(board, 'moveTask');
     renderBar();
 
     await fireEvent.click(screen.getByRole('button', { name: 'Todo' }));

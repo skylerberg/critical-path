@@ -232,7 +232,7 @@ describe('quick menus on a project route', () => {
   });
 
   it('opens the move menu narrowed to a seeded column and drops the seed after', async () => {
-    vi.spyOn(board, 'moveTask').mockResolvedValue(undefined);
+    vi.spyOn(board, 'moveTask');
     render(QuickMenus);
 
     shortcuts.menuPrefill = 'Done';
@@ -256,7 +256,7 @@ describe('quick menus on a project route', () => {
       task(T2, `${OPEN_PROJECT}-done`, 'Cut cards', 1000),
       task(testUuid('t3'), `${OPEN_PROJECT}-done`, 'Print rules', 2000),
     ];
-    const moveTask = vi.spyOn(board, 'moveTask').mockResolvedValue(undefined);
+    const moveTask = vi.spyOn(board, 'moveTask');
     render(QuickMenus);
     selection.set(T1);
 
@@ -356,14 +356,14 @@ describe('quick menus for a card outside the open board', () => {
     // that is not on it.
     expect(board.currentProjectId).toBeNull();
 
-    const setTaskLabels = vi.spyOn(awayBoard, 'setTaskLabels').mockResolvedValue(undefined);
+    const setTaskLabels = vi.spyOn(awayBoard, 'setTaskLabels');
     await fireEvent.click(screen.getByRole('button', { name: /Urgent/ }));
 
     expect(setTaskLabels).toHaveBeenCalledWith(AWAY_TASK, [`${AWAY_PROJECT}-lab`]);
   });
 
   it('moves the card into a column of its own project', async () => {
-    const moveTask = vi.spyOn(awayBoard, 'moveTask').mockResolvedValue(undefined);
+    const moveTask = vi.spyOn(awayBoard, 'moveTask');
     render(QuickMenus);
 
     press('m');

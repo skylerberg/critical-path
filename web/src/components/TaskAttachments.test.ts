@@ -88,9 +88,23 @@ async function requestBody(callIndex: number): Promise<unknown> {
   return await requestAt(callIndex).clone().json();
 }
 
+// A rename writes the response body over the row it sent, so a blanket 204 would
+// leave `undefined` in the list. Everything else here keeps the 204.
+async function attachmentApi(input: RequestInfo | URL): Promise<Response> {
+  const request = input as Request;
+  const { pathname } = new URL(request.url);
+  const prefix = '/api/attachments/';
+  if (pathname.startsWith(prefix) && request.method === 'PATCH') {
+    const id = pathname.slice(prefix.length);
+    const patch = (await request.clone().json()) as Partial<TaskAttachment>;
+    return jsonResponse(200, { ...attachment('a1'), id, ...patch });
+  }
+  return jsonResponse(204);
+}
+
 beforeEach(() => {
   fetchMock.mockReset();
-  fetchMock.mockImplementation(async () => jsonResponse(204));
+  fetchMock.mockImplementation(attachmentApi);
   board.reset();
   toasts.toasts = [];
   board.currentProjectId = PROJECT_ID;
@@ -566,7 +580,7 @@ describe('TaskAttachments rename and delete', () => {
   });
 
   it('writes a rename left open when the section unmounts', async () => {
-    const patch = vi.spyOn(board, 'patchAttachment').mockResolvedValue(undefined);
+    const patch = vi.spyOn(board, 'patchAttachment');
     board.taskAttachments = { [T1]: [attachment('a1')] };
     const { unmount } = renderSection();
 
@@ -577,10 +591,15 @@ describe('TaskAttachments rename and delete', () => {
     unmount();
 
     expect(patch).toHaveBeenCalledWith(T1, testUuid('a1'), { title: 'The spec' });
+    // Awaited rather than polled: the optimistic row already carries the title,
+    // so only the settled write shows whether the fixture answered with a row or
+    // with the `undefined` a blanket 204 stores over it.
+    await patch.mock.results[0].value;
+    expect(board.taskAttachments[T1][0].title).toBe('The spec');
   });
 
   it('still discards on Escape when the section then unmounts', async () => {
-    const patch = vi.spyOn(board, 'patchAttachment').mockResolvedValue(undefined);
+    const patch = vi.spyOn(board, 'patchAttachment');
     board.taskAttachments = { [T1]: [attachment('a1')] };
     const { unmount } = renderSection();
 
