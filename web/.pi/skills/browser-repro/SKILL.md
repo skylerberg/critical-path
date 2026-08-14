@@ -19,7 +19,7 @@ pinned headless Chromium via `scripts/lib/browser.mjs`. First-time local setup:
 ## The tools (already in the repo)
 
 - `scripts/lib/browser.mjs` — reusable helper: `createBrowser()`
-  → `{ setViewport, goto, eval, screenshot, close }`. **Use this instead of
+  → `{ setViewport, goto, eval, press, screenshot, close }`. **Use this instead of
   writing Playwright boilerplate.**
 - `scripts/board-probe.html` + `scripts/board-probe.ts` — mounts the **real**
   `Board.svelte` with seeded data inside an App/Project shell. Parametrized:
