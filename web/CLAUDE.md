@@ -253,6 +253,46 @@ five-second failure into one with no upper bound at all. Narrowing `testName`
 until exactly one case fails is what keeps such a guard cheap; the deadline is
 only what stops CI hanging when it is not.
 
+**Coverage is a discovery instrument here, and deliberately not a gate.** It
+answers one question nothing else in the repo answers — which lines no test
+executes at all — and it is run by hand when that question comes up, read once,
+and thrown away. Nothing about it is committed: the provider stays out of
+`devDependencies`, there is no CI step, and there is no threshold.
+
+```sh
+npm install --no-save @vitest/coverage-v8@$(node -p "require('vitest/package.json').version")
+npx vitest run --silent=true --coverage.enabled --coverage.provider=v8 \
+  "--coverage.include=src/**/*.{ts,svelte}" --coverage.exclude='src/**/*.test.ts' \
+  --coverage.reporter=json --coverage.reporter=text-summary
+```
+
+The version is read off the installed vitest because the provider tracks it
+exactly, and `--no-save` is what leaves `package.json` and `package-lock.json`
+byte-identical; the next ordinary `npm install` prunes the provider again. Run
+from a worktree it still lands in the main checkout, since `node_modules` there
+is a symlink into it — which is also why pruning it from either place is enough.
+
+Three measured reasons there is no number to enforce. Two runs over an identical
+tree reported 12,981 and 12,983 covered statements, so a threshold set at the
+current figure fails on noise rather than on a change. 173 of 1,020 uncovered
+branch arms — 17% — carry no source position after remap, so a sixth of what it
+names cannot be pointed at a line. And the per-file percentages on `.svelte`
+files are not actionable: one markup line in `src/components/LabelManager.svelte`
+carries six uncovered entries by itself.
+
+Read the uncovered **functions** list first. That slice is what found the three
+board methods whose every test call site was a spy, so no test had ever run their
+bodies. What coverage cannot see is the opposite failure — an assertion that runs
+and asserts nothing — which is what `check:test-guards` is for. Coverage
+discovers; the guard entries are what keep the finding shut afterwards, so a test
+written off a coverage run gets one.
+
+**The `??` coalescing family is out of scope, permanently.** The sites marked
+`// Coalesced: a pod predating …` are uncoverable by construction: the arm exists
+for a pod this suite cannot be running against, and the convention above requires
+it. Every coverage run will list them; deleting one to satisfy a report is
+undoing a deliberate guard, not covering a branch.
+
 **The two board-layout checks take `--only=` and `--list`,** which is how to
 iterate without paying for the whole gate — the scroll phase alone is around 27s
 per case against 1s for a layout case, so it is most of the two minutes:
