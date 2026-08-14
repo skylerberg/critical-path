@@ -77,6 +77,7 @@ export const guards = [
   },
   {
     name: 'a socket frame proves the server is reachable',
+    testName: 'counts any frame as proof, the heartbeat included',
     file: 'src/lib/realtime.svelte.ts',
     find: "    connectivity.noteReached();\n    if (typeof raw !== 'string') {",
     replace: "    if (typeof raw !== 'string') {",
@@ -84,6 +85,7 @@ export const guards = [
   },
   {
     name: 'reachability returning reconnects the socket at once',
+    testName: 'reconnects at once when something else reaches the server',
     file: 'src/lib/realtime.svelte.ts',
     find: `    if (this.#stopped || this.#socket !== null) {
       return;
@@ -97,6 +99,7 @@ export const guards = [
   },
   {
     name: 'an aborted request is not an outage',
+    testName: 'leaves an aborted request out of it',
     file: 'src/api/client.ts',
     find: "    if (error instanceof Error && error.name === 'AbortError') {\n      return;\n    }\n",
     replace: '',
@@ -104,6 +107,7 @@ export const guards = [
   },
   {
     name: 'only the states that mean it say "Offline"',
+    testName: 'never calls a state offline that only happens while the server answers',
     file: 'src/lib/sync-state.ts',
     find: "      return 'Live updates paused — reconnecting';",
     replace: "      return 'Offline — reconnecting';",
@@ -111,6 +115,7 @@ export const guards = [
   },
   {
     name: 'the reachability seed lowers but never raises',
+    testName: 'does not let the interface overwrite an answer already given',
     file: 'src/lib/connectivity.svelte.ts',
     find: '    if (!navigator.onLine) {\n      this.#become(false);\n    }',
     replace: '    this.reachable = navigator.onLine;',
