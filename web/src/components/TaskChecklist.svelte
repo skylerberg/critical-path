@@ -183,7 +183,7 @@
   }
 
   const actionClass =
-    'flex min-h-11 min-w-11 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted opacity-0 group-focus-within:opacity-100 group-hover:opacity-100 pointer-coarse:opacity-100 focus-visible:opacity-100 focus-visible:outline-2 focus-visible:outline-accent';
+    'flex min-h-11 min-w-11 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted opacity-0 group-focus-within:opacity-100 group-hover:opacity-100 pointer-coarse:opacity-100 focus-visible:opacity-100 focus-ring-flush';
 </script>
 
 <div class="flex flex-col gap-2">
@@ -234,7 +234,7 @@
         <div
           animate:flip={{ duration: flipDuration() }}
           aria-label={item.text}
-          class="group flex items-center gap-1 rounded-md focus-visible:outline-2 focus-visible:outline-accent"
+          class="group flex items-center gap-1 rounded-md focus-ring-flush"
         >
           {#if !inert}
             <span
@@ -292,7 +292,7 @@
             <button
               type="button"
               onclick={() => startEdit(item)}
-              class="min-h-11 min-w-0 flex-1 cursor-text rounded-md px-1 py-2 text-left text-sm break-words focus-visible:outline-2 focus-visible:outline-accent {item.checked
+              class="min-h-11 min-w-0 flex-1 cursor-text rounded-md px-1 py-2 text-left text-sm break-words focus-ring-flush {item.checked
                 ? 'text-muted line-through'
                 : ''}"
             >

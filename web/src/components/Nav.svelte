@@ -240,7 +240,7 @@
       <div
         animate:flip={{ duration: flipDuration() }}
         aria-label={project.name}
-        class="rounded-md focus-visible:outline-2 focus-visible:outline-accent"
+        class="rounded-md focus-ring-flush"
       >
         {@render projectLink(project)}
       </div>

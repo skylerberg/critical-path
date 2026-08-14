@@ -85,7 +85,7 @@
   }
 
   const rowClass =
-    'flex min-h-11 shrink-0 cursor-pointer items-center gap-2 rounded-md px-3 text-left text-sm font-medium hover:bg-accent-soft focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent';
+    'flex min-h-11 shrink-0 cursor-pointer items-center gap-2 rounded-md px-3 text-left text-sm font-medium hover:bg-accent-soft focus-ring-inset';
   const headingClass = 'px-3 text-xs font-semibold uppercase text-muted';
 </script>
 

@@ -221,7 +221,7 @@
   }
 
   const actionClass =
-    'flex min-h-11 min-w-11 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted opacity-0 group-focus-within:opacity-100 group-hover:opacity-100 pointer-coarse:opacity-100 focus-visible:opacity-100 focus-visible:outline-2 focus-visible:outline-accent';
+    'flex min-h-11 min-w-11 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted opacity-0 group-focus-within:opacity-100 group-hover:opacity-100 pointer-coarse:opacity-100 focus-visible:opacity-100 focus-ring-flush';
 </script>
 
 <!-- A read-only card offers nothing to attach, so the notice would be warning
@@ -305,7 +305,7 @@
               aria-label="Use image {image.filename} as cover"
               aria-pressed={isCover}
               onclick={() => void board.setTaskCover(taskId, isCover ? null : image)}
-              class="flex min-h-11 w-full cursor-pointer items-center justify-center gap-1 rounded-md border text-xs focus-visible:outline-2 focus-visible:outline-accent {isCover
+              class="flex min-h-11 w-full cursor-pointer items-center justify-center gap-1 rounded-md border text-xs focus-ring-flush {isCover
                 ? 'border-accent bg-accent-soft text-ink'
                 : 'border-edge text-muted hover:bg-accent-soft'}"
             >
@@ -406,7 +406,7 @@
                     target="_blank"
                     rel="noopener noreferrer nofollow ugc"
                     referrerpolicy="no-referrer"
-                    class="min-w-0 truncate text-sm text-accent hover:underline focus-visible:outline-2 focus-visible:outline-accent"
+                    class="min-w-0 truncate text-sm text-accent hover:underline focus-ring-flush"
                   >
                     {label}
                   </a>

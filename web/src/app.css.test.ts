@@ -11,6 +11,26 @@ describe('touch-callout-none utility', () => {
   });
 });
 
+// Same reason, and it is the whole guard for these: the component tests assert
+// `focus-ring-inset` is in a classList, which stays true with the block below
+// deleted — Tailwind would emit no rule, raise nothing, and the row would focus
+// with no ring at all.
+describe('focus ring utilities', () => {
+  const offsets = { 'focus-ring': '2px', 'focus-ring-flush': '0', 'focus-ring-inset': '-2px' };
+
+  for (const [name, offset] of Object.entries(offsets)) {
+    it(`${name} draws the shared ring`, () => {
+      // The trailing brace separates `focus-ring` from the two that extend its name.
+      const block = cssBlock(`@utility ${name} {`);
+
+      expect(block).toContain('outline-width: 2px');
+      expect(block).toContain('outline-style: solid');
+      expect(block).toContain('outline-color: var(--cp-accent)');
+      expect(block).toContain(`outline-offset: ${offset}`);
+    });
+  }
+});
+
 describe('reduced-motion stylesheet rule', () => {
   it('targets every element and pseudo-element', () => {
     expect(reducedMotion).toContain('*,');

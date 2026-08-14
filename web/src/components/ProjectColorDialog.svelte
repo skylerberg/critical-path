@@ -20,7 +20,7 @@
   }
 
   const swatchClass =
-    'size-11 cursor-pointer rounded-md ring-offset-2 ring-offset-surface focus-visible:outline-2 focus-visible:outline-accent';
+    'size-11 cursor-pointer rounded-md ring-offset-2 ring-offset-surface focus-ring-flush';
 </script>
 
 <Modal open title="Board color" {onclose}>

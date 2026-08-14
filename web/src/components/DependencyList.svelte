@@ -41,7 +41,7 @@
   const rowClass = 'flex min-h-11 items-center gap-2';
   const titleClass = 'min-w-0 flex-1 truncate text-sm';
   const removeClass =
-    'flex min-h-11 cursor-pointer items-center rounded-md px-3 text-sm text-muted hover:bg-accent-soft hover:text-danger focus-visible:outline-2 focus-visible:outline-accent';
+    'flex min-h-11 cursor-pointer items-center rounded-md px-3 text-sm text-muted hover:bg-accent-soft hover:text-danger focus-ring-flush';
 
   function removeLocal(otherId: string): void {
     // The picker's direction convention, mirrored: a blocker is removed from
@@ -84,7 +84,7 @@
         <a
           use:link
           href={taskHref(edge.task_id, edge.title)}
-          class="{titleClass} hover:underline focus-visible:outline-2 focus-visible:outline-accent {edge.is_done
+          class="{titleClass} hover:underline focus-ring-flush {edge.is_done
             ? 'text-muted line-through'
             : ''}"
         >
