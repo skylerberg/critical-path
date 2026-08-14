@@ -120,7 +120,12 @@ export default defineConfig({
     // Worktrees live under .pi/worktrees/** and .claude/worktrees/**; keep them
     // out of test discovery so a run from the main checkout doesn't pick up
     // (stale) tests from sibling worktrees.
-    exclude: [...configDefaults.exclude, '.pi/worktrees/**', '.claude/**'],
+    //
+    // scripts/tmp-* is the throwaway-probe prefix (see CLAUDE.md). Those are
+    // written to be run once and deleted, and one shaped like a test is usually a
+    // deliberate failure used to print a value — so a forgotten one fails the
+    // suite while `git status` stays clean, because the same prefix is gitignored.
+    exclude: [...configDefaults.exclude, '.pi/worktrees/**', '.claude/**', 'scripts/tmp-*'],
     // Pinned west of Greenwich so the due-date assertions can actually fail: a
     // local-vs-UTC mixup is invisible on a machine already running at UTC.
     env: { TZ: 'America/Los_Angeles' },

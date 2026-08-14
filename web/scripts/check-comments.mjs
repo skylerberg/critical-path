@@ -45,7 +45,11 @@ const DOCS = ['CLAUDE.md', 'README.md', '.pi/skills'];
 const CONFIG = ['svelte.config.js', 'eslint.config.js', 'tsconfig.json', 'package.json'];
 // Generated clients carry the API's own prose, which is duplicated across
 // endpoints by design and is not ours to edit.
-const SKIP = (path) => path.includes('.generated.') || path.includes('node_modules');
+// scripts/tmp-* is the throwaway-probe prefix: copied from a real module as often
+// as not, so its comments are duplicates by construction and say nothing about
+// this tree.
+const SKIP = (path) =>
+  path.includes('.generated.') || path.includes('node_modules') || /\/tmp-[^/]*$/.test(path);
 
 // A sentence shorter than this is a fragment ("Test seam.", "Best effort:") that
 // two files can share without either being a copy of the other.
@@ -242,6 +246,7 @@ async function repoFiles() {
   async function walk(dir) {
     for (const entry of await readdir(dir, { withFileTypes: true })) {
       if (['node_modules', '.git', 'dist', 'coverage'].includes(entry.name)) continue;
+      if (entry.name.startsWith('tmp-')) continue;
       const full = join(dir, entry.name);
       if (entry.isDirectory()) await walk(full);
       else found.push(relative(ROOT, full));
