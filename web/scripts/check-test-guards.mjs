@@ -243,6 +243,8 @@ function verdictOf({ applied, ran, passed }) {
 /** @param {string} output */
 /** Styling a child emitted anyway, so neither the parse nor the log has to wear it. */
 function decolor(output) {
+  // The escape is the point: matching it is what this function is for.
+  // eslint-disable-next-line no-control-regex
   return output.replaceAll(/\u001b\[[0-9;]*m/g, '');
 }
 
