@@ -18,9 +18,8 @@ import {
   createTaskSeriesSchema,
   patchTaskSeriesSchema,
   projectIdQuerySchema,
-  taskSeriesCreateResponseSchema,
+  taskSeriesWriteResponseSchema,
   taskSeriesListResponseSchema,
-  taskSeriesSchema,
   idSchema,
   jsonResponse,
   emptyResponse,
@@ -81,7 +80,7 @@ router.get(
 );
 
 const createTaskSeriesResponses = {
-  201: jsonResponse('Created series', taskSeriesCreateResponseSchema),
+  201: jsonResponse('Created series', taskSeriesWriteResponseSchema),
 };
 
 router.post(
@@ -160,7 +159,9 @@ router.post(
   }
 );
 
-const patchTaskSeriesResponses = { 200: jsonResponse('Updated series', taskSeriesSchema) };
+const patchTaskSeriesResponses = {
+  200: jsonResponse('Updated series', taskSeriesWriteResponseSchema),
+};
 
 router.patch(
   '/:id',
@@ -175,7 +176,8 @@ router.patch(
       'alone. Changing the recurrence, start date or timezone — or resuming — ' +
       'reschedules forward from today, never backwards. `clear_missed` zeroes the missed ' +
       'counter. `status` accepts only active or paused; a series ends by exhausting its rule, ' +
-      'or by being deleted.',
+      'or by being deleted. Image nodes cannot belong to a template and are stripped from an ' +
+      'edited description; `dropped_image_count` reports how many, as it does on create.',
     security: [{ bearerAuth: [] }],
     responses: {
       ...patchTaskSeriesResponses,
@@ -196,14 +198,16 @@ router.patch(
     const user = c.get('user');
 
     const { series, project } = await assertSeriesWrite(db, user.id, id);
-    await patchSeries(db, series, project, body);
+    const droppedImageCount = await patchSeries(db, series, project, body);
 
     const [updated] = await fetchSeries(db, { ids: [id] });
     if (!updated) {
       throw new AppError(500, 'Failed to load updated series');
     }
+    // The event carries the series a subscriber can already read, so the count
+    // stays out of it: it belongs to the caller who sent the description.
     publishSeriesUpdated(c, updated);
-    return c.json(updated, 200);
+    return c.json({ ...updated, dropped_image_count: droppedImageCount }, 200);
   }
 );
 
