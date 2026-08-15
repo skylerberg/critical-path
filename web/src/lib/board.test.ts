@@ -2,6 +2,7 @@ import { fetchMock, jsonResponse, requestAt } from '../api/testUtils';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { board, placementAfterDrop, type TaskAttachment, type TaskSeriesRef } from './board.svelte';
 import { noFilters, parseFilters } from './board-filters';
+import { byRank } from './ranks';
 import { connectivity } from './connectivity.svelte';
 import type { BoardPayload, BoardTask } from './board-types';
 import { computeGraph } from './graph';
@@ -1442,7 +1443,7 @@ describe('board store mutations', () => {
       'c3'
     )!;
 
-    const pending = board.moveColumn('c3', drop.placement);
+    const pending = board.moveColumn('c3', drop.placement, drop.intent);
 
     expect(board.columns.map((c) => c.id)).toEqual(['c3', 'c1', 'c2']);
 
@@ -1461,7 +1462,7 @@ describe('board store mutations', () => {
         : undefined
     );
 
-    await board.moveColumn('c3', { sort_key: 'V00000005' });
+    await board.moveColumn('c3', { sort_key: 'V00000005' }, { kind: 'append' });
 
     expect(toasts.toasts.map((t) => t.message)).toEqual(['nope']);
     expect(requestAt(1).method).toBe('GET');
@@ -3803,7 +3804,7 @@ describe('board store checklists', () => {
       vi.advanceTimersByTime(1000);
       fetchMock.mockClear();
 
-      await board.moveChecklistItem('t1', 'ci1', { sort_key: 'V3' });
+      await board.moveChecklistItem('t1', 'ci1', { sort_key: 'V3' }, { kind: 'append' });
       await vi.runAllTimersAsync();
 
       expect(board.taskChecklists.t1!.map((i) => i.text)).toEqual(['b', 'a']);
@@ -4958,6 +4959,47 @@ describe('mutations made while the server is unreachable', () => {
     expect(board.tasks.find((t) => t.id === 't9')?.title).toBe('Old');
     expect(board.archivedTasks).toEqual([]);
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  // Hand-built move ops in outbox.test.ts prove the replay; only this proves the
+  // caller hands one over at all, which is the half that was missing.
+  it('moveColumn queues the columns it landed between, not just the key it computed', async () => {
+    const submit = vi.spyOn(outbox, 'submit');
+    const ordered = [...board.columns].sort(byRank);
+    const moved = ordered[2]!;
+    const items = [ordered[0]!, moved, ordered[1]!];
+    const drop = placementAfterDrop(items, moved.id)!;
+
+    await board.moveColumn(moved.id, drop.placement, drop.intent);
+
+    expect(submit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        semantics: 'move',
+        move: { kind: 'column', afterId: ordered[0]!.id, beforeId: ordered[1]!.id },
+      })
+    );
+  });
+
+  it('moveChecklistItem queues the items it landed between', async () => {
+    const submit = vi.spyOn(outbox, 'submit');
+
+    await board.moveChecklistItem(
+      't1',
+      'ci2',
+      { sort_key: 'V3' },
+      {
+        kind: 'between',
+        afterId: 'ci1',
+        beforeId: 'ci3',
+      }
+    );
+
+    expect(submit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        semantics: 'move',
+        move: { kind: 'checklist', taskId: 't1', afterId: 'ci1', beforeId: 'ci3' },
+      })
+    );
   });
 
   it('updateTask reports the write as queued and leaves the optimistic patch standing', async () => {

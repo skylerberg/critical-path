@@ -33,13 +33,18 @@ export interface SerializedRequest {
  */
 export type OpSemantics = 'create' | 'move' | 'contentEdit' | 'plain';
 
-// Where the user put the card, in the only terms that survive other people
-// moving things underneath: which card it went after, and which it went before.
-export interface MoveIntent {
-  columnId: string;
-  afterId: string | null;
-  beforeId: string | null;
-}
+// Where the user put the row, in the only terms that survive other people
+// moving things underneath: which row it went after, and which it went before.
+//
+// `kind` names the list to rank it against at replay, because the three scopes
+// read from three different places — a column's tasks, the board's columns, and
+// one task's checklist. A task move is the only kind that existed when this was
+// first stored, so an op read back from a queue written before the other two
+// learned to travel is normalised into it rather than migrated.
+export type MoveIntent =
+  | { kind: 'task'; columnId: string; afterId: string | null; beforeId: string | null }
+  | { kind: 'column'; afterId: string | null; beforeId: string | null }
+  | { kind: 'checklist'; taskId: string; afterId: string | null; beforeId: string | null };
 
 export interface ConflictContext {
   taskId: string;
