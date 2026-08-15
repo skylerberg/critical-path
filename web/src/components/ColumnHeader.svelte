@@ -1,6 +1,6 @@
 <script lang="ts">
   import { dragHandle } from 'svelte-dnd-action';
-  import { focusAndSelect, menuKeys } from '../lib/actions';
+  import { focusAndSelect, menuKeys, startedInside } from '../lib/actions';
   import { board } from '../lib/board.svelte';
   import type { BoardColumn } from '../lib/board-types';
   import { COLUMN_SORT_OPTIONS } from '../lib/column-sort';
@@ -76,10 +76,11 @@
 
   // One header per column, so a click on another column's kebab has to reach this
   // instance to close its menu — hence no stopPropagation on the trigger, and the
-  // containment check here to keep a click on our own menu from closing it.
+  // check here to keep a click on our own menu from closing it. That check is
+  // asked of the click's own path, not of the DOM: "Sort by" has replaced the row
+  // it was on by the time the click gets here.
   function closeMenuOnOutsideClick(event: MouseEvent): void {
-    const target = event.target;
-    if (target instanceof Node && menuEl?.contains(target) === true) {
+    if (startedInside(event, menuEl)) {
       return;
     }
     menuOpen = false;

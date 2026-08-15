@@ -49,6 +49,28 @@ export function focusRemainsInside(event: FocusEvent & { currentTarget: HTMLElem
   return next instanceof Node && event.currentTarget.contains(next);
 }
 
+/**
+ * Whether an event began inside `root`, answered from the path the browser fixed
+ * when it was dispatched rather than from where the target sits by the time this
+ * runs. The two disagree exactly when a handler re-renders what was clicked: the
+ * column kebab's "Sort by" row replaces the menu's rows with the sort options, so
+ * a window-level guard is handed a node that belongs to no tree at all, and
+ * `root.contains(target)` calls a click that never left the menu an outside
+ * click — which is what dismissed the whole menu instead of expanding it.
+ *
+ * A real press is the only way to see that. A dispatched MouseEvent leaves the
+ * re-render until after the event has finished propagating, so the guard is
+ * handed the node still in place and every tier below a browser reports a menu
+ * that stays open; `scripts/check-column-menu.mjs` is where the real press lives.
+ *
+ * Only answerable during dispatch — composedPath() is empty once propagation
+ * ends, so a guard that defers this question to a microtask is told everything
+ * started outside.
+ */
+export function startedInside(event: Event, root: Node | undefined): boolean {
+  return root !== undefined && event.composedPath().includes(root);
+}
+
 const TOUCH_CONTEXT_MENU_MARKER = 'data-no-touch-context-menu';
 
 const directPointers = new Set<number>();

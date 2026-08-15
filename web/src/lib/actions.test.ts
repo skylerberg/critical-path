@@ -1,5 +1,11 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { focusIf, focusRemainsInside, menuKeys, suppressTouchContextMenu } from './actions';
+import {
+  focusIf,
+  focusRemainsInside,
+  menuKeys,
+  startedInside,
+  suppressTouchContextMenu,
+} from './actions';
 
 function anchor(guarded = true): HTMLAnchorElement {
   const element = document.createElement('a');
@@ -288,5 +294,86 @@ describe('menuKeys', () => {
     expect(press(node, 'z')).toBe(false);
     expect(seen).toEqual(['a', 'z']);
     handle.destroy?.();
+  });
+});
+
+describe('startedInside', () => {
+  /** A menu with one row, and a label inside that row for the click to land on. */
+  function menuWithRow(): { menu: HTMLElement; row: HTMLElement; label: HTMLElement } {
+    const element = document.createElement('div');
+    const row = document.createElement('button');
+    const label = document.createElement('span');
+    row.append(label);
+    element.append(row);
+    document.body.append(element);
+    return { menu: element, row, label };
+  }
+
+  /**
+   * Clicks `target` and returns what a window-level guard is told, both ways:
+   * from the event's own path and from the DOM it is looking at by then.
+   */
+  function guardVerdicts(root: HTMLElement, target: HTMLElement): { path: boolean; dom: boolean } {
+    const seen: Array<{ path: boolean; dom: boolean }> = [];
+    const guard = (event: Event): void => {
+      seen.push({
+        path: startedInside(event, root),
+        dom: event.target instanceof Node && root.contains(event.target),
+      });
+    };
+    window.addEventListener('click', guard);
+    target.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    window.removeEventListener('click', guard);
+    return seen[0] ?? { path: false, dom: false };
+  }
+
+  it('is true for a click on a row that is still where it was', () => {
+    const { menu: element, label } = menuWithRow();
+
+    expect(guardVerdicts(element, label)).toEqual({ path: true, dom: true });
+  });
+
+  // The bug this exists for: the row's own handler renders the submenu, which
+  // detaches the node that was clicked, and every later listener is asked about a
+  // node in no tree at all. `dom: false` is the control — without it this reads
+  // as passing on a click nothing ever moved.
+  it('is true for a click whose row was swapped out mid-dispatch', () => {
+    const { menu: element, row, label } = menuWithRow();
+    row.addEventListener('click', () => element.replaceChildren(document.createElement('button')));
+
+    expect(guardVerdicts(element, label)).toEqual({ path: true, dom: false });
+  });
+
+  it('is false for a click that started outside', () => {
+    const { menu: element } = menuWithRow();
+    const elsewhere = document.createElement('button');
+    document.body.append(elsewhere);
+
+    expect(guardVerdicts(element, elsewhere)).toEqual({ path: false, dom: false });
+  });
+
+  it('is false for a menu that has not rendered yet', () => {
+    const { label } = menuWithRow();
+    const seen: boolean[] = [];
+    const guard = (event: Event): void => void seen.push(startedInside(event, undefined));
+    window.addEventListener('click', guard);
+    label.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    window.removeEventListener('click', guard);
+
+    expect(seen).toEqual([false]);
+  });
+
+  // The constraint the header names: the path is only readable while the event is
+  // propagating, so a guard that defers the question answers "outside" to
+  // everything.
+  it('is false once the event has finished propagating', () => {
+    const { menu: element, label } = menuWithRow();
+    let deferred: Event | null = null;
+    const guard = (event: Event): void => void (deferred = event);
+    window.addEventListener('click', guard);
+    label.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    window.removeEventListener('click', guard);
+
+    expect(startedInside(deferred as unknown as Event, element)).toBe(false);
   });
 });

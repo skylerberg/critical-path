@@ -423,7 +423,7 @@ before reading a media query. Those guards look dead — the browser always has
 it — and are load-bearing under the test runner.
 
 `createBrowser()` wraps Playwright rather than re-exporting it: the returned
-object is `{ setViewport, goto, eval, press, screenshot, close }` and nothing more, so
+object is `{ setViewport, goto, eval, press, click, screenshot, close }` and nothing more, so
 `newPage()` and the rest of the Playwright API are not on it. Its own header
 documents the signatures and the null-on-missing-engine skip; the two things
 below are the ones that have cost time.
@@ -446,19 +446,27 @@ an answer. Only the committed checks are Chromium-only, so CI installs Chromium
 alone and a committed check asking for WebKit would fail loudly there rather than
 skip.
 
-The six methods take their own shapes, none of which match Playwright's:
+The seven methods take their own shapes, none of which match Playwright's:
 
 ```js
 await browser.setViewport({ width: 375, height: 667, mobile: true }); // object, not (w, h)
 await browser.goto(url, { wait: 350 }); // waits for load, then the delay
 const value = await browser.eval(`expression`); // a string, awaited if it returns a promise
 await browser.press('Tab', { selector: '#name' }); // real keyboard; focuses first if given one
+await browser.click('#row'); // real mouse, at the element's centre
 await writeFile(path, await browser.screenshot()); // returns a PNG Buffer; takes no path
 ```
 
-`press` is the one to reach for whenever the answer depends on what the browser
-does rather than on what a listener does — its header says which is which, and
-the gap is invisible from the probe's side because a listener answers both.
+`press` and `click` are the ones to reach for whenever the answer depends on what
+the browser does rather than on what a listener does — their headers say which is
+which, and the gap is invisible from the probe's side because a listener answers
+both. `click`'s half of that gap is *when the page re-renders*, which is why
+`check:column-menu` was green for so long over a menu that dismissed itself in
+every engine, and it is the reason a probe cannot build its own MouseEvent for a
+question about what other listeners see.
+
+`engine: 'firefox'` exists alongside webkit and is the one engine
+`pnpm run playwright:install` leaves out; install it when a report names it.
 
 `mobile` defaults to **true** and models the mobile layout viewport, where
 overflow _expands_ `innerWidth` past the requested width — which is how the

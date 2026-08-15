@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onDestroy } from 'svelte';
-  import { menuKeys } from '../lib/actions';
+  import { menuKeys, startedInside } from '../lib/actions';
   import { accentVar, type ProjectAccent } from '../lib/accents';
   import { apiMessage } from '../lib/apiMessages';
   import { board } from '../lib/board.svelte';
@@ -91,9 +91,11 @@
     }
   }
 
+  // Asked of the click's path rather than the DOM, because Export swaps its own
+  // icon for the spinner while the menu stays open — and a guard reading the DOM
+  // would take that click on the icon for a click outside the menu.
   function closeMenuOnOutsideClick(event: MouseEvent): void {
-    const target = event.target;
-    if (target instanceof Node && menuEl?.contains(target) === true) {
+    if (startedInside(event, menuEl)) {
       return;
     }
     menuOpen = false;

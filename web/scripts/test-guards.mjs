@@ -1360,4 +1360,16 @@ export const guards = [
       "readFileSync(resolve(import.meta.dirname, '../app.css'), 'utf8').replace('background-color: var(--cp-accent);', 'background-color: var(--cp-accent-soft);');",
     tests: ['src/app.css.test.ts'],
   },
+  {
+    // The DOM answer is the one every outside-click guard here used to take, and
+    // it is right up until the click re-renders what it landed on — which is the
+    // whole of "Sort by just closes the menu".
+    name: 'an outside-click guard judges a click by where it started',
+    testName: 'is true for a click whose row was swapped out mid-dispatch',
+    file: 'src/lib/actions.ts',
+    find: '  return root !== undefined && event.composedPath().includes(root);',
+    replace:
+      '  return root !== undefined && event.target instanceof Node && root.contains(event.target);',
+    tests: ['src/lib/actions.test.ts'],
+  },
 ];
