@@ -494,10 +494,16 @@ describe('GET /api/projects/:id/export', () => {
     it('resolves every user reference without exposing avatar urls or addresses', async () => {
       const exportPayload = await exportJson(projectId, owner.token);
 
+      // The exact set, not three probes: the directory is scoped to the project,
+      // so an unscoped query would hand every reader every account on the
+      // instance and still satisfy a membership check.
+      expect(exportPayload.users.map((user) => user.id).sort()).toEqual(
+        [owner.id, member.id, exMember.id].sort()
+      );
       const byId = new Map(exportPayload.users.map((user) => [user.id, user]));
       expect(byId.get(owner.id)).toEqual({ id: owner.id, name: owner.name });
-      expect(byId.has(member.id)).toBe(true);
-      expect(byId.has(exMember.id)).toBe(true);
+      expect(byId.get(member.id)).toEqual({ id: member.id, name: member.name });
+      expect(byId.get(exMember.id)).toEqual({ id: exMember.id, name: exMember.name });
       for (const user of exportPayload.users) {
         expect(Object.keys(user).sort()).toEqual(['id', 'name']);
       }

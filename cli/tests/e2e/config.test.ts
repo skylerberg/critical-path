@@ -1,7 +1,9 @@
 import { describe, it, expect, afterAll, beforeAll } from 'vitest';
+import { PassThrough } from 'node:stream';
 import { TestContext, type TestUser } from '../../../tests/setup/testContext';
 import { createCliHarness, type CliHarness } from './helpers';
 import { configPath, saveConfig } from '../../src/config';
+import { createContext, type CliDeps, type GlobalFlags } from '../../src/context';
 import type { components } from '../../src/api/api.generated';
 
 type BoardPayload = components['schemas']['BoardResponse'];
@@ -51,6 +53,48 @@ describe('config commands', () => {
     const after = await h.runCli(['config', 'get', 'api-url']);
     expect(after.exitCode).toBe(0);
     expect(after.stdout.trim()).toBe('');
+  });
+
+  it('--api-url sends the request there and keys the stored token by it', async () => {
+    const fresh = await createCliHarness();
+    const requests: string[] = [];
+    const login = await fresh.runCli(
+      [
+        'login',
+        '--email',
+        user.email,
+        '--password-stdin',
+        '--api-url',
+        'http://api.example.test:3001/',
+      ],
+      { stdin: `${user.password}\n`, onRequest: (request) => requests.push(request.url) }
+    );
+    expect(login.exitCode).toBe(0);
+    expect(requests).toEqual(['http://api.example.test:3001/api/auth/login']);
+    expect(await fresh.credentials.get('http://api.example.test:3001')).not.toBeNull();
+    expect(await fresh.credentials.get('http://localhost:3001')).toBeNull();
+  });
+
+  it('resolves the API base URL from the flag, then the config file, then the default', async () => {
+    const fresh = await createCliHarness();
+    const silent = { write: () => undefined };
+    const deps: CliDeps = {
+      env: { CRITICAL_PATH_CONFIG_DIR: fresh.configDir },
+      platform: 'linux',
+      stdin: new PassThrough(),
+      stdout: silent,
+      stderr: silent,
+      credentials: fresh.credentials,
+    };
+    const flags: GlobalFlags = { json: false, noInput: true, color: false };
+
+    expect((await createContext(deps, flags)).baseUrl).toBe('https://criticalpath.skylerberg.com');
+
+    await saveConfig(fresh.configDir, { api_url: 'http://config-host.test:3001/' });
+    expect((await createContext(deps, flags)).baseUrl).toBe('http://config-host.test:3001');
+    expect((await createContext(deps, { ...flags, apiUrl: 'http://flag-host.test' })).baseUrl).toBe(
+      'http://flag-host.test'
+    );
   });
 
   it('rejects unknown keys with a usage error', async () => {

@@ -108,16 +108,55 @@ describe('What changed since you last looked', () => {
     const item = await listItem(editor, created.project.id);
     expect(item.last_seen_at).not.toBeNull();
     expect(item.has_unseen_changes).toBe(true);
+
+    const first = await board(editor, created.project.id);
+    expect(first.tasks.map((task) => task.id).sort()).toEqual(
+      [untouched, changed, commented, mine].sort()
+    );
+    expect(first.changed_task_ids).toEqual([changed, commented].sort());
+
+    // Only PUT /:id/seen stamps: a second board read, and an export taken
+    // between the two, have to leave both the marker and the highlights exactly
+    // where they were.
+    const exported = await ctx
+      .request(editor.token)
+      .get(`/api/projects/${created.project.id}/export?format=json`);
+    expect(exported.status).toBe(200);
     expect((await board(editor, created.project.id)).changed_task_ids).toEqual(
       [changed, commented].sort()
     );
-    expect((await board(editor, created.project.id)).changed_task_ids).not.toContain(untouched);
-    expect((await board(editor, created.project.id)).changed_task_ids).not.toContain(mine);
+    const unmoved = await listItem(editor, created.project.id);
+    expect(unmoved.last_seen_at).toBe(item.last_seen_at);
+    expect(unmoved.has_unseen_changes).toBe(true);
 
     expect(await stamp(editor, created.project.id)).toBe(204);
     expect((await listItem(editor, created.project.id)).has_unseen_changes).toBe(false);
     expect((await board(editor, created.project.id)).changed_task_ids).toEqual([]);
     expect((await listItem(owner, created.project.id)).has_unseen_changes).toBe(false);
+  });
+
+  it('holds one marker per member, so one of them opening the board clears nobody else', async () => {
+    const created = await createProject(owner);
+    await share(created.project.id, owner, [editor]);
+    const columnId = created.columns[0]!.id;
+    const forEditor = await insertTask({ projectId: created.project.id, columnId });
+    const forOwner = await insertTask({ projectId: created.project.id, columnId });
+
+    expect(await stamp(editor, created.project.id)).toBe(204);
+    const byOwner = await ctx
+      .request(owner.token)
+      .patch(`/api/tasks/${forEditor}`, { title: 'owner touched this' });
+    expect(byOwner.status).toBe(200);
+    expect(await stamp(owner, created.project.id)).toBe(204);
+    const byEditor = await ctx
+      .request(editor.token)
+      .patch(`/api/tasks/${forOwner}`, { title: 'editor touched this' });
+    expect(byEditor.status).toBe(200);
+
+    expect((await listItem(editor, created.project.id)).has_unseen_changes).toBe(true);
+    expect((await board(editor, created.project.id)).changed_task_ids).toEqual([forEditor]);
+    expect((await listItem(owner, created.project.id)).has_unseen_changes).toBe(true);
+    expect((await board(owner, created.project.id)).changed_task_ids).toEqual([forOwner]);
   });
 
   it('answers false for an archived project but keeps highlighting inside it', async () => {

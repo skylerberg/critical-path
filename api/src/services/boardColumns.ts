@@ -167,6 +167,11 @@ export async function reorderColumnTasks(
   if (new Set(taskIds).size !== taskIds.length) {
     throw new AppError(422, 'task_ids must not contain duplicates');
   }
+  // The run below is allocated past the column's tail, so this is held for the
+  // same reason every other appender holds it, and before the rows the write
+  // goes on to lock: the reverse order deadlocks against the bulk move.
+  await lockColumnTail(db, column.id);
+
   const rows = await db
     .selectFrom('task')
     .select('id')
@@ -194,14 +199,19 @@ export async function reorderColumnTasks(
     sort_key: keys[index]!,
   }));
 
-  await sql`
+  const written = await sql<{ id: string }>`
     update task
     set sort_key = v.sort_key
     from ${positionValues(movedTasks)}
     where task.id = v.id
       and task.column_id = ${column.id}
       and task.archived_at is null
+    returning task.id
   `.execute(db);
 
-  return movedTasks;
+  // Reporting a position for a row those predicates skipped would tell every
+  // client the card sits somewhere it does not, through the response and the
+  // event alike, so the answer is what the write actually touched.
+  const touched = new Set(written.rows.map((row) => row.id));
+  return movedTasks.filter((task) => touched.has(task.id));
 }

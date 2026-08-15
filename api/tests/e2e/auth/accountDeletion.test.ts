@@ -70,6 +70,12 @@ describe('DELETE /api/auth/me', () => {
     return (await res.json()).avatar_url.replace('/api/avatars/', '');
   }
 
+  async function blockerCountOf(user: TestUser, taskId: string): Promise<number> {
+    const res = await ctx.request(user.token).get(`/api/tasks/${taskId}`);
+    expect(res.status).toBe(200);
+    return (await res.json()).open_cross_project_blocker_count;
+  }
+
   async function userExists(userId: string): Promise<boolean> {
     const row = await db
       .selectFrom('app_user')
@@ -378,6 +384,58 @@ describe('DELETE /api/auth/me', () => {
     expect(relations[0]!.data).toMatchObject({ task_id: taskId, assignee_ids: [] });
 
     expect(entries.filter((entry) => entry.type === SESSIONS_REVOKED)).toHaveLength(1);
+  });
+
+  // The count is denormalized, so the surviving card in a project this account
+  // never owned learns of the vanished blocker only from this recount.
+  it('recounts and republishes a surviving task whose blocker the cascade takes away', async () => {
+    const host = await ctx.createUser('del-blocker-host');
+    const leaver = await ctx.createUser('del-blocker-leaver');
+    const hostProject = await createProject(host, 'Host blockers');
+    expect(
+      (
+        await ctx
+          .request(host.token)
+          .put(`/api/projects/${hostProject}/members`, { user_ids: [leaver.id] })
+      ).status
+    ).toBe(204);
+    const blocked = await createTask(host, hostProject, 'waits on a stranger');
+    const soloProject = await createProject(leaver, 'Solo blockers');
+    const blocker = await createTask(leaver, soloProject, 'the blocker');
+    expect(
+      (
+        await ctx
+          .request(leaver.token)
+          .post(`/api/tasks/${blocked}/blockers`, { blocker_task_id: blocker })
+      ).status
+    ).toBe(204);
+    expect(await blockerCountOf(host, blocked)).toBe(1);
+
+    const entries = await collectBusEntries(async () => {
+      const res = await ctx
+        .request(leaver.token)
+        .delete('/api/auth/me', { password: leaver.password });
+      expect(res.status).toBe(204);
+    });
+
+    expect(entries.filter((entry) => entry.type === 'cross_project_blockers_changed')).toEqual([
+      {
+        type: 'cross_project_blockers_changed',
+        project_id: hostProject,
+        data: { tasks: [{ task_id: blocked, open_cross_project_blocker_count: 0 }] },
+      },
+    ]);
+    expect(await blockerCountOf(host, blocked)).toBe(0);
+    const edges = await ctx
+      .request(host.token)
+      .get(`/api/tasks/${blocked}/cross-project-dependencies`);
+    expect(edges.status).toBe(200);
+    expect(await edges.json()).toEqual({
+      blocked_by: [],
+      blocking: [],
+      hidden_blocked_by_count: 0,
+      hidden_blocking_count: 0,
+    });
   });
 
   it('cascades submitted feedback', async () => {

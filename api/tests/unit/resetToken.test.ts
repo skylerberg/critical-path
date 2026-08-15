@@ -27,16 +27,17 @@ describe('createResetToken / verifyResetToken', () => {
     expect(verifyResetTokenDetailed(token)).toEqual({ status: 'valid', alternative_id: ALT_ID });
   });
 
-  it('expires after the TTL', () => {
+  // The boundaries are literal rather than RESET_TOKEN_TTL_MS arithmetic: the
+  // producer uses the same constant, so deriving them holds for any value and
+  // the 15 minutes README.md, CLAUDE.md and the mailed body all promise would be
+  // free to become 15 hours.
+  it('expires fifteen minutes after it was minted', () => {
     const now = 1_700_000_000_000;
     const token = createResetToken(ALT_ID, now);
-    expect(verifyResetToken(token, now + RESET_TOKEN_TTL_MS - 1)).toEqual({
-      alternative_id: ALT_ID,
-    });
-    expect(verifyResetToken(token, now + RESET_TOKEN_TTL_MS)).toBeNull();
-    expect(verifyResetTokenDetailed(token, now + RESET_TOKEN_TTL_MS)).toEqual({
-      status: 'expired',
-    });
+    expect(RESET_TOKEN_TTL_MS).toBe(15 * 60 * 1000);
+    expect(verifyResetToken(token, now + 899_999)).toEqual({ alternative_id: ALT_ID });
+    expect(verifyResetToken(token, now + 900_000)).toBeNull();
+    expect(verifyResetTokenDetailed(token, now + 900_000)).toEqual({ status: 'expired' });
   });
 
   it('rejects a tampered payload', () => {
@@ -97,5 +98,45 @@ describe('createResetToken / verifyResetToken', () => {
     const token = createResetToken(ALT_ID);
     expect(verifyResetToken(token)).toEqual({ alternative_id: ALT_ID });
     expect(spy).toHaveBeenCalled();
+  });
+});
+
+type Env = (typeof import('../../src/config/env'))['env'];
+
+// The secret both mailed-link families sign with. Its production guard is a
+// lazy getter rather than a boot assertion, so it is reached by stubbing the
+// environment around the call rather than at boot.
+describe('env.passwordResetSecret', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.resetModules();
+  });
+
+  async function loadEnv(environment: string, secret: string): Promise<Env> {
+    vi.stubEnv('ENVIRONMENT', environment);
+    vi.stubEnv('PASSWORD_RESET_SECRET', secret);
+    vi.stubEnv('EMAIL_TOKEN_SECRET', '');
+    vi.resetModules();
+    return (await import('../../src/config/env')).env;
+  }
+
+  it('falls back to the secret published in this repo outside production', async () => {
+    const env = await loadEnv('development', '');
+    expect(env.passwordResetSecret).toBe(DEV_SECRET);
+    expect(env.emailTokenSecret).toBe(DEV_SECRET);
+  });
+
+  it('refuses that fallback in production, for both token families', async () => {
+    const env = await loadEnv('production', '');
+    expect(() => env.passwordResetSecret).toThrow(
+      'PASSWORD_RESET_SECRET is required in production'
+    );
+    expect(() => env.emailTokenSecret).toThrow('PASSWORD_RESET_SECRET is required in production');
+  });
+
+  it('returns the configured secret in production', async () => {
+    const env = await loadEnv('production', 'a-real-production-secret');
+    expect(env.passwordResetSecret).toBe('a-real-production-secret');
+    expect(env.emailTokenSecret).toBe('a-real-production-secret');
   });
 });

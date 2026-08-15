@@ -26,6 +26,22 @@ const DECIDED: Record<string, 'in' | 'out'> = {
   'task_series_assignee.user_id': 'out',
 };
 
+// Convention 8: `delete from app_user` is one statement and everything else
+// cascades off it, so a foreign key that does not cascade is what makes an
+// account undeletable. Both deviations are deliberate — a project has to be
+// handed over or deleted first, and a series outlives whoever set it up.
+const DELETE_ACTIONS: Record<string, string> = {
+  a: 'no action',
+  c: 'cascade',
+  d: 'set default',
+  n: 'set null',
+  r: 'restrict',
+};
+const NON_CASCADING: Record<string, string> = {
+  'project.created_by': 'restrict',
+  'task_series.created_by': 'set null',
+};
+
 // Every column of the four account-owned tables the export reads, each decided
 // once. A new column on one of them is the likelier rot — the two notification
 // preferences arrived exactly that way. "in" means the value reaches the file.
@@ -71,26 +87,44 @@ const DECIDED_COLUMNS: Record<string, 'in' | 'out'> = {
   'session.user_id': 'out',
 };
 
+interface ForeignKeyIntoUser {
+  column_ref: string;
+  confdeltype: string;
+}
+
+async function foreignKeysIntoUser(): Promise<ForeignKeyIntoUser[]> {
+  const { rows } = await sql<ForeignKeyIntoUser>`
+    select src.relname || '.' || att.attname as column_ref, con.confdeltype
+    from pg_constraint con
+    join pg_class src on src.oid = con.conrelid
+    join pg_class tgt on tgt.oid = con.confrelid
+    cross join lateral unnest(con.conkey) as k(attnum)
+    join pg_attribute att on att.attrelid = con.conrelid and att.attnum = k.attnum
+    where con.contype = 'f'
+      and tgt.relname = 'app_user'
+      and tgt.relnamespace = 'public'::regnamespace
+    order by 1
+  `.execute(db);
+  return rows;
+}
+
 describe('account export coverage', () => {
   it('has a decision recorded for every foreign key into app_user', async () => {
-    const { rows } = await sql<{ column_ref: string }>`
-      select src.relname || '.' || att.attname as column_ref
-      from pg_constraint con
-      join pg_class src on src.oid = con.conrelid
-      join pg_class tgt on tgt.oid = con.confrelid
-      cross join lateral unnest(con.conkey) as k(attnum)
-      join pg_attribute att on att.attrelid = con.conrelid and att.attnum = k.attnum
-      where con.contype = 'f'
-        and tgt.relname = 'app_user'
-        and tgt.relnamespace = 'public'::regnamespace
-      order by 1
-    `.execute(db);
-
-    const live = rows.map((row) => row.column_ref).sort();
+    const live = (await foreignKeysIntoUser()).map((row) => row.column_ref).sort();
     const decided = Object.keys(DECIDED).sort();
 
     expect(live.filter((ref) => !decided.includes(ref))).toEqual([]);
     expect(decided.filter((ref) => !live.includes(ref))).toEqual([]);
+  });
+
+  it('has every foreign key into app_user cascading, bar the two deviations', async () => {
+    const deviating = (await foreignKeysIntoUser()).filter((row) => row.confdeltype !== 'c');
+
+    expect(
+      Object.fromEntries(
+        deviating.map((row) => [row.column_ref, DELETE_ACTIONS[row.confdeltype] ?? row.confdeltype])
+      )
+    ).toEqual(NON_CASCADING);
   });
 
   it('has a decision recorded for every column of the tables it reads', async () => {

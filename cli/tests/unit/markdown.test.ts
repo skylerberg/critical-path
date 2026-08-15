@@ -136,6 +136,38 @@ describe('markdownToTiptap', () => {
     expect(() => markdownToTiptap('<div>hi</div>')).toThrowError(/raw HTML/);
   });
 
+  it('fails closed on raw HTML inside a paragraph rather than dropping the tag', () => {
+    expect(() => markdownToTiptap('Ship it <br> now')).toThrowError(CliError);
+    expect(() => markdownToTiptap('Ship it <br> now')).toThrowError(/raw HTML/);
+    expect(() => markdownToTiptap('a <b>c</b>')).toThrowError(/raw HTML/);
+  });
+
+  it('fails closed on reference-style links, images and their definitions', () => {
+    const link = ['see [the doc][ref]', '', '[ref]: https://example.com'].join('\n');
+    expect(() => markdownToTiptap(link)).toThrowError(CliError);
+    expect(() => markdownToTiptap(link)).toThrowError(/reference-style links/);
+
+    const image = ['![x][ref]', '', `[ref]: ${IMAGE_SRC}`].join('\n');
+    expect(() => markdownToTiptap(image)).toThrowError(CliError);
+    expect(() => markdownToTiptap(image)).toThrowError(/reference-style images/);
+
+    expect(() => markdownToTiptap('[ref]: https://example.com')).toThrowError(
+      /link reference definitions/
+    );
+  });
+
+  it('rejects an image inside a link', () => {
+    const md = `[![x](${IMAGE_SRC})](https://example.com/page)`;
+    expect(() => markdownToTiptap(md)).toThrowError(CliError);
+    expect(() => markdownToTiptap(md)).toThrowError(/Images inside links/);
+  });
+
+  it('rejects an image inside a heading', () => {
+    const md = `# Title ![x](${IMAGE_SRC})`;
+    expect(() => markdownToTiptap(md)).toThrowError(CliError);
+    expect(() => markdownToTiptap(md)).toThrowError(/Images inside headings/);
+  });
+
   it('rejects image srcs that are not uploaded images', () => {
     const md = '![x](https://example.com/pic.png)';
     expect(() => markdownToTiptap(md)).toThrowError(CliError);

@@ -391,14 +391,26 @@ describe('watchEvents', () => {
     const h = start();
     h.last().open();
     h.last().message('{"type":"auth_ok"}');
-    h.last().close(4429);
 
-    const err = await h.promise.then(
-      () => null,
-      (e: unknown) => e
+    // Watched rather than awaited: a regression that reconnects instead of
+    // stopping leaves this promise pending forever, and awaiting it would report
+    // that as a 30s timeout — the one failure this repo tells you to re-run and
+    // distrust. Settling within a tick is itself part of the contract.
+    let outcome: unknown = 'still watching';
+    void h.promise.then(
+      () => {
+        outcome = 'resolved';
+      },
+      (e: unknown) => {
+        outcome = e;
+      }
     );
-    expect(err).toBeInstanceOf(ApiError);
-    expect((err as ApiError).status).toBe(429);
+    h.last().close(4429);
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(outcome).toBeInstanceOf(ApiError);
+    expect((outcome as ApiError).status).toBe(429);
+    expect((outcome as ApiError).message).toMatch(/too many open realtime connections/);
     expect(h.revalidateSession).not.toHaveBeenCalled();
 
     // The whole point: no second socket, ever. Reconnecting here evicts another

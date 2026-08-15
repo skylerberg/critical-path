@@ -3,6 +3,7 @@ import { describe, it, expect } from 'vitest';
 import { buildRealtimeEventsDocument } from '../../src/spec/realtime-events';
 import * as closeCodes from '../../src/services/realtime/closeCodes';
 import {
+  carriesActor,
   REALTIME_EVENT_TYPES,
   WEBHOOK_EVENT_TYPES,
 } from '../../src/services/realtime/eventCatalog';
@@ -86,6 +87,14 @@ describe('realtime close codes', () => {
   });
 });
 
+// The builder keeps its naming to itself, so a lookup that misses reads as a
+// schema this file cannot find rather than as a name it agreed with.
+const socketSchemaName = (type: string): string =>
+  type
+    .split('_')
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join('') + 'Event';
+
 describe('realtime events document', () => {
   it('describes every event the catalog publishes, socket and webhook', async () => {
     const { schemas } = (await buildRealtimeEventsDocument()).components as {
@@ -106,13 +115,52 @@ describe('realtime events document', () => {
     expect(schemas.TaskCreatedEvent.properties.project_id.type).toBe('string');
   });
 
-  it('carries each payload into the webhook body as well as the socket envelope', async () => {
+  it('carries the payload into the webhook body as well as the socket envelope', async () => {
     const { schemas } = (await buildRealtimeEventsDocument()).components as {
       schemas: Record<string, { properties: Record<string, unknown> }>;
     };
 
-    expect(schemas.TaskCreatedWebhookEvent.properties.data).toEqual(
-      schemas.TaskCreatedEvent.properties.data
-    );
+    // Spelled out rather than read back through the payload table: the two
+    // envelopes are handed the same converted object, so comparing them with
+    // each other compares one thing with itself and a payload that converted to
+    // nothing at all would satisfy it.
+    const labelDeleted = {
+      type: 'object',
+      properties: {
+        actor_user_id: { anyOf: [{ type: 'string' }, { type: 'null' }] },
+        id: { type: 'string' },
+      },
+      required: ['actor_user_id', 'id'],
+    };
+
+    expect(schemas.LabelDeletedEvent.properties.data).toEqual(labelDeleted);
+    expect(schemas.LabelDeletedWebhookEvent.properties.data).toEqual(labelDeleted);
+  });
+
+  // The field a client tells a teammate's change from an echo of its own by.
+  // Merged into the payload table from the catalog, so nothing but the
+  // published schema shows whether the merge still happens: the type-level half
+  // of it is a separate mapping that keeps compiling either way.
+  it('publishes actor_user_id for exactly the types the catalog says name an actor', async () => {
+    const { schemas } = (await buildRealtimeEventsDocument()).components as {
+      schemas: Record<
+        string,
+        { properties: { data: { properties?: Record<string, unknown>; required?: string[] } } }
+      >;
+    };
+
+    for (const type of REALTIME_EVENT_TYPES) {
+      const { properties, required } = schemas[socketSchemaName(type)].properties.data;
+      // Keyed by type on both sides, so a mismatch names the event it is about.
+      expect({
+        type,
+        actor: properties?.actor_user_id,
+        required: required?.includes('actor_user_id') ?? false,
+      }).toEqual({
+        type,
+        actor: carriesActor(type) ? { anyOf: [{ type: 'string' }, { type: 'null' }] } : undefined,
+        required: carriesActor(type),
+      });
+    }
   });
 });
