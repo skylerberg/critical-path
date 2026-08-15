@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { KeychainStore, type SecurityRunner } from '../../src/credentials/keychain';
 import { FileStore } from '../../src/credentials/fileStore';
 import { MemoryStore } from '../../src/credentials/memory';
+import { createCredentialStore } from '../../src/credentials/store';
 
 const BASE_URL = 'http://localhost:3001';
 const TOKEN = 'abc123_-XYZ';
@@ -121,5 +122,28 @@ describe('MemoryStore', () => {
     expect(await store.get(BASE_URL)).toBe(TOKEN);
     await store.delete(BASE_URL);
     expect(await store.get(BASE_URL)).toBeNull();
+  });
+});
+
+describe('createCredentialStore', () => {
+  it('keeps macOS tokens in the keychain rather than on disk', async () => {
+    const dir = join(await mkdtemp(join(tmpdir(), 'cpath-test-')), 'creds');
+    const store = createCredentialStore('darwin', dir);
+    expect(store).toBeInstanceOf(KeychainStore);
+    // Rejected before anything is spawned, so it separates the two stores without
+    // reaching a real keychain: a FileStore would accept this token.
+    await expect(store.set(BASE_URL, 'has space')).rejects.toThrow(/unsafe|quotes/i);
+  });
+
+  it('stores tokens in a file under the config dir everywhere else', async () => {
+    for (const platform of ['linux', 'win32', 'freebsd']) {
+      const dir = join(await mkdtemp(join(tmpdir(), 'cpath-test-')), 'creds');
+      const store = createCredentialStore(platform, dir);
+      expect(store).toBeInstanceOf(FileStore);
+      await store.set(BASE_URL, TOKEN);
+      expect(JSON.parse(await readFile(join(dir, 'credentials.json'), 'utf8'))).toEqual({
+        [BASE_URL]: TOKEN,
+      });
+    }
   });
 });

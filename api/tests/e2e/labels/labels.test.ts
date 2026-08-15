@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { TestContext, TestUser } from '../../setup/testContext';
+import { collectBusEntries } from '../../helpers/bus';
 import { db } from '../../helpers/database';
 import { newId } from '../../helpers/fixtures';
 
@@ -188,27 +189,63 @@ describe('Labels API', () => {
       const projectId = await createProject('labels-patch');
       const label = await createLabel(projectId, 'Old name', '#ff0000');
 
-      const renamed = await ctx
-        .request(user.token)
-        .patch(`/api/labels/${label.id}`, { name: 'New name' });
-      expect(renamed.status).toBe(200);
-      expect(await renamed.json()).toEqual({
+      let renamedBody: unknown;
+      const renameEntries = await collectBusEntries(async () => {
+        const renamed = await ctx
+          .request(user.token)
+          .patch(`/api/labels/${label.id}`, { name: 'New name' });
+        expect(renamed.status).toBe(200);
+        renamedBody = await renamed.json();
+      });
+      expect(renamedBody).toEqual({
         id: label.id,
         project_id: projectId,
         name: 'New name',
         color: '#ff0000',
       });
+      // A rename reaches an open board and a webhook registration from nowhere
+      // else, and the response body is what the caller already knows.
+      expect(renameEntries).toEqual([
+        {
+          type: 'label_updated',
+          project_id: projectId,
+          data: {
+            id: label.id,
+            project_id: projectId,
+            name: 'New name',
+            color: '#ff0000',
+            actor_user_id: user.id,
+          },
+        },
+      ]);
 
-      const recolored = await ctx
-        .request(user.token)
-        .patch(`/api/labels/${label.id}`, { color: '#0000FF' });
-      expect(recolored.status).toBe(200);
-      expect(await recolored.json()).toEqual({
+      let recoloredBody: unknown;
+      const recolorEntries = await collectBusEntries(async () => {
+        const recolored = await ctx
+          .request(user.token)
+          .patch(`/api/labels/${label.id}`, { color: '#0000FF' });
+        expect(recolored.status).toBe(200);
+        recoloredBody = await recolored.json();
+      });
+      expect(recoloredBody).toEqual({
         id: label.id,
         project_id: projectId,
         name: 'New name',
         color: '#0000ff',
       });
+      expect(recolorEntries).toEqual([
+        {
+          type: 'label_updated',
+          project_id: projectId,
+          data: {
+            id: label.id,
+            project_id: projectId,
+            name: 'New name',
+            color: '#0000ff',
+            actor_user_id: user.id,
+          },
+        },
+      ]);
     });
 
     it('returns the label unchanged for an empty patch', async () => {
@@ -257,8 +294,26 @@ describe('Labels API', () => {
       const projectId = await createProject('labels-delete');
       const label = await createLabel(projectId, 'Doomed');
 
-      const res = await ctx.request(user.token).delete(`/api/labels/${label.id}`);
-      expect(res.status).toBe(204);
+      const entries = await collectBusEntries(async () => {
+        const res = await ctx.request(user.token).delete(`/api/labels/${label.id}`);
+        expect(res.status).toBe(204);
+      });
+      // The deletion and the unseen-changes dot its catalog row raises: a 204
+      // carries neither, so this is all an open board or a webhook
+      // registration ever hears about a deleted label.
+      expect(entries).toEqual([
+        {
+          type: 'label_deleted',
+          project_id: projectId,
+          data: { id: label.id, actor_user_id: user.id },
+        },
+        {
+          type: 'project_changed',
+          project_id: projectId,
+          data: { id: projectId, actor_user_id: user.id },
+          broadcast: true,
+        },
+      ]);
 
       const row = await db
         .selectFrom('label')

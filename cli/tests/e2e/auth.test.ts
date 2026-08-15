@@ -154,6 +154,15 @@ describe('auth commands', () => {
 
     const res = await tc.request(token!).get('/api/auth/me');
     expect(res.status).toBe(200);
+
+    const withNew = await tc
+      .request()
+      .post('/api/auth/login', { email: user.email, password: 'new-password-456' });
+    expect(withNew.status).toBe(200);
+    const withOld = await tc
+      .request()
+      .post('/api/auth/login', { email: user.email, password: user.password });
+    expect(withOld.status).toBe(401);
   });
 
   it('change-password with a wrong current password keeps the session', async () => {

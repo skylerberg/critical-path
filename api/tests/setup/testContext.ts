@@ -20,6 +20,21 @@ export interface TestResponse extends Omit<Response, 'json'> {
   json<T = JsonBody>(): Promise<T>;
 }
 
+// What @hono/node-server hands Hono as the context env, and the only place
+// clientIp() can read a source address from: app.request() supplies none, so
+// without this every caller is keyed 'unknown' and the wiring that decides
+// which budget a request spends runs in no test at all. One address for every
+// client by default, so the budget a file shares stays the single bucket it was.
+const DEFAULT_SOURCE_ADDRESS = '127.0.0.1';
+
+function nodeBindings(address: string): {
+  incoming: { socket: { remoteAddress: string; remotePort: number; remoteFamily: string } };
+} {
+  return {
+    incoming: { socket: { remoteAddress: address, remotePort: 51234, remoteFamily: 'IPv4' } },
+  };
+}
+
 export class TestContext {
   private users: TestUser[] = [];
 
@@ -72,13 +87,26 @@ export class TestApiClient {
     private token?: string,
     private userAgent?: string,
     private forwardedFor?: string,
-    private cookie?: string
+    private cookie?: string,
+    private sourceAddress: string = DEFAULT_SOURCE_ADDRESS
   ) {}
 
   // The cookie is what an <img> tag presents, so a media route's tests need a
   // client that carries one and no Authorization header at all.
   withCookie(cookie: string): TestApiClient {
-    return new TestApiClient(this.token, this.userAgent, this.forwardedFor, cookie);
+    return new TestApiClient(
+      this.token,
+      this.userAgent,
+      this.forwardedFor,
+      cookie,
+      this.sourceAddress
+    );
+  }
+
+  // The address the connection appears to come from, which is what every
+  // per-source budget is keyed on when no proxy header is trusted.
+  withSourceAddress(address: string): TestApiClient {
+    return new TestApiClient(this.token, this.userAgent, this.forwardedFor, this.cookie, address);
   }
 
   private headers(extra: Record<string, string> = {}): Record<string, string> {
@@ -101,7 +129,7 @@ export class TestApiClient {
   }
 
   private async send(path: string, init: RequestInit): Promise<TestResponse> {
-    return (await app.request(path, init)) as TestResponse;
+    return (await app.request(path, init, nodeBindings(this.sourceAddress))) as TestResponse;
   }
 
   private makeRequest(method: string, path: string, body?: unknown): Promise<TestResponse> {

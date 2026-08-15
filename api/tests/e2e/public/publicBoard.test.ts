@@ -685,6 +685,30 @@ describe('GET /api/public/projects/:id/board', () => {
     expect(task.attachment_count).toBe(3);
     expect(payload.attachments.map((a) => a.kind).sort()).toEqual(['file', 'image', 'link']);
 
+    // The one array toPublicBoard passes through whole rather than shaping field
+    // by field, so a key added to the authenticated attachment response reaches
+    // every anonymous reader unless it is pinned here.
+    for (const attachment of payload.attachments) {
+      expect(Object.keys(attachment).sort()).toEqual([
+        'content_type',
+        'created_at',
+        'description',
+        'favicon_url',
+        'filename',
+        'id',
+        'image_url',
+        'is_cover',
+        'kind',
+        'preview_url',
+        'size_bytes',
+        'task_id',
+        'title',
+        'unfurl_state',
+        'updated_at',
+        'url',
+      ]);
+    }
+
     // The bytes too, or the list would name documents nobody could open.
     const file = payload.attachments.find((a) => a.kind === 'file')!;
     const download = await ctx.request().get(`/api/attachments/${file.id}/download`);

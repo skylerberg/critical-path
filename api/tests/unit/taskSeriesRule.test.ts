@@ -25,7 +25,9 @@ afterAll(() => {
   process.env.TZ = originalTz;
 });
 
-function expectRejected(rrule: string, startDate = '2026-01-01'): void {
+// The detail is asserted, not just the status: the can-never-fire fallback
+// rejects several of these too, so only the message shows which guard ran.
+function expectRejected(rrule: string, detail: string, startDate = '2026-01-01'): void {
   let thrown: unknown;
   try {
     assertUsableRrule(rrule, startDate);
@@ -34,6 +36,7 @@ function expectRejected(rrule: string, startDate = '2026-01-01'): void {
   }
   expect(thrown, `expected ${rrule} to be rejected`).toBeInstanceOf(AppError);
   expect((thrown as AppError).statusCode).toBe(422);
+  expect((thrown as AppError).message).toBe(`rrule must be ${detail}`);
 }
 
 describe('assertUsableRrule', () => {
@@ -45,51 +48,66 @@ describe('assertUsableRrule', () => {
   });
 
   it('rejects an over-length rule', () => {
-    expectRejected(`FREQ=DAILY;BYMONTHDAY=${'1,'.repeat(MAX_RRULE_LENGTH)}1`);
+    expectRejected(
+      `FREQ=DAILY;BYMONTHDAY=${'1,'.repeat(MAX_RRULE_LENGTH)}1`,
+      `at most ${String(MAX_RRULE_LENGTH)} characters`
+    );
   });
 
   it('rejects unparseable garbage', () => {
-    expectRejected('this is not a rule');
+    expectRejected('this is not a rule', "parseable (Unknown RRULE property 'this is not a rule')");
   });
 
   it('rejects a rule carrying its own anchor, zone or date set', () => {
-    expectRejected('FREQ=DAILY;DTSTART=20260101T000000Z');
-    expectRejected('FREQ=DAILY;TZID=Europe/Berlin');
-    expectRejected('FREQ=DAILY;RDATE=20260101T000000Z');
-    expectRejected('FREQ=DAILY;EXDATE=20260101T000000Z');
-    expectRejected('FREQ=DAILY;EXRULE=FREQ=WEEKLY');
+    const detail = (part: string) =>
+      `free of ${part} — the start date and timezone are separate fields`;
+    expectRejected('FREQ=DAILY;DTSTART=20260101T000000Z', detail('DTSTART'));
+    expectRejected('FREQ=DAILY;TZID=Europe/Berlin', detail('TZID'));
+    expectRejected('FREQ=DAILY;RDATE=20260101T000000Z', detail('RDATE'));
+    expectRejected('FREQ=DAILY;EXDATE=20260101T000000Z', detail('EXDATE'));
+    expectRejected('FREQ=DAILY;EXRULE=FREQ=WEEKLY', detail('EXRULE'));
   });
 
   it('rejects time-of-day parts', () => {
-    expectRejected('FREQ=DAILY;BYHOUR=0,1,2');
-    expectRejected('FREQ=DAILY;BYMINUTE=0,30');
-    expectRejected('FREQ=DAILY;BYSECOND=0,30');
+    const detail = (part: string) => `free of ${part} — an occurrence is a whole calendar day`;
+    expectRejected('FREQ=DAILY;BYHOUR=0,1,2', detail('BYHOUR'));
+    expectRejected('FREQ=DAILY;BYMINUTE=0,30', detail('BYMINUTE'));
+    expectRejected('FREQ=DAILY;BYSECOND=0,30', detail('BYSECOND'));
   });
 
   it('rejects an RRULE: prefix and a multi-line rule', () => {
-    expectRejected('RRULE:FREQ=DAILY');
-    expectRejected('FREQ=DAILY\nFREQ=WEEKLY');
+    expectRejected('RRULE:FREQ=DAILY', 'the rule value only, without the RRULE: prefix');
+    expectRejected('FREQ=DAILY\nFREQ=WEEKLY', 'a single line');
   });
 
   it('rejects sub-daily frequencies and a missing one', () => {
-    expectRejected('FREQ=SECONDLY');
-    expectRejected('FREQ=MINUTELY');
-    expectRejected('FREQ=HOURLY');
-    expectRejected('FREQ=BOGUS');
-    expectRejected('INTERVAL=1');
+    const detail = 'a FREQ of DAILY, WEEKLY, MONTHLY or YEARLY';
+    expectRejected('FREQ=SECONDLY', detail);
+    expectRejected('FREQ=MINUTELY', detail);
+    expectRejected('FREQ=HOURLY', detail);
+    expectRejected('FREQ=BOGUS', detail);
+    expectRejected('INTERVAL=1', detail);
   });
 
   it('rejects out-of-range INTERVAL, COUNT and UNTIL', () => {
-    expectRejected('FREQ=DAILY;INTERVAL=400');
-    expectRejected('FREQ=DAILY;INTERVAL=0');
-    expectRejected('FREQ=DAILY;COUNT=100000');
-    expectRejected('FREQ=DAILY;COUNT=0');
-    expectRejected('FREQ=DAILY;UNTIL=99990101T000000Z');
+    // A value below 1 has to fail here rather than on the can-never-fire
+    // fallback: rrule empties the result set for 0 either way, but a negative
+    // interval walks the occurrence search backwards with nothing to stop it.
+    const interval = 'an INTERVAL between 1 and 366';
+    const count = 'a COUNT between 1 and 1000';
+    expectRejected('FREQ=DAILY;INTERVAL=400', interval);
+    expectRejected('FREQ=DAILY;INTERVAL=0', interval);
+    expectRejected('FREQ=DAILY;INTERVAL=-1', interval);
+    expectRejected('FREQ=DAILY;COUNT=100000', count);
+    expectRejected('FREQ=DAILY;COUNT=0', count);
+    expectRejected('FREQ=DAILY;COUNT=-1', count);
+    expectRejected('FREQ=DAILY;UNTIL=99990101T000000Z', 'an UNTIL before 2200');
   });
 
   it('rejects a rule that can never fire', () => {
-    expectRejected('FREQ=YEARLY;BYMONTH=2;BYMONTHDAY=30');
-    expectRejected('FREQ=DAILY;UNTIL=20250101T000000Z', '2026-01-01');
+    const detail = 'a rule that occurs at least once on or after the start date';
+    expectRejected('FREQ=YEARLY;BYMONTH=2;BYMONTHDAY=30', detail);
+    expectRejected('FREQ=DAILY;UNTIL=20250101T000000Z', detail, '2026-01-01');
   });
 });
 

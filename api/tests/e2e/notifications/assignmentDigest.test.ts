@@ -17,6 +17,7 @@ import {
   recordBulkAssignments,
   runAssignmentDigestSweep,
 } from '../../../src/services/assignmentDigest';
+import { NOTIFY_PAIR_MAX_ATTEMPTS } from '../../../src/services/notificationBudget';
 import { verifyUnsubscribeToken } from '../../../src/services/emailToken';
 import { clearSentEmails, sentEmails } from '../../../src/services/email/index';
 import type { EmailMessage } from '../../../src/services/email/types';
@@ -465,6 +466,46 @@ describe('Bulk assignment digest', () => {
       await ageBy(130);
       await runAssignmentDigestSweep();
       expect(sentEmails()).toEqual([]);
+    });
+  });
+
+  // One digest per board per sweep collapses nothing across boards, so the
+  // budget is the only thing between a sender making boards and a full mailbox.
+  describe('what one mailbox can be made to receive', () => {
+    it('bounds how much digest mail one sender can put in one mailbox', async () => {
+      const taskIds = await createTasks(NOTIFY_PAIR_MAX_ATTEMPTS + 1);
+      expect((await bulkAssign(taskIds, [member.id])).status).toBe(200);
+      const warnings = vi.spyOn(logger, 'warn').mockImplementation(() => undefined);
+
+      // One card per digest, so every message has a fingerprint of its own and
+      // nothing here is refused by the collapse slot.
+      for (const taskId of taskIds) {
+        await assignmentDigestDelivery.deliver({
+          recipientUserId: member.id,
+          actorUserId: owner.id,
+          projectId,
+          taskIds: [taskId],
+        });
+      }
+
+      expect(sentEmails()).toHaveLength(NOTIFY_PAIR_MAX_ATTEMPTS);
+      expect(warnings).toHaveBeenCalledWith(
+        expect.objectContaining({
+          msg: 'Notification email dropped: one sender has spent their budget for this recipient',
+          recipient_id: member.id,
+          actor_id: owner.id,
+        })
+      );
+
+      // Spent by the pair, not by the mailbox: a second sender still arrives.
+      clearSentEmails();
+      await assignmentDigestDelivery.deliver({
+        recipientUserId: member.id,
+        actorUserId: member2.id,
+        projectId,
+        taskIds: taskIds.slice(0, 2),
+      });
+      expect(sentEmails().map((email) => email.to)).toEqual([member.email]);
     });
   });
 

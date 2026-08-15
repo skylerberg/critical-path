@@ -407,6 +407,12 @@ describe('Notifications', () => {
 
     it('sends nothing for a role change or a removal', async () => {
       await addMembers([member.id]);
+      // The add above spent the collapse slot this project's key names, and a
+      // repeat inside the window is refused whatever the route decided.
+      resetRateLimiter();
+      // A removed member fails the delivery access re-check too, so the empty
+      // inbox alone cannot say the route queued nothing for them.
+      const queued = vi.spyOn(notificationDelivery, 'deliver');
 
       const demote = await ctx.request(owner.token).put(`/api/projects/${projectId}/members`, {
         user_ids: [member.id],
@@ -422,6 +428,7 @@ describe('Notifications', () => {
       expect(remove.status).toBe(204);
       await settle();
       expect(sentEmails()).toEqual([]);
+      expect(queued).not.toHaveBeenCalled();
     });
 
     it('sends nothing when ownership is transferred to an existing member', async () => {

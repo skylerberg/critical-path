@@ -224,6 +224,73 @@ describe('project access control', () => {
     });
   });
 
+  describe('a blocker whose project the caller has lost', () => {
+    it('is still detachable from the blocked side, which is the only side that can', async () => {
+      const near = await createProjectAs(alice, 'detach near');
+      const far = await createProjectAs(bob, 'detach far');
+      const share = await ctx
+        .request(bob.token)
+        .put(`/api/projects/${far.project.id}/members`, { user_ids: [alice.id] });
+      expect(share.status).toBe(204);
+
+      const blocked = await insertTask({
+        projectId: near.project.id,
+        columnId: near.columns[0].id,
+        title: 'blocked here',
+      });
+      const blocker = await insertTask({
+        projectId: far.project.id,
+        columnId: far.columns[0].id,
+        title: 'blocker over there',
+      });
+      const link = await ctx
+        .request(alice.token)
+        .post(`/api/tasks/${blocked}/blockers`, { blocker_task_id: blocker });
+      expect(link.status).toBe(204);
+
+      const revoke = await ctx
+        .request(bob.token)
+        .put(`/api/projects/${far.project.id}/members`, { user_ids: [] });
+      expect(revoke.status).toBe(204);
+
+      const unreadable = await ctx.request(alice.token).get(`/api/tasks/${blocker}`);
+      expect(unreadable.status).toBe(404);
+
+      const before = await ctx.request(alice.token).get(`/api/tasks/${blocked}`);
+      expect(before.status).toBe(200);
+      expect(await before.json()).toMatchObject({ open_cross_project_blocker_count: 1 });
+      const edgesBefore = await ctx
+        .request(alice.token)
+        .get(`/api/tasks/${blocked}/cross-project-dependencies`);
+      expect(edgesBefore.status).toBe(200);
+      expect(await edgesBefore.json()).toEqual({
+        blocked_by: [],
+        blocking: [],
+        hidden_blocked_by_count: 1,
+        hidden_blocking_count: 0,
+      });
+
+      const detach = await ctx
+        .request(alice.token)
+        .delete(`/api/tasks/${blocked}/blockers/${blocker}`);
+      expect(detach.status).toBe(204);
+
+      const after = await ctx.request(alice.token).get(`/api/tasks/${blocked}`);
+      expect(after.status).toBe(200);
+      expect(await after.json()).toMatchObject({ open_cross_project_blocker_count: 0 });
+      const edgesAfter = await ctx
+        .request(alice.token)
+        .get(`/api/tasks/${blocked}/cross-project-dependencies`);
+      expect(edgesAfter.status).toBe(200);
+      expect(await edgesAfter.json()).toEqual({
+        blocked_by: [],
+        blocking: [],
+        hidden_blocked_by_count: 0,
+        hidden_blocking_count: 0,
+      });
+    });
+  });
+
   describe('owner-only deletion', () => {
     it('refuses a member with 403 and leaves the board fully intact', async () => {
       const board = await createProjectAs(alice, 'owner-only delete');

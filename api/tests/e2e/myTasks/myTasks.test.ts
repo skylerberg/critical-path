@@ -23,6 +23,8 @@ interface MyTaskBody {
   waiting_user_ids: string[];
   blocking: MyTaskLinkBody[];
   blocked_by: MyTaskLinkBody[];
+  hidden_blocked_by_count: number;
+  hidden_blocking_count: number;
 }
 
 interface MyTasksBody {
@@ -243,6 +245,7 @@ describe('GET /api/my-tasks', () => {
     expect(body.tasks[0].blocking).toEqual([
       { id: theirs, project_id: project.id, title: 'Theirs', assignee_ids: [bob.id] },
     ]);
+    expect(body.tasks[0].hidden_blocking_count).toBe(0);
   });
 
   it('ignores a dependent that is done or archived', async () => {
@@ -302,6 +305,7 @@ describe('GET /api/my-tasks', () => {
     expect(body.tasks[0].blocked_by).toEqual([
       { id: blocker, project_id: project.id, title: 'Blocker', assignee_ids: [bob.id] },
     ]);
+    expect(body.tasks[0].hidden_blocked_by_count).toBe(0);
   });
 
   it('ignores a blocker that is done or archived', async () => {
@@ -331,6 +335,97 @@ describe('GET /api/my-tasks', () => {
     expect(body.tasks).toHaveLength(1);
     expect(body.tasks[0].blocked_by).toEqual([]);
     expect(body.tasks[0].bucket).toBe('ready');
+  });
+
+  it('reduces edges into a project the caller cannot read to bare counts', async () => {
+    const alice = await newCaller();
+    const project = await createProject(alice, 'Readable half');
+    const hidden = await createProject(bob, 'Unreadable half');
+    const mine = await insertTask({
+      projectId: project.id,
+      columnId: project.todo.id,
+      title: 'Mine',
+    });
+    const secretBlocker = await insertTask({
+      projectId: hidden.id,
+      columnId: hidden.todo.id,
+      title: 'CONFIDENTIAL blocker',
+    });
+    const firstSecretDependent = await insertTask({
+      projectId: hidden.id,
+      columnId: hidden.todo.id,
+      title: 'CONFIDENTIAL dependent one',
+    });
+    const secondSecretDependent = await insertTask({
+      projectId: hidden.id,
+      columnId: hidden.todo.id,
+      title: 'CONFIDENTIAL dependent two',
+    });
+    await assign(mine, alice.id);
+    for (const taskId of [secretBlocker, firstSecretDependent, secondSecretDependent]) {
+      await assign(taskId, bob.id);
+    }
+    await blocks(secretBlocker, mine);
+    await blocks(mine, firstSecretDependent);
+    await blocks(mine, secondSecretDependent);
+
+    const body = await fetchMine(alice);
+    expect(body.tasks).toHaveLength(1);
+    expect(body.tasks[0].bucket).toBe('blocked');
+    expect(body.tasks[0].blocked_by).toEqual([]);
+    expect(body.tasks[0].blocking).toEqual([]);
+    expect(body.tasks[0].waiting_user_ids).toEqual([]);
+    // Asymmetric on purpose: equal counts survive a near/far swap in the
+    // subquery that produces them.
+    expect(body.tasks[0].hidden_blocked_by_count).toBe(1);
+    expect(body.tasks[0].hidden_blocking_count).toBe(2);
+    expect(body.waiting_on_you).toEqual([]);
+    expect(body.you_are_waiting_on).toEqual([]);
+
+    const text = JSON.stringify(body);
+    for (const secret of [
+      'CONFIDENTIAL',
+      hidden.id,
+      secretBlocker,
+      firstSecretDependent,
+      secondSecretDependent,
+      bob.id,
+    ]) {
+      expect(text, secret).not.toContain(secret);
+    }
+  });
+
+  it('counts no hidden edge whose far end is done or archived', async () => {
+    const alice = await newCaller();
+    const project = await createProject(alice, 'Settled hidden edges');
+    const hidden = await createProject(bob, 'Settled hidden far side');
+    const mine = await insertTask({
+      projectId: project.id,
+      columnId: project.todo.id,
+      title: 'Mine',
+    });
+    const finished = await insertTask({
+      projectId: hidden.id,
+      columnId: hidden.done.id,
+      title: 'Finished elsewhere',
+    });
+    const shelved = await insertTask({
+      projectId: hidden.id,
+      columnId: hidden.todo.id,
+      title: 'Shelved elsewhere',
+    });
+    await assign(mine, alice.id);
+    await archiveTask(shelved);
+    await blocks(finished, mine);
+    await blocks(shelved, mine);
+    await blocks(mine, finished);
+    await blocks(mine, shelved);
+
+    const body = await fetchMine(alice);
+    expect(body.tasks).toHaveLength(1);
+    expect(body.tasks[0].bucket).toBe('ready');
+    expect(body.tasks[0].hidden_blocked_by_count).toBe(0);
+    expect(body.tasks[0].hidden_blocking_count).toBe(0);
   });
 
   it('orders blocking, then ready, then blocked across projects', async () => {
@@ -655,6 +750,41 @@ describe('GET /api/my-tasks', () => {
       expect(first.tasks[0].id).toBe(holdsUpBob);
       expect(first.tasks[0].bucket).toBe('blocking');
       expect(first.next_offset).toBe(MY_TASKS_PAGE_SIZE);
+    });
+
+    // The counterpart: the page boundary is applied in SQL, so a card the
+    // caller cannot see the blocker of has to be ranked blocked there too, not
+    // only by the mapper that sorts the page it already landed on.
+    it('holds a card blocked only by an unreadable task back to the second page', async () => {
+      const alice = await newCaller();
+      const project = await createProject(alice, 'Hidden urgency');
+      const hidden = await createProject(bob, 'Hidden urgency far side');
+      await assignManyTasks(project.id, project.todo.id, alice.id, MY_TASKS_PAGE_SIZE);
+
+      // Near the top of the board, so only the bucket can move it off page one.
+      const blocked = await insertTask({
+        projectId: project.id,
+        columnId: project.todo.id,
+        title: 'Blocked by something it cannot name',
+        position: 1,
+      });
+      const secret = await insertTask({
+        projectId: hidden.id,
+        columnId: hidden.todo.id,
+        title: 'Unreadable blocker',
+      });
+      await assign(blocked, alice.id);
+      await blocks(secret, blocked);
+
+      const first = await fetchPage(alice);
+      expect(first.tasks).toHaveLength(MY_TASKS_PAGE_SIZE);
+      expect(first.next_offset).toBe(MY_TASKS_PAGE_SIZE);
+
+      const second = await fetchPage(alice, MY_TASKS_PAGE_SIZE);
+      expect(second.tasks.map((task) => task.id)).toEqual([blocked]);
+      expect(second.tasks[0].bucket).toBe('blocked');
+      expect(second.tasks[0].hidden_blocked_by_count).toBe(1);
+      expect(second.next_offset).toBeNull();
     });
 
     // 400 rather than 422: a query parameter is validated by queryValidator,

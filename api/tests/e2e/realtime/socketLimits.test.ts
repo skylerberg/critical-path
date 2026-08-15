@@ -67,18 +67,21 @@ describe('Realtime socket limits', () => {
       });
     });
 
-  // Releases land asynchronously, so poll to the expected figure rather than
-  // sleeping a guessed interval; returns whatever it last read on timeout so
-  // the caller's assertion is what reports the mismatch.
-  async function settledConnections(expected: number): Promise<number> {
+  // Accepts and releases both land asynchronously, so poll rather than sleeping
+  // a guessed interval; returns whatever it last read on timeout so the
+  // caller's assertion is what reports the mismatch.
+  async function connectionsUntil(satisfied: (count: number) => boolean): Promise<number> {
     const deadline = Date.now() + 4000;
     let held = await heldConnections();
-    while (held > expected && Date.now() < deadline) {
+    while (!satisfied(held) && Date.now() < deadline) {
       await new Promise((resolve) => setTimeout(resolve, 25));
       held = await heldConnections();
     }
     return held;
   }
+
+  const settledConnections = (expected: number): Promise<number> =>
+    connectionsUntil((count) => count <= expected);
 
   it('drops the oldest socket once an account holds more than the per-user ceiling', async () => {
     const user = await ctx.createUser('rt-limit-user');
@@ -201,22 +204,45 @@ describe('Realtime socket limits', () => {
   // throw past the destroy: one leaked descriptor per request, no ceiling
   // involved.
   it('destroys the socket for an upgrade target it cannot parse', async () => {
+    const targets = ['//[', '/\\', '//%', 'http://['];
+    const connectIdle = (): Promise<net.Socket> =>
+      new Promise((resolve, reject) => {
+        const socket = net.connect({ port, host: '127.0.0.1', allowHalfOpen: true }, () =>
+          resolve(socket)
+        );
+        socket.on('error', reject);
+      });
+    // Resolved when the request has left this process, so the poll below is
+    // waiting on the server's answer rather than on the write.
+    const sendUpgrade = (socket: net.Socket, target: string): Promise<void> =>
+      new Promise((resolve) => {
+        socket.write(
+          `GET ${target} HTTP/1.1\r\nHost: localhost\r\nUpgrade: websocket\r\n` +
+            'Connection: Upgrade\r\n' +
+            `Sec-WebSocket-Key: ${Buffer.from('0123456789abcdef').toString('base64')}\r\n` +
+            'Sec-WebSocket-Version: 13\r\n\r\n',
+          () => resolve()
+        );
+      });
+
     const held = await heldConnections();
     const sockets: net.Socket[] = [];
     try {
-      for (const target of ['//[', '/\\', '//%', 'http://[']) {
-        const socket = net.connect({ port, host: '127.0.0.1', allowHalfOpen: true }, () => {
-          socket.write(
-            `GET ${target} HTTP/1.1\r\nHost: localhost\r\nUpgrade: websocket\r\n` +
-              'Connection: Upgrade\r\n' +
-              `Sec-WebSocket-Key: ${Buffer.from('0123456789abcdef').toString('base64')}\r\n` +
-              'Sec-WebSocket-Version: 13\r\n\r\n'
-          );
-        });
-        socket.on('error', () => undefined);
-        sockets.push(socket);
+      for (let index = 0; index < targets.length; index++) {
+        sockets.push(await connectIdle());
       }
-      expect(await settledConnections(held)).toBeLessThanOrEqual(held);
+      // Established before anything is written, and waited for: the accept is
+      // what raises the count, and a count read while the connections were
+      // still in flight would be the pre-test one — leaving the release below
+      // compared against itself.
+      expect(await connectionsUntil((count) => count === held + targets.length)).toBe(
+        held + targets.length
+      );
+
+      await Promise.all(sockets.map((socket, index) => sendUpgrade(socket, targets[index])));
+      // The peers keep their half open, so a server that answered the parse
+      // failure with end() would hold every one of these forever.
+      expect(await settledConnections(held)).toBe(held);
     } finally {
       for (const socket of sockets) {
         socket.destroy();

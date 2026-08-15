@@ -167,6 +167,11 @@ export async function reorderColumnTasks(
   if (new Set(taskIds).size !== taskIds.length) {
     throw new AppError(422, 'task_ids must not contain duplicates');
   }
+  // The run below is allocated past the column's tail, so this is held for the
+  // same reason every other appender holds it, and before the rows the write
+  // goes on to lock: the reverse order deadlocks against the bulk move.
+  await lockColumnTail(db, column.id);
+
   const rows = await db
     .selectFrom('task')
     .select('id')

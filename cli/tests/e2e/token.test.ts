@@ -61,7 +61,26 @@ describe('token commands', () => {
     expect(list.stdout).toContain(expiresAt!.slice(0, 10));
   });
 
-  it('rejects both expiry flags at once and a nonsense day count', async () => {
+  it('create --expires-at expires the token at the instant it names', async () => {
+    const res = await h.runCli([
+      'token',
+      'create',
+      'dated',
+      '--expires-at',
+      '2031-03-04T05:06:07+02:00',
+      '--json',
+    ]);
+    expect(res.exitCode).toBe(0);
+    expect(res.json<CreatedPersonalAccessToken>().personal_access_token.expires_at).toBe(
+      '2031-03-04T03:06:07.000Z'
+    );
+
+    const list = await h.runCli(['token', 'list', '--json']);
+    const dated = list.json<PersonalAccessToken[]>().find((t) => t.name === 'dated');
+    expect(dated?.expires_at).toBe('2031-03-04T03:06:07.000Z');
+  });
+
+  it('rejects both expiry flags at once, a nonsense day count and a nonsense timestamp', async () => {
     const both = await h.runCli([
       'token',
       'create',
@@ -72,9 +91,18 @@ describe('token commands', () => {
       '2030-01-01T00:00:00Z',
     ]);
     expect(both.exitCode).toBe(2);
+    expect(both.stderr).toContain('not both');
 
     const negative = await h.runCli(['token', 'create', 'bad', '--expires-in-days', '-5']);
     expect(negative.exitCode).toBe(6);
+
+    const unparseable = await h.runCli(['token', 'create', 'bad', '--expires-at', 'next tuesday']);
+    expect(unparseable.exitCode).toBe(6);
+    expect(unparseable.stderr).toContain('--expires-at is not a valid date: next tuesday');
+    expect(unparseable.stdout).toBe('');
+
+    const names = (await h.runCli(['token', 'list', '--json'])).json<PersonalAccessToken[]>();
+    expect(names.map((t) => t.name)).not.toContain('bad');
   });
 
   it('revoke by name kills that token and leaves the others', async () => {

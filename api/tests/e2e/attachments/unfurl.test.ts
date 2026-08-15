@@ -96,6 +96,16 @@ describe('Link unfurl', () => {
         '<link rel="icon" href="/icon.png">'
     );
     const { id, projectId } = await makeLink(user.id, `${origin()}/`);
+    const webhookId = newId();
+    await db
+      .insertInto('project_webhook')
+      .values({
+        id: webhookId,
+        project_id: projectId,
+        url: 'https://example.com/unfurl',
+        secret: 'unfurl-hook-secret',
+      })
+      .execute();
 
     const seen: BusEntry[] = [];
     const unsubscribe = subscribeBus((entry) => seen.push(entry));
@@ -123,6 +133,22 @@ describe('Link unfurl', () => {
       // A background job names nobody: it has no session, and the attachment
       // row records no uploader to blame for a preview it never asked for.
       actor_user_id: null,
+    });
+
+    // Outside a request there is no publishAfterCommit, so the webhook fan-out
+    // it normally performs is this job's own call and nothing else's.
+    const deliveries = await db
+      .selectFrom('webhook_delivery')
+      .select(['event_type', 'status', 'payload'])
+      .where('webhook_id', '=', webhookId)
+      .execute();
+    expect(deliveries.map(({ event_type, status }) => ({ event_type, status }))).toEqual([
+      { event_type: 'attachment_updated', status: 'pending' },
+    ]);
+    expect(deliveries[0].payload as unknown as Record<string, unknown>).toMatchObject({
+      type: 'attachment_updated',
+      project_id: projectId,
+      data: { id, unfurl_state: 'ok', title: 'The Spec' },
     });
 
     const preview = await ctx.request(user.token).get(`/api/attachments/${id}/preview`);
@@ -185,19 +211,46 @@ describe('Link unfurl', () => {
     expect(row.preview_storage_key).toBeNull();
   });
 
-  it('settles at failed for an address the policy would refuse in production', async () => {
+  // The one place the production target policy is exercised end to end. The same
+  // reachable URL settles both ways depending only on the policy the job derives
+  // from the environment, and the request count is what separates "refused" from
+  // "failed to connect".
+  it('refuses a private address under the production policy, without a request', async () => {
+    const user = await ctx.createUser('unfurl-ssrf');
+    let requests = 0;
+    const page = pageWith('<meta property="og:title" content="Reachable">');
+    handler = (req, res) => {
+      requests += 1;
+      page(req, res);
+    };
+    const refused = await makeLink(user.id, `${origin()}/`);
+    const metadata = await makeLink(user.id, 'http://169.254.169.254/latest/meta-data/');
+    const allowed = await makeLink(user.id, `${origin()}/`);
+
     const previous = process.env.ENVIRONMENT;
     process.env.ENVIRONMENT = 'production';
     try {
-      const user = await ctx.createUser('unfurl-ssrf');
-      const { id } = await makeLink(user.id, 'http://169.254.169.254/latest/meta-data/');
-
-      await expect(runAttachmentUnfurl(id)).resolves.toBeUndefined();
-      expect((await rowOf(id)).unfurl_state).toBe('failed');
+      await expect(runAttachmentUnfurl(refused.id)).resolves.toBeUndefined();
+      await expect(runAttachmentUnfurl(metadata.id)).resolves.toBeUndefined();
     } finally {
       if (previous === undefined) delete process.env.ENVIRONMENT;
       else process.env.ENVIRONMENT = previous;
     }
+
+    expect(requests).toBe(0);
+    for (const { id } of [refused, metadata]) {
+      const row = await rowOf(id);
+      expect(row.unfurl_state).toBe('failed');
+      expect(row.title).toBeNull();
+      expect(row.preview_storage_key).toBeNull();
+    }
+
+    await runAttachmentUnfurl(allowed.id);
+
+    expect(requests).toBe(1);
+    const row = await rowOf(allowed.id);
+    expect(row.unfurl_state).toBe('ok');
+    expect(row.title).toBe('Reachable');
   });
 
   it('keeps the text metadata when the preview image does not sniff as an image', async () => {

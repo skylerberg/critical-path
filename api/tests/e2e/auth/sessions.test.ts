@@ -4,6 +4,7 @@ import { TestContext, type TestUser } from '../../setup/testContext';
 import { db } from '../../helpers/database';
 import { newId } from '../../helpers/fixtures';
 import { SESSIONS_REVOKED } from '../../../src/services/realtime/bus';
+import { credentialIsLive } from '../../../src/services/credentials';
 import { collectBusEntries } from '../../helpers/bus';
 
 interface SessionMetadata {
@@ -245,6 +246,47 @@ describe('Sessions', () => {
       expect((await ctx.request(owner.token).delete('/api/auth/sessions/nope')).status).toBe(400);
 
       expect((await ctx.request(owner.token).get('/api/auth/me')).status).toBe(200);
+    });
+  });
+
+  describe('presenting an expired session token', () => {
+    it('answers 401 and sweeps the row it came from, leaving the live one', async () => {
+      const user = await ctx.createUser('sess-expired-auth');
+      const staleToken = await logIn(user);
+      const liveId = await sessionIdFor(user.token);
+      await db
+        .updateTable('session')
+        .set({ expires_at: new Date(Date.now() - 1000) })
+        .where('session.token_hash', '=', sha256Hex(staleToken))
+        .execute();
+
+      const res = await ctx.request(staleToken).get('/api/auth/me');
+      expect(res.status).toBe(401);
+      expect(await res.json()).toEqual({ error: 'Invalid or expired token' });
+
+      const remaining = await db
+        .selectFrom('session')
+        .select('session.id')
+        .where('session.user_id', '=', user.id)
+        .execute();
+      expect(remaining).toEqual([{ id: liveId }]);
+      expect((await ctx.request(user.token).get('/api/auth/me')).status).toBe(200);
+    });
+
+    // The socket heartbeat re-checks the credential rather than the token, so a
+    // session that expires mid-connection is refused here and nowhere else.
+    it('stops counting as live for the socket heartbeat re-check', async () => {
+      const user = await ctx.createUser('sess-expired-live');
+      const sessionId = await sessionIdFor(await logIn(user));
+      expect(await credentialIsLive(db, 'session', sessionId)).toBe(true);
+
+      await db
+        .updateTable('session')
+        .set({ expires_at: new Date(Date.now() - 1000) })
+        .where('session.id', '=', sessionId)
+        .execute();
+
+      expect(await credentialIsLive(db, 'session', sessionId)).toBe(false);
     });
   });
 

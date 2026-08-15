@@ -15,6 +15,7 @@ describe('GET /api/tasks/:id/cross-project-dependencies', () => {
   let farDone: string;
   let hiddenProject: string;
   let hiddenColumn: string;
+  let hiddenDone: string;
 
   beforeAll(async () => {
     user = await ctx.createUser('cross-project-deps');
@@ -29,7 +30,15 @@ describe('GET /api/tasks/:id/cross-project-dependencies', () => {
       isDone: true,
     });
     hiddenProject = await fixtures.createProject('hidden', { createdBy: stranger.id });
-    hiddenColumn = await fixtures.createColumn(hiddenProject);
+    hiddenColumn = await fixtures.createColumn(hiddenProject, {
+      name: 'To Do',
+      sortKey: rankKey(1000),
+    });
+    hiddenDone = await fixtures.createColumn(hiddenProject, {
+      name: 'Done',
+      sortKey: rankKey(2000),
+      isDone: true,
+    });
   });
 
   afterAll(async () => {
@@ -157,6 +166,21 @@ describe('GET /api/tasks/:id/cross-project-dependencies', () => {
   });
 
   it('reduces an unreadable blocker to a count and names nothing about it', async () => {
+    const blocked = await createTask(user, nearProject, nearColumn, 'hidden-blocker blocked');
+    const secret = await createTask(stranger, hiddenProject, hiddenColumn, 'TOP SECRET BLOCKER');
+    await fixtures.createDependencyRow(secret, blocked);
+
+    const { body, raw } = await fetchDeps(blocked);
+    expect(raw.status).toBe(200);
+    expect(body).toEqual({
+      blocked_by: [],
+      blocking: [],
+      hidden_blocked_by_count: 1,
+      hidden_blocking_count: 0,
+    });
+  });
+
+  it('reduces an unreadable dependent to a count and names nothing about it', async () => {
     const blocked = await createTask(user, nearProject, nearColumn, 'hidden blocked');
     const secret = await createTask(stranger, hiddenProject, hiddenColumn, 'TOP SECRET TITLE');
     // Seeded directly: creating this edge needs someone who can read both
@@ -178,18 +202,33 @@ describe('GET /api/tasks/:id/cross-project-dependencies', () => {
 
   it('reconciles the hidden blocked-by count with the board count', async () => {
     const blocked = await createTask(user, nearProject, nearColumn, 'reconcile blocked');
+    const secretOpen = await createTask(stranger, hiddenProject, hiddenColumn, 'reconcile secret');
+    const secretDone = await createTask(stranger, hiddenProject, hiddenDone, 'reconcile finished');
+    await fixtures.createDependencyRow(secretOpen, blocked);
+    await fixtures.createDependencyRow(secretDone, blocked);
     const readable = await createTask(user, farProject, farTodo, 'reconcile readable');
+    // The board count is denormalized, and adding this edge through the route is
+    // what recounts the two seeded ones along with it.
     await ctx
       .request(user.token)
       .post(`/api/tasks/${blocked}/blockers`, { blocker_task_id: readable });
 
     const { body } = await fetchDeps(blocked);
+    expect(body.blocked_by).toEqual([
+      {
+        task_id: readable,
+        project_id: farProject,
+        project_name: 'far',
+        title: 'reconcile readable',
+        is_done: false,
+      },
+    ]);
+    // One, not two: a done hidden blocker is left out of the count as well as
+    // out of the list, so subtracting the two numbers cannot tell the caller
+    // that a card they may not read has been finished.
+    expect(body.hidden_blocked_by_count).toBe(1);
+
     const detail = await ctx.request(user.token).get(`/api/tasks/${blocked}`);
-    const openVisible = body.blocked_by.filter(
-      (edge: { is_done: boolean }) => !edge.is_done
-    ).length;
-    expect((await detail.json()).open_cross_project_blocker_count).toBe(
-      openVisible + body.hidden_blocked_by_count
-    );
+    expect((await detail.json()).open_cross_project_blocker_count).toBe(2);
   });
 });

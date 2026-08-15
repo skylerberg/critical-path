@@ -1,5 +1,6 @@
 import { describe, it, expect, afterAll, beforeAll } from 'vitest';
 import { TestContext, TestUser } from '../../setup/testContext';
+import { collectBusEntries } from '../../helpers/bus';
 import { db } from '../../helpers/database';
 import { newId } from '../../helpers/fixtures';
 import { BoardPayloadBody, deleteProjects, insertTask } from '../projects/helpers';
@@ -275,9 +276,25 @@ describe('Viewer role on the member endpoints', () => {
       const projectId = await projectWithViewer('vr viewer leaves');
       // The unknown id stands in for a member the viewer's cached list still
       // names; it must neither be resurrected nor answered with a 422.
-      const res = await setMembers(member.token, projectId, { user_ids: [newId(), other.id] });
-      expect(res.status).toBe(204);
+      const entries = await collectBusEntries(async () => {
+        const res = await setMembers(member.token, projectId, { user_ids: [newId(), other.id] });
+        expect(res.status).toBe(204);
+      });
       expect(await memberRows(projectId)).toEqual([{ user_id: other.id, role: 'editor' }]);
+
+      // The leaver's own board is the only one that closes, and it can only be
+      // told to by name: post-commit they have no access left for the delivery
+      // layer to re-check, so a project_deleted without the snapshot would be
+      // dropped for them and delivered to everyone who stayed.
+      expect(entries.map((entry) => entry.type)).toEqual(['project_deleted', 'project_updated']);
+      const [deleted, updated] = entries;
+      expect(deleted).toMatchObject({
+        project_id: projectId,
+        data: { id: projectId },
+        recipientUserIds: [member.id],
+      });
+      expect(updated.recipientUserIds).toBeUndefined();
+      expect(updated.broadcast).toBe(true);
 
       const afterLeave = await ctx.request(member.token).get(`/api/projects/${projectId}`);
       expect(afterLeave.status).toBe(404);
