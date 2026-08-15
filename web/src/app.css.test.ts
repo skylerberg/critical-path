@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { cssBlock, cssTokens } from './lib/app-css-test-source';
+import { appCss, contrast, cssBlock, cssTokens } from './lib/app-css-test-source';
 
 const reducedMotion = cssBlock('@media (prefers-reduced-motion: reduce)');
 
@@ -50,6 +50,44 @@ describe('reduced-motion stylesheet rule', () => {
     'scroll-behavior',
   ])('forces %s with !important inside the media block', (property) => {
     expect(reducedMotion).toMatch(new RegExp(`${property}:[^;]*!important`));
+  });
+});
+
+// jsdom applies no stylesheet and paints no selection, so these read the source.
+// The browser-side half — that an engine honours what is declared here — is not
+// reachable from any runner and was measured by hand under both engines.
+describe('selected text', () => {
+  it('declares color-scheme so the UA stops treating the dark theme as light', () => {
+    // Inside :root and not the dark media query: it names both schemes at once,
+    // and a copy under the query would be the pinned-to-dark version this avoids.
+    expect(cssBlock(':root {')).toMatch(/color-scheme:\s*light dark;/);
+  });
+
+  it('paints the selection with the accent pair rather than the UA default', () => {
+    const rule = cssBlock('::selection');
+    expect(rule).toContain('background-color: var(--cp-accent)');
+    expect(rule).toContain('color: var(--cp-on-accent)');
+  });
+
+  // The rule is written once, outside the dark block, so it can only hold in both
+  // themes by way of the tokens — which makes this the assertion that it does.
+  it.each(['light', 'dark'] as const)('stays legible in the %s theme', (theme) => {
+    const values = cssTokens(theme);
+    const [accent, onAccent, canvas] = [
+      values['--cp-accent']!,
+      values['--cp-on-accent']!,
+      values['--cp-canvas']!,
+    ];
+    // Text on the highlight, and the highlight itself against the field it sits
+    // on — a highlight that clears neither is a selection nobody can see.
+    expect(contrast(onAccent, accent)).toBeGreaterThanOrEqual(4.5);
+    expect(contrast(accent, canvas)).toBeGreaterThanOrEqual(3);
+  });
+
+  it('keeps the rule out of any block that would scope it to one theme', () => {
+    const at = appCss.indexOf('::selection');
+    expect(at).toBeGreaterThan(-1);
+    expect(appCss.slice(at)).not.toContain('prefers-color-scheme');
   });
 });
 

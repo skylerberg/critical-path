@@ -1,17 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { ACCENTS, ACCENT_KEYS, accentVar } from './accents';
-import { cssTokens } from './app-css-test-source';
-
-function luminance(hex: string): number {
-  const channels = [1, 3, 5].map((at) => Number.parseInt(hex.slice(at, at + 2), 16) / 255);
-  const [r, g, b] = channels.map((c) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4));
-  return 0.2126 * r! + 0.7152 * g! + 0.0722 * b!;
-}
-
-function contrast(a: string, b: string): number {
-  const [lighter, darker] = [luminance(a), luminance(b)].sort((x, y) => y - x);
-  return (lighter! + 0.05) / (darker! + 0.05);
-}
+import { contrast, cssTokens } from './app-css-test-source';
 
 // Every background an accent is ever painted on: the header and sidebar sit on
 // surface, the projects grid on canvas, and a selected or hovered sidebar row
