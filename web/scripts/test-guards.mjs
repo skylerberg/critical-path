@@ -503,8 +503,8 @@ export const guards = [
     name: 'the bottom bar Log out button signs out',
     testName: 'signs out from the bottom bar',
     file: 'src/components/Nav.svelte',
-    find: '    onclick={logout}\n    class="flex min-h-14 flex-1 cursor-pointer',
-    replace: '    class="flex min-h-14 flex-1 cursor-pointer',
+    find: '      onclick={logout}\n      class="flex min-h-14 flex-1 cursor-pointer',
+    replace: '      class="flex min-h-14 flex-1 cursor-pointer',
     tests: ['src/components/Nav.test.ts'],
   },
   {
@@ -1371,5 +1371,42 @@ export const guards = [
     replace:
       '  return root !== undefined && event.target instanceof Node && root.contains(event.target);',
     tests: ['src/lib/actions.test.ts'],
+  },
+  {
+    // The bug is a screen sized in viewport units, so the mutation is the unit
+    // coming back: everything else about the keyboard is still noticed, and the
+    // height is once again the one the keyboard is standing in.
+    name: 'a keyboard takes its height off the screen it covers',
+    testName: 'sizes the screen to what the keyboard leaves of it',
+    file: 'src/lib/viewport.svelte.ts',
+    find: '    root.style.setProperty(HEIGHT_PROPERTY, `${Math.floor(visual.height)}px`);',
+    replace: "    root.style.setProperty(HEIGHT_PROPERTY, '100dvh');",
+    tests: ['src/lib/viewport.svelte.test.ts'],
+  },
+  {
+    // Left set, the app keeps a keyboard-shaped screen for the rest of the
+    // session — a board two thirds of a phone tall with nothing over it.
+    name: 'the screen comes back when the keyboard goes',
+    testName: 'gives the screen and the bottom nav back when the keyboard goes',
+    file: 'src/lib/viewport.svelte.ts',
+    find: '      root.style.removeProperty(HEIGHT_PROPERTY);\n      root.style.removeProperty(NAV_PROPERTY);\n      return;',
+    replace: '      return;',
+    tests: ['src/lib/viewport.svelte.test.ts'],
+  },
+  {
+    name: 'browser chrome parting the viewports is not read as a keyboard',
+    testName: 'does not take a retracting URL bar for a keyboard',
+    file: 'src/lib/viewport.svelte.ts',
+    find: 'inset >= KEYBOARD_MIN_INSET_PX',
+    replace: 'inset > 0',
+    tests: ['src/lib/viewport.svelte.test.ts'],
+  },
+  {
+    name: 'the bottom bar is not drawn where a keyboard has covered it',
+    testName: 'drops the bottom bar the keyboard has covered',
+    file: 'src/components/Nav.svelte',
+    find: '{#if !viewport.keyboardOpen}',
+    replace: '{#if true}',
+    tests: ['src/components/Nav.test.ts'],
   },
 ];

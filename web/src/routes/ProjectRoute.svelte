@@ -46,12 +46,12 @@
 {#if located.status === 'ready'}
   <Project projectId={located.projectId} {view} {taskId} {filters} {from} />
 {:else if located.status === 'pending'}
-  <div class="flex h-[var(--cp-board-h)] items-center justify-center lg:h-dvh">
+  <div class="flex h-[var(--cp-board-h)] items-center justify-center lg:h-[var(--cp-viewport-h)]">
     <Spinner size="lg" />
   </div>
 {:else if located.status === 'error'}
   <div
-    class="flex h-[var(--cp-board-h)] flex-col items-center justify-center gap-4 p-4 text-center lg:h-dvh"
+    class="flex h-[var(--cp-board-h)] flex-col items-center justify-center gap-4 p-4 text-center lg:h-[var(--cp-viewport-h)]"
   >
     <p class="text-muted">Could not open that card.</p>
     <Button variant="secondary" onclick={retry}>Try again</Button>

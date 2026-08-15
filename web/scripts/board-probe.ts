@@ -11,6 +11,7 @@ import { board } from '../src/lib/board.svelte';
 import { selection } from '../src/lib/selection.svelte';
 import { users } from '../src/lib/users.svelte';
 import { session } from '../src/lib/session.svelte';
+import { viewport } from '../src/lib/viewport.svelte';
 import SelectionBar from '../src/components/SelectionBar.svelte';
 import Board from '../src/routes/Board.svelte';
 
@@ -109,7 +110,7 @@ document.getElementById('app')!.innerHTML = `
     <a class="flex min-h-14 flex-1 flex-col items-center justify-center gap-0.5 text-xs font-medium text-muted">Search</a>
   </nav>
   <main id="main" class="block pb-[var(--cp-bottom-nav-h)] lg:pb-0 lg:pl-56">
-    <div id="project-shell" class="flex h-[var(--cp-board-h)] flex-col lg:h-dvh">
+    <div id="project-shell" class="flex h-[var(--cp-board-h)] flex-col lg:h-[var(--cp-viewport-h)]">
       <header class="shrink-0 border-b border-edge bg-surface px-3 py-2 lg:px-4">
         <div class="flex flex-wrap items-center gap-x-3 gap-y-1">
           <h1 class="min-w-0 truncate text-lg font-semibold">Probe project</h1>
@@ -122,6 +123,10 @@ document.getElementById('app')!.innerHTML = `
     </div>
   </main>
 `;
+
+// As main.ts does, so the keyboard phase of check-board-layout-real.mjs drives
+// the real store instead of writing out what it would have published.
+viewport.init();
 
 const shell = document.getElementById('project-shell')!;
 

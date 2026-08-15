@@ -18,6 +18,7 @@
   import { isDragPlaceholder, projectHref } from '../lib/short-links';
   import { currentProjectId } from '../lib/task-route.svelte';
   import { session } from '../lib/session.svelte';
+  import { viewport } from '../lib/viewport.svelte';
   import FeedbackDialog from './FeedbackDialog.svelte';
   import SyncStatus from './SyncStatus.svelte';
   import Avatar from './ui/Avatar.svelte';
@@ -277,62 +278,68 @@
   </div>
 </nav>
 
-<nav
-  aria-label="Primary"
-  use:link
-  class="fixed inset-x-0 bottom-0 z-20 flex items-stretch border-t border-edge bg-surface pb-[env(safe-area-inset-bottom)] lg:hidden"
->
-  <a
-    href="/my-tasks"
-    aria-current={myTasksActive ? 'page' : undefined}
-    class="flex min-h-14 flex-1 flex-col items-center justify-center gap-0.5 text-xs font-medium {myTasksActive
-      ? 'text-accent'
-      : 'text-muted'}"
+<!-- Positioned against the layout viewport, which a software keyboard does not
+     shrink — so with one up this bar is behind it rather than above it, and
+     drawing it only reserves space nothing can reach. src/lib/viewport.svelte.ts
+     owns the rest of that arrangement. -->
+{#if !viewport.keyboardOpen}
+  <nav
+    aria-label="Primary"
+    use:link
+    class="fixed inset-x-0 bottom-0 z-20 flex items-stretch border-t border-edge bg-surface pb-[env(safe-area-inset-bottom)] lg:hidden"
   >
-    {@render myTasksIcon()}
-    My tasks
-  </a>
-  <a
-    href="/"
-    aria-current={projectsActive ? 'page' : undefined}
-    class="flex min-h-14 flex-1 flex-col items-center justify-center gap-0.5 text-xs font-medium {projectsActive
-      ? 'text-accent'
-      : 'text-muted'}"
-  >
-    {@render projectsIcon()}
-    Projects
-  </a>
-  <a
-    href="/search"
-    aria-current={searchActive ? 'page' : undefined}
-    class="flex min-h-14 flex-1 flex-col items-center justify-center gap-0.5 text-xs font-medium {searchActive
-      ? 'text-accent'
-      : 'text-muted'}"
-  >
-    {@render searchIcon()}
-    Search
-  </a>
-  {#if session.user}
     <a
-      href="/account"
-      aria-current={router.current.name === 'account' ? 'page' : undefined}
-      class="flex min-h-14 flex-1 flex-col items-center justify-center gap-0.5 text-xs {router
-        .current.name === 'account'
+      href="/my-tasks"
+      aria-current={myTasksActive ? 'page' : undefined}
+      class="flex min-h-14 flex-1 flex-col items-center justify-center gap-0.5 text-xs font-medium {myTasksActive
         ? 'text-accent'
         : 'text-muted'}"
     >
-      <Avatar name={session.user.name} src={session.user.avatar_url} size="sm" labelled />
-      <span class="max-w-24 truncate">{session.user.name}</span>
+      {@render myTasksIcon()}
+      My tasks
     </a>
-  {/if}
-  <button
-    type="button"
-    onclick={logout}
-    class="flex min-h-14 flex-1 cursor-pointer flex-col items-center justify-center gap-0.5 text-xs font-medium text-muted"
-  >
-    {@render logoutIcon()}
-    Log out
-  </button>
-</nav>
+    <a
+      href="/"
+      aria-current={projectsActive ? 'page' : undefined}
+      class="flex min-h-14 flex-1 flex-col items-center justify-center gap-0.5 text-xs font-medium {projectsActive
+        ? 'text-accent'
+        : 'text-muted'}"
+    >
+      {@render projectsIcon()}
+      Projects
+    </a>
+    <a
+      href="/search"
+      aria-current={searchActive ? 'page' : undefined}
+      class="flex min-h-14 flex-1 flex-col items-center justify-center gap-0.5 text-xs font-medium {searchActive
+        ? 'text-accent'
+        : 'text-muted'}"
+    >
+      {@render searchIcon()}
+      Search
+    </a>
+    {#if session.user}
+      <a
+        href="/account"
+        aria-current={router.current.name === 'account' ? 'page' : undefined}
+        class="flex min-h-14 flex-1 flex-col items-center justify-center gap-0.5 text-xs {router
+          .current.name === 'account'
+          ? 'text-accent'
+          : 'text-muted'}"
+      >
+        <Avatar name={session.user.name} src={session.user.avatar_url} size="sm" labelled />
+        <span class="max-w-24 truncate">{session.user.name}</span>
+      </a>
+    {/if}
+    <button
+      type="button"
+      onclick={logout}
+      class="flex min-h-14 flex-1 cursor-pointer flex-col items-center justify-center gap-0.5 text-xs font-medium text-muted"
+    >
+      {@render logoutIcon()}
+      Log out
+    </button>
+  </nav>
+{/if}
 
 <FeedbackDialog open={feedbackOpen} onclose={() => (feedbackOpen = false)} />
