@@ -810,7 +810,7 @@ export interface paths {
     put?: never;
     /**
      * Reorder tasks within a column
-     * @description Re-stamp positions for the column’s unarchived tasks in the given order, a one-shot sort that commits to manual order rather than acting as a persistent view mode. The client supplies every unarchived task id of the column in its new order; the server assigns evenly spaced positions (1000, 2000, …) so later drags have room to midpoint. No column changes, so neither updated_at, column_since nor the activity log are touched. A duplicate id, an id that is archived or in another column, or a missing id set returns 422 with a plain error body. Emits one `column_tasks_reordered` event with the moved tasks’ new positions.
+     * @description Re-stamp positions for the column’s unarchived tasks in the given order, a one-shot sort that commits to manual order rather than acting as a persistent view mode. The client supplies every unarchived task id of the column in its new order; the server assigns evenly spaced positions (1000, 2000, …) so later drags have room to midpoint. No column changes, so neither updated_at, column_since nor the activity log are touched. A duplicate id, an id that is archived or in another column, or a missing id set returns 422 with a plain error body. A card archived or moved to another column between the check and the write keeps its position and is left out of the response; a position taken by a concurrent append returns 409. Emits one `column_tasks_reordered` event with the moved tasks’ new positions.
      */
     post: operations['postApiColumnsByIdReorder'];
     delete?: never;
@@ -1734,7 +1734,7 @@ export interface paths {
     head?: never;
     /**
      * Update a recurring series
-     * @description Change the template, the recurrence, or pause and resume the schedule. Every change applies to future occurrences only: cards this series has already created are ordinary cards and are never read or written here. A `label_ids`, `assignee_ids` or `checklist_items` array replaces that collection wholesale; omitting one leaves it alone. Changing the recurrence, start date or timezone — or resuming — reschedules forward from today, never backwards. `clear_missed` zeroes the missed counter. `status` accepts only active or paused; a series ends by exhausting its rule, or by being deleted.
+     * @description Change the template, the recurrence, or pause and resume the schedule. Every change applies to future occurrences only: cards this series has already created are ordinary cards and are never read or written here. A `label_ids`, `assignee_ids` or `checklist_items` array replaces that collection wholesale; omitting one leaves it alone. Changing the recurrence, start date or timezone — or resuming — reschedules forward from today, never backwards. `clear_missed` zeroes the missed counter. `status` accepts only active or paused; a series ends by exhausting its rule, or by being deleted. Image nodes cannot belong to a template and are stripped from an edited description; `dropped_image_count` reports how many, as it does on create.
      */
     patch: operations['patchApiTaskSeriesById'];
     trace?: never;
@@ -2333,7 +2333,7 @@ export interface components {
       sort_key?: string;
       title?: string;
     };
-    TaskSeriesCreateResponse: {
+    TaskSeriesWriteResponse: {
       assignee_ids: string[];
       checklist_items: components['schemas']['TaskSeriesChecklistItem'][];
       column_id: string | null;
@@ -5606,6 +5606,15 @@ export interface operations {
           'application/json': components['schemas']['Error'];
         };
       };
+      /** @description Conflict - resource already exists */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Error'];
+        };
+      };
       /** @description Validation error or domain-rule violation */
       422: {
         headers: {
@@ -6180,7 +6189,7 @@ export interface operations {
           [name: string]: unknown;
         };
         content: {
-          'application/json': components['schemas']['TaskSeriesCreateResponse'];
+          'application/json': components['schemas']['TaskSeriesWriteResponse'];
         };
       };
       /** @description Bad Request */
@@ -9296,7 +9305,7 @@ export interface operations {
           [name: string]: unknown;
         };
         content: {
-          'application/json': components['schemas']['TaskSeriesCreateResponse'];
+          'application/json': components['schemas']['TaskSeriesWriteResponse'];
         };
       };
       /** @description Authentication required or failed */
@@ -9441,7 +9450,7 @@ export interface operations {
           [name: string]: unknown;
         };
         content: {
-          'application/json': components['schemas']['TaskSeries'];
+          'application/json': components['schemas']['TaskSeriesWriteResponse'];
         };
       };
       /** @description Bad Request */
