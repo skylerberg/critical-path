@@ -228,6 +228,46 @@ describe('POST /api/attachments/files', () => {
     expect(await storedKeyExists(row.storage_key as string)).toBe(true);
   });
 
+  // Sniffed images carry their own, lower cap because they are served inline
+  // from an unauthenticated URL, so the file cap is never what bounds them.
+  it('refuses an image past the 10 MB image cap and stores nothing', async () => {
+    const user = await ctx.createUser('att-imgcap');
+    const { taskId } = await createTaskFixture(user.id, createdProjectIds);
+    const megabyte = Buffer.concat([PNG_1X1, Buffer.alloc(1024 * 1024 - PNG_1X1.length, 0)]);
+
+    const under = await ctx
+      .request(user.token)
+      .postBytes(uploadPath(taskId, { filename: 'small.png' }), streamOf(megabyte, 2));
+    expect(under.status).toBe(201);
+    expect(await under.json()).toMatchObject({
+      kind: 'image',
+      content_type: 'image/png',
+      size_bytes: 2 * 1024 * 1024,
+    });
+
+    const before = await listStorageKeys();
+    const over = await ctx
+      .request(user.token)
+      .postBytes(uploadPath(taskId, { filename: 'huge.png' }), streamOf(megabyte, 11));
+
+    expect(over.status).toBe(413);
+    // Pinned as it stands: the refusal names the file cap even though the image
+    // cap is the one that cut the stream at 10 MB.
+    expect((await over.json()).error).toBe(
+      `File exceeds the ${String(env.attachmentMaxBytes)} byte limit`
+    );
+    expect(
+      await db
+        .selectFrom('task_attachment')
+        .select('filename')
+        .where('task_id', '=', taskId)
+        .execute()
+    ).toEqual([{ filename: 'small.png' }]);
+
+    const after = await listStorageKeys();
+    expect([...after].filter((key) => !before.has(key))).toEqual([]);
+  });
+
   it('refuses the 51st attachment on a task', async () => {
     const user = await ctx.createUser('att-count');
     const { taskId } = await createTaskFixture(user.id, createdProjectIds);

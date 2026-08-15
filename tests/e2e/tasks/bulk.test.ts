@@ -19,6 +19,12 @@ interface Relations {
   blocker_ids: string[];
 }
 
+interface ActivityEntry {
+  kind: string;
+  old_value: unknown;
+  new_value: unknown;
+}
+
 interface TaskRow {
   column_id: string;
   sort_key: string;
@@ -107,15 +113,17 @@ describe('Bulk actions on a selection', () => {
     return rows.map((row) => row.user_id);
   }
 
-  async function activityOf(taskId: string): Promise<Array<{ kind: string; old: unknown }>> {
-    const rows = await db
+  // Both sides, never collapsed: which of them a value was written to is the
+  // half of an activity entry that says whether a card came from a column or
+  // went to it.
+  async function activityOf(taskId: string): Promise<ActivityEntry[]> {
+    return await db
       .selectFrom('task_activity')
       .select(['kind', 'old_value', 'new_value'])
       .where('task_id', '=', taskId)
       .orderBy('created_at')
       .orderBy('seq')
       .execute();
-    return rows.map((row) => ({ kind: row.kind, old: row.old_value ?? row.new_value }));
   }
 
   async function captureBus<T>(run: () => Promise<T>): Promise<{ result: T; seen: BusEntry[] }> {
@@ -235,9 +243,9 @@ describe('Bulk actions on a selection', () => {
       expect(body.tasks.map((task) => task.task_id)).toEqual([id]);
       expect(body.skipped_task_ids).toEqual([]);
       expect(await labelIdsOf(id!)).toEqual([labelId]);
-      expect((await activityOf(id!)).filter((entry) => entry.kind === 'label_added')).toHaveLength(
-        1
-      );
+      expect(await activityOf(id!)).toEqual([
+        { kind: 'label_added', old_value: null, new_value: { id: labelId, name: 'art' } },
+      ]);
     });
 
     it('publishes nothing when every id was skipped', async () => {
@@ -347,7 +355,11 @@ describe('Bulk actions on a selection', () => {
       expect(after?.column_since.getTime()).toBe(before!.column_since.getTime());
       expect(await activityOf(resident)).toEqual([]);
       expect(await activityOf(mover!)).toEqual([
-        { kind: 'column_changed', old: { id: todo, name: 'Todo' } },
+        {
+          kind: 'column_changed',
+          old_value: { id: todo, name: 'Todo' },
+          new_value: { id: doing, name: 'Doing' },
+        },
       ]);
     });
 
@@ -367,10 +379,18 @@ describe('Bulk actions on a selection', () => {
 
       expect(res.status).toBe(200);
       expect(await activityOf(fromTodo!)).toEqual([
-        { kind: 'column_changed', old: { id: todo, name: 'Todo' } },
+        {
+          kind: 'column_changed',
+          old_value: { id: todo, name: 'Todo' },
+          new_value: { id: doing, name: 'Doing' },
+        },
       ]);
       expect(await activityOf(fromBlocked)).toEqual([
-        { kind: 'column_changed', old: { id: third, name: 'Blocked' } },
+        {
+          kind: 'column_changed',
+          old_value: { id: third, name: 'Blocked' },
+          new_value: { id: doing, name: 'Doing' },
+        },
       ]);
     });
 
@@ -405,7 +425,9 @@ describe('Bulk actions on a selection', () => {
       expect(body.skipped_task_ids).toEqual([]);
       expect(new Set(body.tasks.map((task) => task.archived_at)).size).toBe(1);
       for (const id of ids) {
-        expect((await activityOf(id)).map((entry) => entry.kind)).toEqual(['archived']);
+        expect(await activityOf(id)).toEqual([
+          { kind: 'archived', old_value: null, new_value: null },
+        ]);
       }
     });
 
@@ -482,7 +504,9 @@ describe('Bulk actions on a selection', () => {
       expect(seen).toEqual([]);
       for (const id of ids) {
         expect(await labelIdsOf(id)).toEqual([labelId]);
-        expect((await activityOf(id)).filter((e) => e.kind === 'label_added')).toHaveLength(1);
+        expect(await activityOf(id)).toEqual([
+          { kind: 'label_added', old_value: null, new_value: { id: labelId, name: 'art' } },
+        ]);
       }
     });
 
@@ -506,7 +530,8 @@ describe('Bulk actions on a selection', () => {
 
     it('adds and removes in one call and reports the full relation sets', async () => {
       const ids = await seed(2);
-      const other = await fixtures.createLabel(projectId, `bug ${newId().slice(0, 8)}`);
+      const otherName = `bug ${newId().slice(0, 8)}`;
+      const other = await fixtures.createLabel(projectId, otherName);
       await db
         .insertInto('task_label')
         .values(ids.map((task_id) => ({ task_id, label_id: other })))
@@ -529,9 +554,9 @@ describe('Bulk actions on a selection', () => {
         blocker_ids: [],
         open_cross_project_blocker_count: 0,
       });
-      expect((await activityOf(ids[0]!)).map((entry) => entry.kind)).toEqual([
-        'label_removed',
-        'label_added',
+      expect(await activityOf(ids[0]!)).toEqual([
+        { kind: 'label_removed', old_value: { id: other, name: otherName }, new_value: null },
+        { kind: 'label_added', old_value: null, new_value: { id: labelId, name: 'art' } },
       ]);
     });
 
@@ -600,7 +625,9 @@ describe('Bulk actions on a selection', () => {
       expect(body.tasks.map((task) => task.task_id)).toEqual([ids[1]]);
       expect(await assigneeIdsOf(ids[0]!)).toEqual([owner.id]);
       expect(await activityOf(ids[0]!)).toEqual([]);
-      expect((await activityOf(ids[1]!)).map((entry) => entry.kind)).toEqual(['assignee_added']);
+      expect(await activityOf(ids[1]!)).toEqual([
+        { kind: 'assignee_added', old_value: null, new_value: { id: owner.id, name: owner.name } },
+      ]);
 
       const removal = await post('bulk-assignees', {
         project_id: projectId,
@@ -609,6 +636,13 @@ describe('Bulk actions on a selection', () => {
       });
       expect(removal.status).toBe(200);
       expect(await assigneeIdsOf(ids[0]!)).toEqual([]);
+      expect(await activityOf(ids[0]!)).toEqual([
+        {
+          kind: 'assignee_removed',
+          old_value: { id: owner.id, name: owner.name },
+          new_value: null,
+        },
+      ]);
     });
 
     it('rejects a user without project access and writes nothing', async () => {

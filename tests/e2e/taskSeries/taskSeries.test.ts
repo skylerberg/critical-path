@@ -454,6 +454,70 @@ describe('Recurring series API', () => {
       expect(clearedBody.checklist_items).toHaveLength(2);
     });
 
+    it('moves the destination column and refuses one outside the project', async () => {
+      const created = await create();
+      const destinationId = newId();
+      const destination = await ctx
+        .request(owner.token)
+        .post('/api/columns', { id: destinationId, project_id: projectId, name: 'Later' });
+      expect(destination.status).toBe(201);
+
+      const moved = await ctx
+        .request(owner.token)
+        .patch(`/api/task-series/${created.id}`, { column_id: destinationId });
+      expect(moved.status).toBe(200);
+      expect(((await moved.json()) as SeriesBody).column_id).toBe(destinationId);
+      const stored = await db
+        .selectFrom('task_series')
+        .select('column_id')
+        .where('id', '=', created.id)
+        .executeTakeFirstOrThrow();
+      expect(stored.column_id).toBe(destinationId);
+
+      for (const foreign of [otherColumnId, newId()]) {
+        const rejected = await ctx
+          .request(owner.token)
+          .patch(`/api/task-series/${created.id}`, { column_id: foreign });
+        expect(rejected.status, foreign).toBe(422);
+        expect(await rejected.json()).toEqual({
+          error: 'column_id must reference a column in the project',
+        });
+      }
+
+      const after = (await list()).find((row) => row.id === created.id);
+      expect(after?.column_id).toBe(destinationId);
+    });
+
+    it('strips image nodes from a patched description too', async () => {
+      const created = await create({
+        description: {
+          type: 'doc',
+          content: [{ type: 'paragraph', content: [{ type: 'text', text: 'first' }] }],
+        },
+      });
+
+      const res = await ctx.request(owner.token).patch(`/api/task-series/${created.id}`, {
+        description: {
+          type: 'doc',
+          content: [
+            { type: 'image', attrs: { src: `/api/images/${newId()}` } },
+            {
+              type: 'paragraph',
+              content: [
+                { type: 'text', text: 'kept' },
+                { type: 'image', attrs: { src: `/api/images/${newId()}` } },
+              ],
+            },
+          ],
+        },
+      });
+      expect(res.status).toBe(200);
+      expect(((await res.json()) as SeriesBody).description).toEqual({
+        type: 'doc',
+        content: [{ type: 'paragraph', content: [{ type: 'text', text: 'kept' }] }],
+      });
+    });
+
     it('touches no card the series already created', async () => {
       const created = await create({ preset: 'daily' });
       const taskId = newId();

@@ -1,6 +1,30 @@
-import { describe, it, expect, afterEach, vi } from 'vitest';
+import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest';
 import { ConsoleEmailSender, SesEmailSender, getEmailSender } from '../../src/services/email/index';
 import { assertEmailConfig } from '../../src/config/env';
+
+const ses = vi.hoisted(() => ({
+  clients: [] as unknown[],
+  sent: [] as unknown[],
+}));
+
+vi.mock('@aws-sdk/client-sesv2', () => {
+  class SESv2Client {
+    constructor(options: unknown) {
+      ses.clients.push(options);
+    }
+
+    send(command: { input: unknown }): Promise<void> {
+      ses.sent.push(command.input);
+      return Promise.resolve();
+    }
+  }
+
+  class SendEmailCommand {
+    constructor(public input: unknown) {}
+  }
+
+  return { SESv2Client, SendEmailCommand };
+});
 
 const SES_VARS = [
   'EMAIL_DRIVER',
@@ -67,12 +91,101 @@ describe('getEmailSender', () => {
   });
 });
 
+// The driver production runs on, and the only place an EmailMessage becomes a
+// SendEmailCommand: every other test in the suite stops at the console or memory
+// sender, so nothing else says what SES is handed.
 describe('SesEmailSender', () => {
+  beforeEach(() => {
+    ses.clients.length = 0;
+    ses.sent.length = 0;
+    process.env.SES_FROM_ADDRESS = 'no-reply@example.com';
+    process.env.SES_REGION = 'us-west-2';
+  });
+
   it('fails fast without SES_FROM_ADDRESS before loading the SDK', async () => {
     delete process.env.SES_FROM_ADDRESS;
     await expect(
       new SesEmailSender().send({ to: 'a@example.com', subject: 's', text: 't' })
     ).rejects.toThrow(/SES_FROM_ADDRESS/);
+
+    expect(ses.clients).toEqual([]);
+    expect(ses.sent).toEqual([]);
+  });
+
+  it('sends the recipient, subject, body and headers the message named', async () => {
+    await new SesEmailSender().send({
+      to: 'someone@example.com',
+      subject: 'Alex assigned you: Ship the thing',
+      text: 'Open it here: http://localhost:5173/projects/p1/tasks/t1\n',
+      headers: {
+        'List-Unsubscribe': '<http://localhost:5173/api/auth/unsubscribe/one-click?token=abc>',
+        'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
+      },
+    });
+
+    expect(ses.clients).toEqual([{ region: 'us-west-2' }]);
+    expect(ses.sent).toEqual([
+      {
+        FromEmailAddress: 'no-reply@example.com',
+        Destination: { ToAddresses: ['someone@example.com'] },
+        Content: {
+          Simple: {
+            Subject: { Data: 'Alex assigned you: Ship the thing' },
+            Body: { Text: { Data: 'Open it here: http://localhost:5173/projects/p1/tasks/t1\n' } },
+            Headers: [
+              {
+                Name: 'List-Unsubscribe',
+                Value: '<http://localhost:5173/api/auth/unsubscribe/one-click?token=abc>',
+              },
+              { Name: 'List-Unsubscribe-Post', Value: 'List-Unsubscribe=One-Click' },
+            ],
+          },
+        },
+      },
+    ]);
+  });
+
+  // Every transactional mail — reset, verification — arrives here without any.
+  it('sends a message with no headers as an empty header list', async () => {
+    await new SesEmailSender().send({
+      to: 'someone@example.com',
+      subject: 'Reset your password',
+      text: 'Click here: http://localhost:5173/reset-password?token=abc',
+    });
+
+    expect(ses.sent).toEqual([
+      {
+        FromEmailAddress: 'no-reply@example.com',
+        Destination: { ToAddresses: ['someone@example.com'] },
+        Content: {
+          Simple: {
+            Subject: { Data: 'Reset your password' },
+            Body: { Text: { Data: 'Click here: http://localhost:5173/reset-password?token=abc' } },
+            Headers: [],
+          },
+        },
+      },
+    ]);
+  });
+
+  it('reuses one client however many messages a sender delivers', async () => {
+    const sender = new SesEmailSender();
+    await sender.send({ to: 'a@example.com', subject: 'one', text: '1' });
+    await sender.send({ to: 'b@example.com', subject: 'two', text: '2' });
+
+    expect(ses.clients).toEqual([{ region: 'us-west-2' }]);
+    expect(ses.sent).toHaveLength(2);
+  });
+
+  // assertEmailConfig accepts a region named the AWS way, which this never sees:
+  // the SDK reads AWS_REGION itself, and naming an undefined one would override
+  // it with nothing.
+  it('names no region when SES_REGION is unset', async () => {
+    delete process.env.SES_REGION;
+
+    await new SesEmailSender().send({ to: 'a@example.com', subject: 's', text: 't' });
+
+    expect(ses.clients).toEqual([{}]);
   });
 });
 

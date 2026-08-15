@@ -39,13 +39,21 @@ export const transactionMiddleware = createMiddleware<{ Variables: Variables }>(
     }
   }
 
+  const logHookFailure = (err: unknown) =>
+    logger.error({
+      msg: 'Post-commit hook failed',
+      path: c.req.path,
+      error: errorText(err),
+    });
+
   for (const hook of hooks) {
-    hook().catch((err) =>
-      logger.error({
-        msg: 'Post-commit hook failed',
-        path: c.req.path,
-        error: errorText(err),
-      })
-    );
+    // A hook that throws before returning its promise never reaches .catch, and
+    // would escape the loop to turn an already-committed response into a 500 —
+    // `() => getEmailSender().send(...)` does exactly that for a bad EMAIL_DRIVER.
+    try {
+      hook().catch(logHookFailure);
+    } catch (err) {
+      logHookFailure(err);
+    }
   }
 });

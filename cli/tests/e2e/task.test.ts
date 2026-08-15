@@ -296,11 +296,51 @@ describe('task commands', () => {
   });
 
   it('done moves the task to the bottom of the last done column', async () => {
+    const client = tc.request(user.token);
+    const shippedId = crypto.randomUUID();
+    const column = await client.post('/api/columns', {
+      id: shippedId,
+      project_id: projectId,
+      name: 'Shipped',
+      is_done: true,
+    });
+    expect(column.status).toBe(201);
+    const seed = await client.post('/api/tasks', {
+      id: crypto.randomUUID(),
+      project_id: projectId,
+      column_id: shippedId,
+      title: 'Shipped work',
+    });
+    expect(seed.status).toBe(201);
+    const shippedWork = (await seed.json()) as BoardTask;
+
     const res = await h.runCli(['task', 'done', 'Beta task', '--project', projectId, '--json']);
     expect(res.exitCode).toBe(0);
     const moved = res.json<BoardTask>();
-    expect(moved.column_id).toBe(doneId);
-    expect(moved.sort_key).toBeTruthy();
+    expect(moved.column_id).toBe(shippedId);
+    expect(moved.sort_key > shippedWork.sort_key).toBe(true);
+
+    const inColumn = await h.runCli([
+      'task',
+      'list',
+      '--project',
+      projectId,
+      '--column',
+      shippedId,
+      '--json',
+    ]);
+    expect(inColumn.json<StatefulTask[]>().map((t) => t.id)).toEqual([shippedWork.id, moved.id]);
+
+    const stillDone = await h.runCli([
+      'task',
+      'list',
+      '--project',
+      projectId,
+      '--column',
+      doneId,
+      '--json',
+    ]);
+    expect(stillDone.json<StatefulTask[]>().map((t) => t.id)).toEqual([finishedWorkId]);
   });
 
   it('refuses to delete a task that is still on the board', async () => {

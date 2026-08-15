@@ -14,6 +14,7 @@ describe('project member commands', () => {
   const extraProjectIds: string[] = [];
   let user: TestUser;
   let member: TestUser;
+  let bystander: TestUser;
   let outsider: TestUser;
   let h: CliHarness;
   let hMember: CliHarness;
@@ -22,6 +23,7 @@ describe('project member commands', () => {
   beforeAll(async () => {
     user = await tc.createUser('cli-pm');
     member = await tc.createUser('cli-pm-member');
+    bystander = await tc.createUser('cli-pm-bystander');
     outsider = await tc.createUser('cli-pm-outsider');
     h = await createCliHarness();
     await h.runCli(['login', '--email', user.email, '--password-stdin'], {
@@ -206,32 +208,70 @@ describe('project member commands', () => {
     expect(members.json<Member[]>().find((m) => m.id === member.id)?.role).toBe('viewer');
   });
 
-  it('set-role flips a member between viewer and editor', async () => {
-    const promote = await h.runCli([
-      'project',
-      'set-role',
-      projectId,
-      member.email.toUpperCase(),
-      '--role',
-      'editor',
-      '--json',
-    ]);
-    expect(promote.exitCode).toBe(0);
-    let members = await h.runCli(['project', 'members', projectId, '--json']);
-    expect(members.json<Member[]>().find((m) => m.id === member.id)?.role).toBe('editor');
+  it('set-role flips a member between viewer and editor and evicts nobody', async () => {
+    const added = await tc
+      .request(user.token)
+      .put(`/api/projects/${projectId}/members`, { user_ids: [member.id, bystander.id] });
+    expect(added.status).toBe(204);
 
-    const demote = await h.runCli([
-      'project',
-      'set-role',
-      projectId,
-      member.name,
-      '--role',
-      'viewer',
-      '--json',
-    ]);
-    expect(demote.exitCode).toBe(0);
-    members = await h.runCli(['project', 'members', projectId, '--json']);
-    expect(members.json<Member[]>().find((m) => m.id === member.id)?.role).toBe('viewer');
+    const rolesById = async (): Promise<Record<string, string>> => {
+      const res = await h.runCli(['project', 'members', projectId, '--json']);
+      expect(res.exitCode).toBe(0);
+      return Object.fromEntries(res.json<Member[]>().map((m) => [m.id, m.role]));
+    };
+
+    try {
+      const bodies: Promise<string>[] = [];
+      const promote = await h.runCli(
+        [
+          'project',
+          'set-role',
+          projectId,
+          member.email.toUpperCase(),
+          '--role',
+          'editor',
+          '--json',
+        ],
+        {
+          onRequest: (request) => {
+            if (request.method === 'PUT') {
+              bodies.push(request.clone().text());
+            }
+          },
+        }
+      );
+      expect(promote.exitCode).toBe(0);
+      // A body carrying user_ids would be a replace-all against a list read one
+      // request ago, so anyone added in between is dropped.
+      expect((await Promise.all(bodies)).map((body) => JSON.parse(body) as unknown)).toEqual([
+        { roles: [{ user_id: member.id, role: 'editor' }] },
+      ]);
+      expect(await rolesById()).toEqual({
+        [user.id]: 'owner',
+        [member.id]: 'editor',
+        [bystander.id]: 'editor',
+      });
+
+      const demote = await h.runCli([
+        'project',
+        'set-role',
+        projectId,
+        member.name,
+        '--role',
+        'viewer',
+        '--json',
+      ]);
+      expect(demote.exitCode).toBe(0);
+      expect(await rolesById()).toEqual({
+        [user.id]: 'owner',
+        [member.id]: 'viewer',
+        [bystander.id]: 'editor',
+      });
+    } finally {
+      await tc
+        .request(user.token)
+        .put(`/api/projects/${projectId}/members`, { user_ids: [member.id] });
+    }
   });
 
   it('set-role on the creator exits 2 without sending a request', async () => {
