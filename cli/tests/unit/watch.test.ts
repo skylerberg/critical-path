@@ -387,6 +387,39 @@ describe('watchEvents', () => {
     expect(h.sockets).toHaveLength(1);
   });
 
+  it('stops rather than taking another of the account’s connections back', async () => {
+    const h = start();
+    h.last().open();
+    h.last().message('{"type":"auth_ok"}');
+    h.last().close(4429);
+
+    const err = await h.promise.then(
+      () => null,
+      (e: unknown) => e
+    );
+    expect(err).toBeInstanceOf(ApiError);
+    expect((err as ApiError).status).toBe(429);
+    expect(h.revalidateSession).not.toHaveBeenCalled();
+
+    // The whole point: no second socket, ever. Reconnecting here evicts another
+    // of this account's clients, which reconnects and evicts this one back.
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(h.sockets).toHaveLength(1);
+  });
+
+  // Control for the arm above: the same harness DOES come back on an ordinary
+  // close, so "no second socket" cannot mean the harness simply stopped working.
+  it('still reconnects after a close the server did not blame on the ceiling', async () => {
+    const h = start();
+    h.last().open();
+    h.last().message('{"type":"auth_ok"}');
+    h.last().close(1006);
+
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(h.sockets).toHaveLength(2);
+    await settleAndClose(h);
+  });
+
   it('reconnects when a 4401 close leaves the session still valid', async () => {
     const h = start({ revalidateSession: () => Promise.resolve(true) });
     h.last().open();
