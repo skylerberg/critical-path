@@ -770,71 +770,92 @@
           data-snap-target
           animate:flip={{ duration: flipDuration() }}
           aria-label={column.name}
-          class="flex max-h-full w-[var(--cp-board-col-w)] shrink-0 snap-always flex-col rounded-lg border border-edge bg-surface md:snap-start {columnSnapAlign(
+          class="flex w-[var(--cp-board-col-w)] shrink-0 snap-always flex-col md:snap-start {columnSnapAlign(
             index,
             endColumnIndex
           )}"
         >
-          <ColumnHeader
-            {column}
-            {readonly}
-            count={board.tasksInColumn(column.id).length}
-            matchCount={board.hasActiveFilters ? board.matchingCountInColumn(column.id) : null}
-          />
+          <!-- The column proper: it draws the surface, and it ends where its cards
+               do, so "+ Add task" sits under the last one rather than at the foot of
+               the screen. The full-height wrapper above draws nothing and keeps the
+               geometry the board reads off it — the snap position, the flip, and the
+               box a dragged column is measured by — the same whatever a column holds.
+
+               Held to the wrapper's height by flex-shrink rather than by max-h-full,
+               because a percentage height needs the parent's to resolve and that is
+               what stops happening on the mobile engines this board is checked
+               against — where a column outgrowing the board is what pushes the bottom
+               nav off the screen. `min-h-0` is what lets the shrink happen at all: a
+               flex item's automatic minimum is its content's height, and a scrolling
+               child does not lower it, so the panel's own minimum is the whole card
+               stack and it would overflow rather than cap. The list keeps `min-h-16`
+               as its floor, and the header and composer are `shrink-0`, so the cards
+               are what gives up the room. -->
           <div
-            class="flex min-h-16 flex-1 flex-col gap-2 overflow-y-auto p-2"
-            data-task-list={column.id}
-            aria-label="{column.name} tasks"
-            use:scrollToTopOn={board.filterSignature}
-            use:dndzone={{
-              items: localTasks.get(column.id) ?? [],
-              type: 'task',
-              flipDurationMs: animatedColumns.has(column.id) ? flipDuration() : 0,
-              dropAnimationDisabled: motion.reduced,
-              dropTargetStyle: DROP_TARGET_STYLE,
-              delayTouchStart: TOUCH_DRAG_DELAY_MS,
-              // The finger picks the column, not the center of the card under it.
-              // A card is nearly as wide as its column, so grabbing one anywhere
-              // but the middle leaves its center up to half a column from the
-              // finger — far enough on a phone to have the finger well inside the
-              // next column while the center, which is what decides by default,
-              // is still inside this one. That drop bounces back.
-              useCursorForDetection: true,
-              zoneItemTabIndex: readonly ? -1 : 0,
-              dragDisabled: readonly,
-              dropFromOthersDisabled: readonly,
-            }}
-            onconsider={(event) => handleTaskConsider(column.id, event)}
-            onfinalize={(event) => handleTaskFinalize(column.id, event)}
+            data-column-panel
+            class="flex min-h-0 flex-col rounded-lg border border-edge bg-surface"
           >
-            {#if animatedColumns.has(column.id)}
-              {#each localTasks.get(column.id) ?? [] as task (task.id)}
-                <div
-                  animate:flip={{ duration: flipDuration() }}
-                  data-task-id={task.id}
-                  aria-label={truncateTitle(task.title)}
-                  class={cardClass}
-                >
-                  {@render card(task)}
-                </div>
-              {/each}
-            {:else}
-              {#each localTasks.get(column.id) ?? [] as task (task.id)}
-                <div
-                  data-task-id={task.id}
-                  aria-label={truncateTitle(task.title)}
-                  class={cardClass}
-                >
-                  {@render card(task)}
-                </div>
-              {/each}
+            <ColumnHeader
+              {column}
+              {readonly}
+              count={board.tasksInColumn(column.id).length}
+              matchCount={board.hasActiveFilters ? board.matchingCountInColumn(column.id) : null}
+            />
+            <div
+              class="flex min-h-16 flex-col gap-2 overflow-y-auto p-2"
+              data-task-list={column.id}
+              aria-label="{column.name} tasks"
+              use:scrollToTopOn={board.filterSignature}
+              use:dndzone={{
+                items: localTasks.get(column.id) ?? [],
+                type: 'task',
+                flipDurationMs: animatedColumns.has(column.id) ? flipDuration() : 0,
+                dropAnimationDisabled: motion.reduced,
+                dropTargetStyle: DROP_TARGET_STYLE,
+                delayTouchStart: TOUCH_DRAG_DELAY_MS,
+                // The finger picks the column, not the center of the card under it.
+                // A card is nearly as wide as its column, so grabbing one anywhere
+                // but the middle leaves its center up to half a column from the
+                // finger — far enough on a phone to have the finger well inside the
+                // next column while the center, which is what decides by default,
+                // is still inside this one. That drop bounces back.
+                useCursorForDetection: true,
+                zoneItemTabIndex: readonly ? -1 : 0,
+                dragDisabled: readonly,
+                dropFromOthersDisabled: readonly,
+              }}
+              onconsider={(event) => handleTaskConsider(column.id, event)}
+              onfinalize={(event) => handleTaskFinalize(column.id, event)}
+            >
+              {#if animatedColumns.has(column.id)}
+                {#each localTasks.get(column.id) ?? [] as task (task.id)}
+                  <div
+                    animate:flip={{ duration: flipDuration() }}
+                    data-task-id={task.id}
+                    aria-label={truncateTitle(task.title)}
+                    class={cardClass}
+                  >
+                    {@render card(task)}
+                  </div>
+                {/each}
+              {:else}
+                {#each localTasks.get(column.id) ?? [] as task (task.id)}
+                  <div
+                    data-task-id={task.id}
+                    aria-label={truncateTitle(task.title)}
+                    class={cardClass}
+                  >
+                    {@render card(task)}
+                  </div>
+                {/each}
+              {/if}
+            </div>
+            {#if !readonly}
+              <div data-quick-add={column.id} class="shrink-0">
+                <QuickAddTask columnId={column.id} />
+              </div>
             {/if}
           </div>
-          {#if !readonly}
-            <div data-quick-add={column.id}>
-              <QuickAddTask columnId={column.id} />
-            </div>
-          {/if}
         </div>
       {/each}
     </div>
