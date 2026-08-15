@@ -18,6 +18,9 @@ jobs:
         with:
           node-version: '24'
           cache: 'pnpm'
+          cache-dependency-path: |
+            pnpm-lock.yaml
+            cli/pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile
       - run: pnpm -C cli install --frozen-lockfile
       - run: pnpm run format:check
@@ -76,6 +79,9 @@ jobs:
         with:
           node-version: '24'
           cache: 'pnpm'
+          cache-dependency-path: |
+            pnpm-lock.yaml
+            cli/pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile
       # The suite includes cli/tests/**, whose imports (commander,
       # openapi-fetch, mdast-*) resolve from cli/node_modules.

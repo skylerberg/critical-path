@@ -288,18 +288,26 @@ describe('Make a card repeat', () => {
 
   it('refuses a project already at the series limit', async () => {
     const [fullProject, fullColumn] = await createProject(owner, 'full project');
-    for (let i = 0; i < MAX_SERIES_PER_PROJECT; i += 1) {
-      const res = await ctx.request(owner.token).post('/api/task-series', {
-        id: newId(),
-        project_id: fullProject,
-        column_id: fullColumn,
-        title: `Series ${String(i)}`,
-        preset: 'weekly',
-        start_date: await today(),
-        timezone: TZ,
-      });
-      expect(res.status).toBe(201);
-    }
+    // Seeded straight into the table rather than posted one at a time. The cap this
+    // test is about is a `COUNT(*)` over `task_series` for the project, so the rows
+    // only have to exist; and POST /api/task-series takes `forUpdate()` on the
+    // project row to serialise that count, which makes 50 creates 50 serial round
+    // trips whatever the client does. That setup took ~25s of a 30s timeout and
+    // timed out for real the moment the machine was busy.
+    await db
+      .insertInto('task_series')
+      .values(
+        Array.from({ length: MAX_SERIES_PER_PROJECT }, (_, i) => ({
+          id: newId(),
+          project_id: fullProject,
+          column_id: fullColumn,
+          title: `Series ${String(i)}`,
+          rrule: 'FREQ=WEEKLY',
+          start_date: '2026-01-01',
+          timezone: TZ,
+        }))
+      )
+      .execute();
 
     const taskId = newId();
     const task = await ctx.request(owner.token).post('/api/tasks', {
