@@ -42,7 +42,13 @@ const DOCS = ['CLAUDE.md', 'README.md', '.pi/skills'];
 // Configuration is indexed as source without being read for prose: the docs name
 // compiler options and package scripts as often as they name functions, and a key in
 // tsconfig.json is no less real for living outside src/.
-const CONFIG = ['svelte.config.js', 'eslint.config.js', 'tsconfig.json', 'package.json'];
+const CONFIG = [
+  'svelte.config.js',
+  'eslint.config.js',
+  'tsconfig.json',
+  'package.json',
+  'pnpm-workspace.yaml',
+];
 // Generated clients carry the API's own prose, which is duplicated across
 // endpoints by design and is not ours to edit.
 // scripts/tmp-* is the throwaway-probe prefix: copied from a real module as often
@@ -191,9 +197,7 @@ const EXTERNAL = new Set([
   'clientsClaim',
   'scrollY', // a browser global, named where the docs describe what focus does to it
   'props_duplicate', // svelte's own compile-error code
-  'allowBuilds', // pnpm settings, which live in pnpm-workspace.yaml rather than in src/
-  'strictDepBuilds',
-  'verifyDepsBeforeRun',
+  'strictDepBuilds', // a pnpm default this repo names but never sets
 ]);
 
 export function findBadReferences(files, index) {
@@ -269,12 +273,16 @@ function buildIndex(loaded, allPaths) {
     if (!files.has(name)) files.set(name, []);
     files.get(name).push(path);
   }
-  for (const { source } of loaded) {
+  for (const { path, source } of loaded) {
     // Code lines only: a symbol that exists solely inside another comment is not
-    // evidence that it exists.
+    // evidence that it exists. Which marker starts a comment depends on the file:
+    // `#` opens one in YAML and opens a private field in TypeScript, so a single
+    // shared pattern would either index YAML prose as symbols or stop indexing
+    // every `#name` in the stores.
+    const comment = /\.ya?ml$/.test(path) ? /^#/ : /^(\/\/|\/\*|\*|<!--)/;
     for (const line of source.split('\n')) {
       const trimmed = line.trim();
-      if (/^(\/\/|\/\*|\*|<!--)/.test(trimmed)) continue;
+      if (comment.test(trimmed)) continue;
       for (const [, word] of line.matchAll(/([A-Za-z_$][A-Za-z0-9_$]*)/g)) symbols.add(word);
     }
   }
