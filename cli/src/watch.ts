@@ -28,8 +28,25 @@ const MAX_BACKOFF_MS = 30_000;
 // Three times the server's heartbeat interval: no frame at all for this long means a
 // half-open connection that will never produce a close event.
 const STALE_TIMEOUT_MS = 90_000;
-const AUTH_CLOSE_CODE = 4401;
 const WS_OPEN = 1;
+
+type RealtimeCloseCode = components['schemas']['RealtimeCloseCode'];
+type CloseAction = 'revalidate' | 'yield';
+
+// Keyed by the generated union, so a close code added or removed in the API
+// stops this compiling rather than arriving as a code nothing routes on. Every
+// code not named here is an ordinary drop and reconnects.
+const CLOSE_ACTIONS: Record<RealtimeCloseCode, CloseAction> = {
+  4401: 'revalidate',
+  4429: 'yield',
+};
+
+// A helper rather than an index, because a close code is a plain number and
+// casting one into the union would bypass the exhaustiveness above at the only
+// site that reads it.
+function closeAction(code: number): CloseAction | null {
+  return code in CLOSE_ACTIONS ? CLOSE_ACTIONS[code as RealtimeCloseCode] : null;
+}
 
 interface WatchSocket {
   send(data: string): void;
@@ -251,7 +268,22 @@ export function watchEvents(options: WatchOptions): Promise<void> {
       clearTimers();
       socket = null;
       hadGap = true;
-      if (code !== AUTH_CLOSE_CODE) {
+      const action = closeAction(code);
+      // Reconnecting here would take the slot back off whichever of this
+      // account's clients the server handed it to, and that one reconnects and
+      // takes it back — a rotation nobody wins. A watcher is a process someone
+      // started, so it says why it is stopping rather than idling silently.
+      if (action === 'yield') {
+        settle(
+          new ApiError(
+            429,
+            'This account has too many open realtime connections; the server closed this one to make room. ' +
+              'Close another client and start the watch again.'
+          )
+        );
+        return;
+      }
+      if (action !== 'revalidate') {
         options.notify(`Realtime connection closed (code ${code}); reconnecting in ${backoff} ms`);
         scheduleReconnect();
         return;

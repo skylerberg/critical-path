@@ -2797,7 +2797,16 @@ restored" line on stderr as the cue to resync with `cpath board`.
 A close code of 4401 is confirmed with one HTTP request before the process
 gives up, because the server also sends it for transient auth-protocol
 closes. A genuinely revoked or expired session exits 3 with the usual login
-hint; anything else reconnects.
+hint.
+
+A close code of 4429 stops the watch instead. It means the account was over
+its 20-socket ceiling and this connection was the oldest, so the credential is
+still good and reconnecting would only take the slot back off whichever client
+the server handed it to — which reconnects and takes it back. A watcher is a
+process someone started, so it says so and exits rather than idling. Close
+another client and start it again. It exits 3, the same code an expired
+session gives, but without the login hint — the message is what tells the two
+apart. Any other close code reconnects.
 
 ### Shell completion
 
