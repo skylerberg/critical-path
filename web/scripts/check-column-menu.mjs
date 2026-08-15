@@ -29,6 +29,11 @@
 // window, where a sort that sends the request and leaves the cards where they
 // were is still distinguishable.
 //
+// The done row's arms are here for the half of that gap a component test cannot
+// reach at all: its check mark takes room from a label that already filled the
+// row, and the wrapped result sits inside the row's min-height, so nothing short
+// of a laid-out page can tell the two apart.
+//
 // Presses are full pointer sequences (pointerdown/mousedown/focus/pointerup/
 // mouseup/click), not element.click(): the menu dismisses itself from a window
 // click handler that inspects the event target, so which events fire and what
@@ -136,6 +141,42 @@ const CLOSES_ON_ANOTHER_ITEM = `(async () => {
     otherFound: true,
     closed: menu() === null,
   });
+})()`;
+
+// The done row is measured on its own page load because checking it is a
+// one-way gesture within a load, and the arms below want the row both ways.
+//
+// Line boxes, not the row's height: every row is min-h-11 and a second 20px line
+// still fits inside 44px, so the wrap this arm exists for moves nothing a height
+// assertion — or anything jsdom can compute — would read.
+const DONE_ROW_ON_ONE_LINE = `(async () => {
+  ${HARNESS}
+  const done = () => item('Mark as done column');
+  const shape = () => {
+    const row = done();
+    if (!row) return null;
+    const label = row.querySelector('span');
+    const range = document.createRange();
+    range.selectNodeContents(label);
+    return {
+      checked: row.getAttribute('aria-checked'),
+      icons: row.querySelectorAll('svg').length,
+      // One rect per line box, deduped by top edge: a wrapped label reports two.
+      lines: new Set([...range.getClientRects()].map((r) => Math.round(r.top))).size,
+      // What the text needs against the room the row gives it — a label held to
+      // one line by clipping is on one line and unreadable.
+      needs: label.scrollWidth,
+      room: label.clientWidth,
+    };
+  };
+  if (!kebab) return JSON.stringify({ found: false });
+  await press(kebab);
+  const unchecked = shape();
+  if (!unchecked) return JSON.stringify({ found: true, items: labels() });
+  await press(done());
+  await pause(300);
+  await settled();
+  return JSON.stringify({ found: true, rowFound: true, unchecked, checked: shape() });
 })()`;
 
 const SORT_A_COLUMN = `(async () => {
@@ -257,6 +298,34 @@ async function runArms(probeUrl) {
   );
 
   await open(probeUrl);
+  const doneRow = JSON.parse(await browser.eval(DONE_ROW_ON_ONE_LINE));
+  // Without this the two arms below are satisfied by a press that never landed:
+  // the unchecked row has room to spare and has never wrapped.
+  check(
+    'the done row takes its check mark (control)',
+    doneRow.rowFound === true &&
+      doneRow.unchecked?.checked === 'false' &&
+      doneRow.checked?.checked === 'true' &&
+      doneRow.checked?.icons === doneRow.unchecked?.icons + 1,
+    doneRow.rowFound === true
+      ? `aria-checked ${String(doneRow.unchecked?.checked)}→${String(doneRow.checked?.checked)},` +
+          ` ${String(doneRow.unchecked?.icons)}→${String(doneRow.checked?.icons)} icons`
+      : `no "Mark as done column" row among ${JSON.stringify(doneRow.items)}`
+  );
+  check(
+    'the checked done row keeps its label on one line',
+    doneRow.checked?.lines === 1,
+    `${String(doneRow.checked?.lines)} line(s), ${String(doneRow.unchecked?.lines)} unchecked`
+  );
+  // The other way to hold a label to one line, and the one the row's own
+  // `truncate` would reach for if the check mark left it without the room.
+  check(
+    'the checked done row shows its whole label',
+    doneRow.checked !== null && doneRow.checked?.needs <= doneRow.checked?.room,
+    `${String(doneRow.checked?.needs)}px of text in ${String(doneRow.checked?.room)}px`
+  );
+
+  await open(probeUrl);
   const sort = JSON.parse(await browser.eval(SORT_A_COLUMN));
   // The reported symptom, and the reason this file exists.
   check(
@@ -359,6 +428,44 @@ function regression(name, file, find, replace) {
 // Without the second half any failure reads as the planted one being caught, and
 // a check that has come off the component entirely reports the same green.
 const PLANTED = [
+  // Two mechanisms keep the done row on one line — the label's own `truncate` and
+  // a menu wide enough that it never has to bite — so neither is provable by
+  // reverting the other alone. This rewrite puts the label back in the width the
+  // check mark left it before the menu was widened AND takes the clip away, which
+  // is the geometry the row actually shipped with. The width is an inline style
+  // rather than a utility class because Tailwind builds its stylesheet from the
+  // files on disk: a class that appears only in this rewrite's output has no rule
+  // behind it, and the "planted" row would render unconstrained and pass.
+  {
+    ...regression(
+      'done-label-wraps',
+      'src/components/ColumnHeader.svelte',
+      'class="flex-1 truncate">Mark as done column',
+      'style="width:134px">Mark as done column'
+    ),
+    what: 'the done row wrapping its label under the check mark',
+    breaks: ['the checked done row keeps its label on one line'],
+    intact: [
+      'the done row takes its check mark (control)',
+      'the checked done row shows its whole label',
+    ],
+  },
+  // The other half: with the menu back at its old width the label still cannot
+  // wrap, because `truncate` clips it to one line instead.
+  {
+    ...regression(
+      'menu-too-narrow-for-the-done-row',
+      'src/components/ColumnHeader.svelte',
+      'max-h-[80vh] w-64',
+      'max-h-[80vh] w-56'
+    ),
+    what: 'a menu too narrow for the done row to show its label beside a check',
+    breaks: ['the checked done row shows its whole label'],
+    intact: [
+      'the done row takes its check mark (control)',
+      'the checked done row keeps its label on one line',
+    ],
+  },
   {
     ...regression(
       'sort-by-closes-the-menu',

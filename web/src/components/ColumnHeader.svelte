@@ -165,7 +165,7 @@
           tabindex="-1"
           aria-label="Options for {column.name}"
           use:menuKeys={{ onclose: closeMenu }}
-          class="absolute top-full right-0 z-30 max-h-[80vh] w-56 overflow-y-auto rounded-md border border-edge bg-surface py-1 shadow-lg"
+          class="absolute top-full right-0 z-30 max-h-[80vh] w-64 overflow-y-auto rounded-md border border-edge bg-surface py-1 shadow-lg"
         >
           {#if sortSubmenuOpen}
             <button
@@ -252,10 +252,10 @@
                 <circle cx="12" cy="12" r="9" />
                 <path d="m8.5 12.5 2.5 2.5 5-5.5" />
               </svg>
-              <span class="flex-1">Mark as done column</span>
+              <span class="flex-1 truncate">Mark as done column</span>
               {#if column.is_done}
                 <svg
-                  class="size-4 text-success"
+                  class="size-4 shrink-0 text-success"
                   viewBox="0 0 24 24"
                   fill="none"
                   stroke="currentColor"
