@@ -529,6 +529,21 @@ of those has been red because of a leftover probe: eslint on an import order,
 you are done anyway — the prefix is what keeps the gate honest in the meantime,
 on a tree `git status` calls clean.
 
+**Being ignored costs the probe its Tailwind classes**, which is the one place
+that prefix bites back. Tailwind v4 compiles the classes it finds in whatever
+`.gitignore` does not exclude — the module graph has nothing to do with it — so a
+class named only inside a `scripts/tmp-*` file gets no rule, and markup the probe
+injects renders unstyled while the identical class works everywhere else.
+Measured: `w-[1371px]` written in a non-ignored `scripts/*.mjs` is compiled,
+`w-[1372px]` in a `scripts/tmp-*` one is not. Style injected markup inline, or
+settle it before trusting a measurement of it — the compiled sheet is one fetch
+away, and it answers this in a line:
+
+```js
+const css = await (await fetch(new URL('src/app.css?direct', base))).text();
+css.includes(String.raw`.w-\[134px\]`); // false ⇒ nothing is styling that element
+```
+
 ```js
 import { createBrowser } from './scripts/lib/browser.mjs';
 const browser = await createBrowser();

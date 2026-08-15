@@ -465,9 +465,11 @@ const PLANTED = [
   // reverting the other alone. This rewrite puts the label back in the width the
   // check mark left it before the menu was widened AND takes the clip away, which
   // is the geometry the row actually shipped with. The width is an inline style
-  // rather than a utility class because Tailwind builds its stylesheet from the
-  // files on disk: a class that appears only in this rewrite's output has no rule
-  // behind it, and the "planted" row would render unconstrained and pass.
+  // because a plant is the one place a utility class cannot be taken on trust:
+  // Tailwind compiles the classes it finds in files .gitignore does not exclude,
+  // so `w-[134px]` here resolves only through the accident that this check is one
+  // of those files, and the same string in a `scripts/tmp-*` probe compiles to
+  // nothing at all. An inline style needs no stylesheet to agree with it.
   {
     ...regression(
       'done-label-wraps',
