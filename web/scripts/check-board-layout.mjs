@@ -3,8 +3,10 @@
 // hand-authored fixture (scripts/board-layout.fixture.html).
 //
 // jsdom (the vitest environment) has no layout engine, so component tests cannot
-// catch the bug this guards: the fixed bottom nav being pushed off-screen, or a
-// gap opening below the columns. This drives a real headless Chromium (via
+// catch the bugs this guards: the fixed bottom nav being pushed off-screen, a
+// column growing past the board rather than scrolling its own cards, or a column
+// drawn to the foot of the screen below its last card. This drives a real
+// headless Chromium (via
 // Playwright — scripts/lib/browser.mjs) and asserts the layout invariants.
 //
 //   node scripts/check-board-layout.mjs            # gate (used by `check:layout`)
@@ -42,6 +44,7 @@ const MEASURE = `(() => {
   const scroller = document.querySelector('[data-board-scroller]');
   const nav = document.querySelector('[data-bottom-nav]');
   const cols = [...document.querySelectorAll('[data-column-id]')];
+  const panels = [...document.querySelectorAll('[data-column-panel]')];
   const list = document.querySelector('[data-column-id] [aria-label$="tasks"]');
   const sr = scroller.getBoundingClientRect();
   const nr = nav.getBoundingClientRect();
@@ -49,12 +52,19 @@ const MEASURE = `(() => {
   const row = scroller.firstElementChild;
   const rr = row.getBoundingClientRect();
   const tile = document.querySelector('[data-add-column]');
+  const rowStyle = getComputedStyle(row);
   return {
+    // The track's own vertical padding, so "a column as tall as the board" can be
+    // asserted against the height a column can actually have rather than against
+    // a tolerance nobody can derive later.
+    trackPadY: Math.round(
+      (parseFloat(rowStyle.paddingTop) || 0) + (parseFloat(rowStyle.paddingBottom) || 0)
+    ),
     // Blank track outside the end targets, and the gap between two columns to
     // measure it against. Scroll-independent on purpose: this is the track's own
     // padding, which is what decides whether the ends can sit against the board's
     // edges at all. A gutter is fine; half a viewport is the canvas we removed.
-    columnGap: Math.round(parseFloat(getComputedStyle(row).columnGap) || 0),
+    columnGap: Math.round(parseFloat(rowStyle.columnGap) || 0),
     leadSpace: Math.round(cols[0].getBoundingClientRect().left - rr.left),
     tailSpace: Math.round(rr.right - tile.getBoundingClientRect().right),
     vw: window.innerWidth,
@@ -68,6 +78,19 @@ const MEASURE = `(() => {
     navTop: Math.round(nr.top),
     navWidth: Math.round(nr.width),
     colH: cols.map((c) => Math.round(c.getBoundingClientRect().height)),
+    // The drawn column, which is the one a reader sees end. Its wrapper above
+    // stays the board's height whatever it holds, so measuring that instead
+    // reports every column as full and nothing about the cards inside it.
+    panelH: panels.map((p) => Math.round(p.getBoundingClientRect().height)),
+    // Blank surface between the composer and the bottom of the column: what a
+    // column stretched past its content puts there, and the one reading that
+    // tells a short column apart from a tall one on a large screen.
+    addGap: panels.map((p) => {
+      const add = p.querySelector('[data-quick-add]');
+      return add === null
+        ? null
+        : Math.round(p.getBoundingClientRect().bottom - add.getBoundingClientRect().bottom);
+    }),
     listScrolls: list ? list.scrollHeight > list.clientHeight + 2 : null,
   };
 })()`;
@@ -79,14 +102,38 @@ async function render(query, viewport) {
 }
 
 // Invariants the fixed layout must satisfy at every size / column / task count.
-// `expectInternalScroll` is true only when the task list is tall enough that it
-// MUST scroll inside its column rather than grow the board.
-function checkInvariants(m, viewport, expectInternalScroll) {
+// `tall` is true only when the task list holds more cards than the board is high,
+// so the column MUST reach the board's height and scroll inside itself; `short`
+// only when it holds far fewer, so the column must end well above the board's
+// foot. Neither is asserted for the middling counts in between, where the honest
+// answer depends on the card height the fixture happens to render.
+function checkInvariants(m, viewport, { tall = false, short = false } = {}) {
   const failures = [];
-  if (!m.colH.every((h) => h >= m.boardClientH - 28 && h <= m.boardClientH + 2)) {
+  if (m.panelH.length !== m.colH.length) {
+    failures.push(`columns drew no panel (${m.panelH.length} of ${m.colH.length})`);
+  }
+  if (!m.colH.every((h) => h <= m.boardClientH + 2)) {
+    failures.push(`columns exceed the board (colH=${m.colH.join(',')} boardH=${m.boardClientH})`);
+  }
+  if (!m.panelH.every((h) => h <= m.boardClientH + 2)) {
     failures.push(
-      `columns do not fill board (colH=${m.colH.join(',')} boardClientH=${m.boardClientH})`
+      `a column grows past the board instead of scrolling its cards (panelH=${m.panelH.join(',')} boardH=${m.boardClientH})`
     );
+  }
+  if (tall && !m.panelH.every((h) => h >= m.boardClientH - m.trackPadY - 2)) {
+    failures.push(
+      `a column of more cards than fit stops short of the board (panelH=${m.panelH.join(',')} boardH=${m.boardClientH})`
+    );
+  }
+  // The point of the whole arrangement: a column of two cards is two cards tall,
+  // not a screen tall with blank surface under them.
+  if (short && !m.panelH.every((h) => h <= m.boardClientH - 120)) {
+    failures.push(
+      `a column of a few cards is drawn to the foot of the board (panelH=${m.panelH.join(',')} boardH=${m.boardClientH})`
+    );
+  }
+  if (!m.addGap.every((gap) => gap !== null && gap <= 4)) {
+    failures.push(`"+ Add task" is not at the bottom of its column (gaps=${m.addGap.join(',')})`);
   }
   if (m.boardScrollH > m.boardClientH + 2) {
     failures.push(
@@ -132,7 +179,7 @@ function checkInvariants(m, viewport, expectInternalScroll) {
   if (m.tailSpace > m.columnGap + 2) {
     failures.push(`blank track behind the last column (${m.tailSpace} > gap ${m.columnGap})`);
   }
-  if (expectInternalScroll && m.listScrolls === false) {
+  if (tall && m.listScrolls === false) {
     failures.push('tall task list does not scroll internally');
   }
   return failures;
@@ -140,21 +187,21 @@ function checkInvariants(m, viewport, expectInternalScroll) {
 
 const SELFTEST = process.argv.includes('--selftest');
 const MATRIX = [
-  { cols: 4, tasks: 2, expectInternalScroll: false }, // short columns -> must still fill (no gap)
-  { cols: 4, tasks: 40, expectInternalScroll: true }, // tall columns -> scroll internally, not overflow
-  { cols: 8, tasks: 12, expectInternalScroll: false }, // many columns -> horizontal scroll, no page overflow
+  { cols: 4, tasks: 2, short: true }, // few cards -> the column ends with them
+  { cols: 4, tasks: 40, tall: true }, // more than fit -> scroll internally, not overflow
+  { cols: 8, tasks: 12 }, // many columns -> horizontal scroll, no page overflow
 ];
 
 let failed = 0;
 console.log('check:layout — board + bottom-nav layout (real Chrome, fixture)');
 for (const viewport of VIEWPORTS) {
-  for (const { cols, tasks, expectInternalScroll } of MATRIX) {
+  for (const { cols, tasks, ...expect } of MATRIX) {
     const name = `layout/${viewport.name} ${viewport.width}x${viewport.height} cols=${cols} tasks=${tasks}`;
     if (!only.wants(name)) {
       continue;
     }
     const m = await render(`cols=${cols}&tasks=${tasks}`, viewport);
-    const failures = checkInvariants(m, viewport, expectInternalScroll);
+    const failures = checkInvariants(m, viewport, expect);
     if (failures.length) {
       failed++;
       console.log(`  ✗ ${name}`);
@@ -166,22 +213,27 @@ for (const viewport of VIEWPORTS) {
 }
 
 if (SELFTEST) {
-  // Sensitivity proof. This gate must catch BOTH regressions that affect the
-  // mobile board, and the fixed markup must survive both conditions:
+  // Sensitivity proof. This gate must catch every regression that affects the
+  // mobile board, and the current markup must survive every condition:
   //   1. abspos-overflow (the bug that shipped): with no sim, the LEGACY markup
   //      (scroller not `relative`) lets column-header sr-only badges overflow
-  //      the document and expand the mobile viewport. Fixed must pass, legacy fail.
+  //      the document and expand the mobile viewport. Current must pass, legacy fail.
   //   2. percentage-height: under the mobile resolution failure (sim=1), the
-  //      fixed markup still fills the board while legacy collapses.
+  //      current markup is untouched — it uses no percentage height — while
+  //      legacy collapses.
+  //   3. content-height: a column put back on filling the board however few cards
+  //      it holds (stretch=1) must fail the case that holds two.
   console.log('\ncheck:layout --selftest — sensitivity');
   const vp = VIEWPORTS[0];
   const cases = [
-    ['abspos-overflow / fixed  (no sim)', 'cols=4&tasks=40', true],
-    ['abspos-overflow / legacy (no sim)', 'cols=4&tasks=40&legacy=1', false],
-    ['pct-height / fixed  (sim)  ', 'cols=4&tasks=40&sim=1', true],
-    ['pct-height / legacy (sim)  ', 'cols=4&tasks=40&legacy=1&sim=1', false],
+    ['abspos-overflow / current  (no sim)', 'cols=4&tasks=40', { tall: true }, true],
+    ['abspos-overflow / legacy   (no sim)', 'cols=4&tasks=40&legacy=1', { tall: true }, false],
+    ['pct-height / current  (sim)  ', 'cols=4&tasks=40&sim=1', { tall: true }, true],
+    ['pct-height / legacy   (sim)  ', 'cols=4&tasks=40&legacy=1&sim=1', { tall: true }, false],
+    ['content-height / current  ', 'cols=4&tasks=2', { short: true }, true],
+    ['content-height / stretched', 'cols=4&tasks=2&stretch=1', { short: true }, false],
   ];
-  for (const [label, query, mustPass] of cases) {
+  for (const [label, query, expect, mustPass] of cases) {
     // Named under the phase they prove, so `--only=layout` brings its own
     // sensitivity proof along and never leaves a filtered run asserting
     // something about cases that did not run.
@@ -189,13 +241,13 @@ if (SELFTEST) {
       continue;
     }
     const m = await render(query, vp);
-    const failures = checkInvariants(m, vp, true);
+    const failures = checkInvariants(m, vp, expect);
     const passed = failures.length === 0;
     const ok = passed === mustPass;
     if (!ok) failed++;
-    const expect = mustPass ? 'should pass' : 'should fail';
+    const want = mustPass ? 'should pass' : 'should fail';
     console.log(
-      `  ${ok ? '✓' : '✗'} ${label}: ${expect} -> ${passed ? 'passed' : 'failed (' + failures.length + ')'}`
+      `  ${ok ? '✓' : '✗'} ${label}: ${want} -> ${passed ? 'passed' : 'failed (' + failures.length + ')'}`
     );
     if (!ok) for (const f of failures.slice(0, 3)) console.log(`      - ${f}`);
   }

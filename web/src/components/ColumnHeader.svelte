@@ -93,7 +93,7 @@
   }}
 />
 
-<header class="flex items-center gap-1 p-2 pb-1">
+<header class="flex shrink-0 items-center gap-1 p-2 pb-1">
   {#if !readonly}
     <span
       use:dragHandle

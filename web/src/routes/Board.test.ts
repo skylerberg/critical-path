@@ -516,6 +516,31 @@ describe('Board snapping', () => {
     expect(row).toHaveClass('flex-1', 'min-h-0');
     expect(row).not.toHaveClass('h-full');
   });
+
+  // A column is drawn to its cards, not to the foot of the screen, so "+ Add task"
+  // follows the last card up. The height that makes that work is jsdom-invisible
+  // — `check:layout` and `check:layout:real` measure it — so what is asserted here
+  // is the arrangement it needs: nothing drawn on the full-height wrapper the
+  // board's geometry is read off, the surface on a panel inside it that flex can
+  // shrink (`min-h-0`, no `flex-1`), and the card list left to size itself.
+  it('draws the column to its cards rather than to the height of the board', async () => {
+    render(Board, { props: { projectId: PROJECT_ID } });
+    await screen.findByText('plain one');
+
+    const panel = column().firstElementChild;
+    expect(panel).toHaveClass('flex', 'min-h-0', 'flex-col', 'border', 'bg-surface');
+    // One class at a time: `not.toHaveClass(a, b)` passes on an element carrying
+    // either one of them.
+    for (const drawn of ['border', 'bg-surface']) {
+      expect(column()).not.toHaveClass(drawn);
+    }
+    for (const grows of ['flex-1', 'h-full', 'max-h-full']) {
+      expect(panel).not.toHaveClass(grows);
+    }
+    expect(taskList()).not.toHaveClass('flex-1');
+    // The composer is the panel's last child, so the panel ends under it.
+    expect(panel?.lastElementChild).toHaveAttribute('data-quick-add');
+  });
 });
 
 describe('Board add-column drafts', () => {

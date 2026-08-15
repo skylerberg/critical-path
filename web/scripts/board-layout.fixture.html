@@ -7,8 +7,9 @@
   (App.svelte -> Project.svelte -> Board.svelte) with hand-authored CSS that
   matches the Tailwind utilities used. It exists because jsdom (the vitest
   environment) has no layout engine, so it cannot catch the class of CSS bug this
-  guards: the mobile bottom nav being pushed off-screen, or a gap opening below
-  the columns.
+  guards: the mobile bottom nav being pushed off-screen, a column growing past
+  the board instead of scrolling its own cards, or a column drawn to the foot of
+  the screen with nothing but blank surface below its last card.
 
   KEEP IN SYNC with the real components. The structural test in
   Board.test.ts ("contains the board vertically without relying on percentage
@@ -20,9 +21,13 @@
     tasks=M       task cards per column (default 12)
     legacy=1      render the PRE-FIX markup (reference for the buggy layout this
                   test guards against; used by --selftest to prove sensitivity)
+    stretch=1     render columns that fill the board however few cards they hold,
+                  which is what they did before they were sized to their content;
+                  used by --selftest to prove the content-height assertions bite.
     sim=1         emulate the mobile failure mode where percentage heights
                   (h-full / max-h-full) stop resolving against flex parents.
-                  The fixed markup must survive this; the legacy markup must not.
+                  The current markup uses none, so this must leave it untouched;
+                  the legacy markup must not survive it.
 
 -->
 <html lang="en">
@@ -143,6 +148,7 @@
       const COLS = Number(params.get('cols') ?? '4');
       const TASKS = Number(params.get('tasks') ?? '12');
       const LEGACY = params.get('legacy') === '1';
+      const STRETCH = params.get('stretch') === '1';
       const SIM = params.get('sim') === '1';
 
       if (SIM) document.body.classList.add('sim');
@@ -166,17 +172,23 @@
         // The first column starts against the board's leading edge; the rest
         // center. The add-column tile above ends the board.
         section.className =
-          `flex max-h-full w-col shrink-0 ${c === 0 ? 'snap-start' : 'snap-center'} snap-always flex-col border`;
+          `flex w-col shrink-0 ${c === 0 ? 'snap-start' : 'snap-center'} snap-always flex-col`;
         section.setAttribute('aria-label', `Column ${c + 1}`);
         section.setAttribute('data-snap-target', '');
         section.setAttribute('data-column-id', `c${c + 1}`);
+        // The drawn column, inside the full-height wrapper that carries the
+        // geometry: it takes its height from its cards and is held to the
+        // wrapper's by flex-shrink, no percentage height anywhere.
+        const panel = document.createElement('div');
+        panel.className = `flex min-h-0 ${STRETCH ? 'flex-1 ' : ''}flex-col border`;
+        panel.setAttribute('data-column-panel', '');
         // Faithful to ColumnHeader.svelte: the count badge wraps an sr-only label.
         // The sr-only is position:absolute with NO inset, so when nothing up the
         // tree is positioned its containing block is the viewport and it sits at
         // its in-flow position inside an off-screen (scrolled-out) column —
         // overflowing the document unless the scroller is position:relative.
         const header = document.createElement('header');
-        header.className = 'flex items-center gap-1 p-2 pb-1';
+        header.className = 'flex shrink-0 items-center gap-1 p-2 pb-1';
         const title = document.createElement('span');
         title.className = 'truncate text-sm font-semibold';
         title.textContent = `Column ${c + 1}`;
@@ -189,7 +201,7 @@
         badge.appendChild(sr);
         header.append(title, badge);
         const list = document.createElement('div');
-        list.className = 'flex min-h-16 flex-1 flex-col gap-2 overflow-y-auto p-2';
+        list.className = `flex min-h-16 ${STRETCH ? 'flex-1 ' : ''}flex-col gap-2 overflow-y-auto p-2`;
         list.setAttribute('aria-label', `Column ${c + 1} tasks`);
         for (let t = 0; t < TASKS; t++) {
           const card = document.createElement('div');
@@ -198,9 +210,11 @@
           list.appendChild(card);
         }
         const quickAdd = document.createElement('div');
-        quickAdd.className = 'p-2 pt-0';
+        quickAdd.className = 'shrink-0 p-2 pt-0';
+        quickAdd.setAttribute('data-quick-add', `c${c + 1}`);
         quickAdd.innerHTML = '<button class="viewbtn" style="width:100%;color:#737373;">+ Add task</button>';
-        section.append(header, list, quickAdd);
+        panel.append(header, list, quickAdd);
+        section.appendChild(panel);
         colsHost.appendChild(section);
       }
     </script>

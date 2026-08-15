@@ -74,6 +74,9 @@ const MEASURE = `(() => {
     return cs.position === 'fixed' && cs.display !== 'none';
   });
   const cols = [...document.querySelectorAll('[data-column-id]')];
+  const panels = [...document.querySelectorAll('[data-column-panel]')];
+  const track = board?.firstElementChild;
+  const trackStyle = track && getComputedStyle(track);
   const nr = nav?.getBoundingClientRect();
   const bar = document.querySelector('[aria-label="Selection actions"]');
   const br = bar?.getBoundingClientRect();
@@ -93,6 +96,25 @@ const MEASURE = `(() => {
     // overflow flips to hidden so svelte-dnd-action can't fling it, but snap stays on).
     boardSnap: board && getComputedStyle(board).scrollSnapType,
     colH: cols.map((c) => Math.round(c.getBoundingClientRect().height)),
+    // The drawn column inside the full-height wrapper the board's geometry is read
+    // off. The wrapper is the board's height however few cards a column holds, so
+    // measuring it says nothing about where the column actually ends.
+    panelH: panels.map((p) => Math.round(p.getBoundingClientRect().height)),
+    // Blank surface below the composer: what a column stretched past its cards
+    // puts there.
+    addGap: panels.map((p) => {
+      const add = p.querySelector('[data-quick-add]');
+      return add === null
+        ? null
+        : Math.round(p.getBoundingClientRect().bottom - add.getBoundingClientRect().bottom);
+    }),
+    // The track's own vertical padding, so "as tall as the board" is asserted
+    // against the height a column can actually reach.
+    trackPadY: trackStyle
+      ? Math.round(
+          (parseFloat(trackStyle.paddingTop) || 0) + (parseFloat(trackStyle.paddingBottom) || 0)
+        )
+      : null,
     navTop: nr && Math.round(nr.top),
     navW: nr && Math.round(nr.width),
     barBottom: br && Math.round(br.bottom),
@@ -128,6 +150,25 @@ function check(m, vp) {
     f.push(`board does not scroll horizontally (scrollW=${m.boardSW} clientW=${m.boardCW})`);
   if (!m.colH.every((h) => h <= m.boardCH + 2))
     f.push(`columns exceed board height (colH=${m.colH.join(',')} boardCH=${m.boardCH})`);
+  if (m.panelH.length !== m.colH.length)
+    f.push(`columns drew no panel (${m.panelH.length} of ${m.colH.length})`);
+  if (!m.panelH.every((h) => h <= m.boardCH + 2))
+    f.push(
+      `a column grows past the board instead of scrolling its cards (panelH=${m.panelH.join(',')} boardCH=${m.boardCH})`
+    );
+  // More cards than fit: the column reaches the board's foot and scrolls inside.
+  if (vp.tall && !m.panelH.every((h) => h >= m.boardCH - m.trackPadY - 2))
+    f.push(
+      `a column of more cards than fit stops short of the board (panelH=${m.panelH.join(',')} boardCH=${m.boardCH})`
+    );
+  // Few cards: the column ends with them rather than being drawn to the foot of
+  // the screen with blank surface below the last one.
+  if (vp.short && !m.panelH.every((h) => h <= m.boardCH - 120))
+    f.push(
+      `a column of a few cards is drawn to the foot of the board (panelH=${m.panelH.join(',')} boardCH=${m.boardCH})`
+    );
+  if (!m.addGap.every((gap) => gap !== null && gap <= 4))
+    f.push(`"+ Add task" is not at the bottom of its column (gaps=${m.addGap.join(',')})`);
   // Resting scroll-snap: mandatory on mobile (column-by-column), off on desktop.
   const wantSnap = vp.mobile ? 'x mandatory' : 'none';
   if (m.boardSnap !== wantSnap)
@@ -151,13 +192,18 @@ function check(m, vp) {
   return f;
 }
 
+// `short` and `tall` are the two ends of the content-height contract, and only the
+// counts that settle it either way carry one: two cards cannot fill any board here,
+// forty cannot fit in one. The counts in between are left unasserted, because
+// whether they fill depends on the card height the probe happens to render.
 const CASES = [
-  { w: 390, h: 844, cols: 4, tasks: 2 }, // short columns -> still fill (no gap)
-  { w: 390, h: 844, cols: 4, tasks: 40 }, // tall columns -> scroll internally
-  { w: 390, h: 844, cols: 8, tasks: 20 }, // many columns -> horizontal scroll, no document overflow
+  { w: 390, h: 844, cols: 4, tasks: 2, short: true }, // few cards -> the column ends with them
+  { w: 390, h: 844, cols: 4, tasks: 40, tall: true }, // tall columns -> scroll internally
+  { w: 390, h: 844, cols: 8, tasks: 20, tall: true }, // many columns -> horizontal scroll, no document overflow
   { w: 1280, h: 800, cols: 4, tasks: 12 }, // desktop: lg sidebar, no bottom nav
-  { w: 390, h: 844, cols: 4, tasks: 40, selected: 3 }, // selection bar: board gives up the height, nav keeps its own
-  { w: 360, h: 640, cols: 4, tasks: 40, selected: 3 }, // narrowest phone: count + five 44px targets on one row
+  { w: 1280, h: 800, cols: 4, tasks: 2, short: true }, // desktop: the tallest board a column must still not fill
+  { w: 390, h: 844, cols: 4, tasks: 40, selected: 3, tall: true }, // selection bar: board gives up the height, nav keeps its own
+  { w: 360, h: 640, cols: 4, tasks: 40, selected: 3, tall: true }, // narrowest phone: count + five 44px targets on one row
   { w: 1280, h: 800, cols: 4, tasks: 12, selected: 3 }, // desktop: bar docks above the fold, no nav to clear
 ];
 
@@ -169,31 +215,42 @@ function layoutName(c) {
   return `layout/${device} ${c.w}x${c.h} cols=${c.cols} tasks=${c.tasks} selected=${c.selected ?? 0}`;
 }
 
-let failed = 0;
-console.log(`check:layout:real — real Board.svelte in headless Chrome (${new URL(PROBE).origin})`);
-for (const c of CASES) {
-  const name = layoutName(c);
-  if (!only.wants(name)) {
-    continue;
-  }
-  const mobile = c.w < 1024;
-  await setViewport({ width: c.w, height: c.h, mobile });
-  await goto(`${PROBE}?cols=${c.cols}&tasks=${c.tasks}&selected=${c.selected ?? 0}`, { wait: 700 });
-  const m = await evalPage(MEASURE);
-  // On desktop the bottom nav is display:none; allow navTop/navW to be undefined.
-  const failures = mobile
-    ? check(m, { ...c, mobile })
-    : check(m, { ...c, mobile }).filter((x) => !x.includes('bottom nav'));
-  // The desktop case disables snap via lg:snap-none, so its resting value is 'none' too.
-  if (failures.length) {
-    failed++;
-    console.log(`  ✗ ${name}`);
+async function runLayoutCases(probeUrl, { mustPass, include = () => true }) {
+  let bad = 0;
+  for (const c of CASES) {
+    const name = layoutName(c);
+    if (!include(c) || !only.wants(name)) {
+      continue;
+    }
+    const mobile = c.w < 1024;
+    await setViewport({ width: c.w, height: c.h, mobile });
+    await goto(`${probeUrl}?cols=${c.cols}&tasks=${c.tasks}&selected=${c.selected ?? 0}`, {
+      wait: 700,
+    });
+    const m = await evalPage(MEASURE);
+    // On desktop the bottom nav is display:none; allow navTop/navW to be undefined.
+    // The desktop case disables snap via lg:snap-none, so its resting value is 'none' too.
+    const failures = mobile
+      ? check(m, { ...c, mobile })
+      : check(m, { ...c, mobile }).filter((x) => !x.includes('bottom nav'));
+    const passed = failures.length === 0;
+    if (passed === mustPass) {
+      console.log(
+        `  ✓ ${name}${mustPass ? ` (htmlSW=${m.htmlSW}, navW=${m.navW})` : ` (should fail -> ${failures[0]})`}`
+      );
+      continue;
+    }
+    bad++;
+    console.log(`  ✗ ${name}${mustPass ? '' : ': should fail -> passed'}`);
     for (const x of failures) console.log(`      - ${x}`);
     console.log(`      metrics: ${JSON.stringify(m)}`);
-  } else {
-    console.log(`  ✓ ${name} (htmlSW=${m.htmlSW}, navW=${m.navW})`);
   }
+  return bad;
 }
+
+let failed = 0;
+console.log(`check:layout:real — real Board.svelte in headless Chrome (${new URL(PROBE).origin})`);
+failed += await runLayoutCases(PROBE, { mustPass: true });
 
 // --- Scroll behavior ---
 // The board must move only when the user moved it. jsdom models no scrolling at
@@ -895,6 +952,34 @@ if (SELFTEST) {
   // style back conflates the two, and dropping the release with it strands the
   // suspension for good. Desktop is excluded: it does not snap, so none of the
   // chaining assertions apply there and the case legitimately passes.
+  // The column drawn to its cards rests on two classes on one element, and each
+  // fails in its own direction: without `min-h-0` nothing caps the panel, so a
+  // column of forty cards grows past the board; with `flex-1` it fills the board
+  // however few it holds, which is the layout this behavior replaced. Each arm
+  // runs only the cases that can see its half — a stretched column is a perfectly
+  // good tall column, and an uncapped one is a perfectly good short one.
+  failed += await runRegression(
+    regression('uncapped-column', [
+      [
+        'data-column-panel\n            class="flex min-h-0',
+        'data-column-panel\n            class="flex',
+      ],
+    ]),
+    CASES.filter((c) => c.tall).map(layoutName),
+    (probe) => runLayoutCases(probe, { mustPass: false, include: (c) => c.tall === true })
+  );
+
+  failed += await runRegression(
+    regression('stretched-column', [
+      [
+        'data-column-panel\n            class="flex min-h-0',
+        'data-column-panel\n            class="flex flex-1 min-h-0',
+      ],
+    ]),
+    CASES.filter((c) => c.short).map(layoutName),
+    (probe) => runLayoutCases(probe, { mustPass: false, include: (c) => c.short === true })
+  );
+
   failed += await runRegression(
     // Both halves in one anchored substitution: the guard reading the computed
     // style back, and the refusal that dropped the gesture without releasing the
