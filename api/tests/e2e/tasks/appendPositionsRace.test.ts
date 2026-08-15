@@ -129,8 +129,7 @@ describe('concurrent moves into one column', () => {
 
 // A reorder allocates its run past the column's tail, so it is an appender too:
 // without the same lock it and a move into the column read one max, generate
-// one key, and the second write violates the unique index — a 500 the route
-// does not answer 409 to.
+// one key, and the second write violates the unique index.
 describe('Reorder against a concurrent appender', () => {
   const ctx = new TestContext();
   const fixtures = new ProjectFixtures();

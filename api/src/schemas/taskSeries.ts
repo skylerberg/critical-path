@@ -119,7 +119,10 @@ export const taskSeriesSchema = type({
   checklist_items: taskSeriesChecklistItemSchema.array(),
 });
 
-export const taskSeriesCreateResponseSchema = taskSeriesSchema.merge({
+// Every write to a template answers with this, not just the ones that create
+// one: an edit strips image nodes exactly as a create does, so it owes the
+// caller the same count.
+export const taskSeriesWriteResponseSchema = taskSeriesSchema.merge({
   dropped_image_count: 'number',
 });
 
@@ -129,7 +132,7 @@ export const taskSeriesListResponseSchema = type({
 
 export type TaskSeriesResponse = typeof taskSeriesSchema.infer;
 export type TaskSeriesRef = typeof taskSeriesRefSchema.infer;
-export type TaskSeriesCreateResponse = typeof taskSeriesCreateResponseSchema.infer;
+export type TaskSeriesWriteResponse = typeof taskSeriesWriteResponseSchema.infer;
 export type CreateTaskSeriesInput = typeof createTaskSeriesSchema.infer;
 export type CreateSeriesFromTaskInput = typeof createSeriesFromTaskSchema.infer;
 export type PatchTaskSeriesInput = typeof patchTaskSeriesSchema.infer;
