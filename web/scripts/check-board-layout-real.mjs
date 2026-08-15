@@ -115,6 +115,14 @@ const MEASURE = `(() => {
           (parseFloat(trackStyle.paddingTop) || 0) + (parseFloat(trackStyle.paddingBottom) || 0)
         )
       : null,
+    // The probe's mirror of Project.svelte's height container. Where its bottom
+    // edge lands is the whole of what a keyboard changes.
+    shellBottom: Math.round(document.getElementById('project-shell').getBoundingClientRect().bottom),
+    // The flowed content's own height, which scrollHeight cannot report: that is
+    // floored at the layout viewport, so a document SHORTER than the window —
+    // which is exactly what a screen sized around a keyboard is — reads back as
+    // the window every time.
+    contentBottom: Math.round(document.body.getBoundingClientRect().bottom),
     navTop: nr && Math.round(nr.top),
     navW: nr && Math.round(nr.width),
     barBottom: br && Math.round(br.bottom),
@@ -140,8 +148,15 @@ function check(m, vp) {
   if (m.htmlSW > vp.w + 2)
     f.push(`document overflows horizontally (scrollWidth=${m.htmlSW} > ${vp.w})`);
   if (m.vw > vp.w + 2) f.push(`mobile viewport expanded (innerWidth=${m.vw} > ${vp.w})`);
-  if (m.htmlSH > vp.h + 2)
-    f.push(`document overflows vertically (scrollHeight=${m.htmlSH} > ${vp.h})`);
+  // `vp.h` is what is on screen; `vp.window` is the window the browser is laid
+  // out in, which the simulated keyboard below does not shrink — Playwright can
+  // raise no real one. The two differ only there, and each assertion below wants
+  // a different one of them.
+  const windowH = vp.window ?? vp.h;
+  if (m.htmlSH > windowH + 2)
+    f.push(`document overflows vertically (scrollHeight=${m.htmlSH} > ${windowH})`);
+  if (m.contentBottom > vp.h + 2)
+    f.push(`content runs past the visible height (bottom=${m.contentBottom} > ${vp.h})`);
   if (m.navTop === undefined || m.navTop > vp.h - 40)
     f.push(`bottom nav not visible (navTop=${m.navTop})`);
   if (m.navW === undefined || m.navW > vp.w + 2)
@@ -169,6 +184,13 @@ function check(m, vp) {
     );
   if (!m.addGap.every((gap) => gap !== null && gap <= 4))
     f.push(`"+ Add task" is not at the bottom of its column (gaps=${m.addGap.join(',')})`);
+  // The shell ends where the nav begins, or on the fold where there is no nav to
+  // clear. Overflow alone would call a board half a screen tall correct; this is
+  // the other side of it, and the one a keyboard breaks — the height it takes has
+  // to come off the shell rather than off the bottom of the screen.
+  const wantShellBottom = m.navTop ?? vp.h;
+  if (Math.abs(m.shellBottom - wantShellBottom) > 2)
+    f.push(`shell does not end at ${wantShellBottom} (shellBottom=${m.shellBottom})`);
   // Resting scroll-snap: mandatory on mobile (column-by-column), off on desktop.
   const wantSnap = vp.mobile ? 'x mandatory' : 'none';
   if (m.boardSnap !== wantSnap)
@@ -251,6 +273,83 @@ async function runLayoutCases(probeUrl, { mustPass, include = () => true }) {
 let failed = 0;
 console.log(`check:layout:real — real Board.svelte in headless Chrome (${new URL(PROBE).origin})`);
 failed += await runLayoutCases(PROBE, { mustPass: true });
+
+// --- Software keyboard ---
+// A keyboard shrinks the visual viewport and leaves the layout viewport — and so
+// every viewport unit, `dvh` included — at full height, which is how a screen
+// that fits exactly ends up with a keyboard's worth of itself below the fold and
+// a page that scrolls. Playwright can raise no keyboard, so a case shortens the
+// visual viewport the way one would and lets src/lib/viewport.svelte.ts (running
+// here as it does in main.ts) do the rest. What no test can reach is whether a
+// real iOS keyboard fires that resize; everything downstream of it is real.
+const KEYBOARD_CASES = [
+  { w: 390, h: 844, cols: 4, tasks: 40, keyboard: 336 }, // phone keyboard over columns already scrolling
+  { w: 360, h: 640, cols: 4, tasks: 6, keyboard: 300 }, // narrowest phone: less than half the screen left
+];
+
+function keyboardName(c) {
+  return `keyboard/${c.w}x${c.h} covered=${c.keyboard}`;
+}
+
+// Shorten the visual viewport and say so, which is the whole of what a keyboard
+// does to a page. The store is listening; the properties below are read back
+// rather than written, so a store that heard nothing stops the case here instead
+// of letting it measure a board no keyboard was ever raised over.
+//
+// The nav goes by hand because the probe's shell is a copy of App.svelte's, not
+// Nav.svelte itself — the component's own `{#if}` is Nav.test.ts's half.
+const raiseKeyboard = (visible) => `(async () => {
+  const visual = window.visualViewport;
+  Object.defineProperty(visual, 'height', { value: ${visible}, configurable: true });
+  visual.dispatchEvent(new Event('resize'));
+  await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+  const published = document.documentElement.style.getPropertyValue('--cp-viewport-h');
+  if (published !== '${visible}px') {
+    throw new Error('the keyboard went unnoticed: --cp-viewport-h is ' + (published || 'unset'));
+  }
+  const nav = [...document.querySelectorAll('nav')].find(
+    (n) => getComputedStyle(n).position === 'fixed'
+  );
+  if (!nav) {
+    throw new Error('no fixed bottom nav to take away');
+  }
+  nav.remove();
+  return true;
+})()`;
+
+async function runKeyboardCases(probeUrl, { mustPass }) {
+  let bad = 0;
+  for (const c of KEYBOARD_CASES) {
+    const name = keyboardName(c);
+    if (!only.wants(name)) {
+      continue;
+    }
+    const visible = c.h - c.keyboard;
+    await setViewport({ width: c.w, height: c.h, mobile: true });
+    await goto(`${probeUrl}?cols=${c.cols}&tasks=${c.tasks}`, { wait: 700 });
+    await evalPage(raiseKeyboard(visible));
+    const m = await evalPage(MEASURE);
+    // With the nav gone there is nothing to assert about where it sits; `check`
+    // reads its absence as the shell being owed the whole of the visible height.
+    const failures = check(m, { ...c, h: visible, window: c.h, mobile: true }).filter(
+      (x) => !x.includes('bottom nav')
+    );
+    const passed = failures.length === 0;
+    if (passed === mustPass) {
+      const how = mustPass ? `shell ends at ${m.shellBottom}` : `should fail -> ${failures[0]}`;
+      console.log(`  ✓ ${name} (${visible}px visible: ${how})`);
+      continue;
+    }
+    bad++;
+    console.log(`  ✗ ${name}${mustPass ? '' : ': should fail -> passed'}`);
+    for (const x of failures) console.log(`      - ${x}`);
+    console.log(`      metrics: ${JSON.stringify(m)}`);
+  }
+  return bad;
+}
+
+console.log('\ncheck:layout:real — the board under a software keyboard');
+failed += await runKeyboardCases(PROBE, { mustPass: true });
 
 // --- Scroll behavior ---
 // The board must move only when the user moved it. jsdom models no scrolling at
@@ -879,15 +978,16 @@ failed += await runDragCases(PROBE, { mustPass: true });
 // substitution must apply EXACTLY once: without that count the selftest passes by
 // rewriting nothing the day the code it names is renamed — the same failure it
 // exists to catch, wearing the check's own face.
-function regression(name, substitutions) {
+function regression(name, substitutions, file = 'src/routes/Board.svelte') {
   const applied = substitutions.map(() => 0);
   return {
     plugin: {
       name: `probe-selftest-${name}`,
-      // Ahead of the svelte plugin, so this still sees the component's source.
+      // Ahead of the svelte plugin (and of vite's own CSS transform), so this
+      // still sees the source as written.
       enforce: 'pre',
       transform(code, id) {
-        if (!id.endsWith('src/routes/Board.svelte')) {
+        if (!id.endsWith(file)) {
           return null;
         }
         return substitutions.reduce((source, [from, to], index) => {
@@ -994,6 +1094,26 @@ if (SELFTEST) {
     ]),
     SCROLL_CASES.filter((c) => c.w < 1024).map(scrollName),
     (probe) => runScrollCases(probe, { mustPass: false, include: (_case, mobile) => mobile })
+  );
+
+  // ...and the keyboard phase on the shell being sized from a measured height
+  // rather than from a viewport unit. Put `--cp-board-h` back on `100dvh` — the
+  // stylesheet, not the component, which is why this arm names its own file —
+  // and every case must fail: the shell keeps a height the keyboard is standing
+  // in, and the page it is on becomes something to scroll.
+  failed += await runRegression(
+    regression(
+      'dvh-shell',
+      [
+        [
+          'calc(var(--cp-viewport-h) - var(--cp-bottom-nav-h))',
+          'calc(100dvh - var(--cp-bottom-nav-h))',
+        ],
+      ],
+      'src/app.css'
+    ),
+    KEYBOARD_CASES.map(keyboardName),
+    (probe) => runKeyboardCases(probe, { mustPass: false })
   );
 }
 

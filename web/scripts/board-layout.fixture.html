@@ -41,7 +41,7 @@
       body { font-family: system-ui, sans-serif; }
       /* --cp-board-col-w must match src/app.css: a column of a different width
          here measures a board that is not the one that ships. */
-      :root { --cp-bottom-nav-h: 3.5rem; --cp-board-col-w: min(85vw, 18rem); }
+      :root { --cp-bottom-nav-h: 3.5rem; --cp-viewport-h: 100dvh; --cp-board-col-w: min(85vw, 18rem); }
 
       /* --- Tailwind-equivalent utilities used by the board chain --- */
       .flex { display: flex; }
@@ -87,7 +87,7 @@
       .inset-x-0 { left: 0; right: 0; }
       .bottom-0 { bottom: 0; }
       .flex-wrap { flex-wrap: wrap; }
-      .h-calc { height: calc(100dvh - var(--cp-bottom-nav-h)); }
+      .h-calc { height: calc(var(--cp-viewport-h) - var(--cp-bottom-nav-h)); }
       .pb-nav { padding-bottom: var(--cp-bottom-nav-h); }
 
       /* Mobile-failure simulation: percentage heights stop resolving against a

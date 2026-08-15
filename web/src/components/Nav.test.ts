@@ -1,5 +1,5 @@
 import { fetchMock, jsonResponse, requestAt } from '../api/testUtils';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/svelte';
 import {
   SHADOW_PLACEHOLDER_ITEM_ID,
@@ -10,6 +10,7 @@ import {
 } from 'svelte-dnd-action';
 import Nav from './Nav.svelte';
 import { board } from '../lib/board.svelte';
+import { APP_NAME } from '../lib/constants';
 import { motion } from '../lib/motion.svelte';
 import { projects, type Project } from '../lib/projects.svelte';
 import { realtime } from '../lib/realtime.svelte';
@@ -17,6 +18,7 @@ import { session } from '../lib/session.svelte';
 import { router } from '../lib/router.svelte';
 import { projectHref } from '../lib/short-links';
 import { testUuid } from '../lib/test-ids';
+import { viewport } from '../lib/viewport.svelte';
 
 const { zoneOptions } = vi.hoisted(() => ({ zoneOptions: [] as Options[] }));
 
@@ -652,5 +654,32 @@ describe('Nav sync indicator', () => {
 
     expect(state()).toBe('stale');
     expect(screen.getByText('Could not refresh — showing an older version')).toBeInTheDocument();
+  });
+});
+
+// The bottom bar is fixed to the layout viewport, which a software keyboard does
+// not shrink, so with one up it is behind the keyboard rather than above it. What
+// makes that worth removing rather than leaving is the height the rest of the app
+// reserves for it: see src/lib/viewport.svelte.test.ts for the other half.
+describe('Nav under a software keyboard', () => {
+  afterEach(() => {
+    viewport.keyboardOpen = false;
+  });
+
+  it('draws both bars while nothing is over the screen', () => {
+    render(Nav);
+
+    expect(screen.getAllByRole('navigation', { name: 'Primary' })).toHaveLength(2);
+  });
+
+  it('drops the bottom bar the keyboard has covered', () => {
+    viewport.keyboardOpen = true;
+
+    render(Nav);
+
+    const bars = screen.getAllByRole('navigation', { name: 'Primary' });
+    expect(bars).toHaveLength(1);
+    // The sidebar, which no keyboard reaches: it is the one carrying the wordmark.
+    expect(within(bars[0]!).getByText(APP_NAME)).toBeInTheDocument();
   });
 });

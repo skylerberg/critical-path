@@ -63,7 +63,7 @@
     <Spinner size="lg" />
   </div>
 {:else}
-  <div class="flex h-dvh flex-col">
+  <div class="flex h-[var(--cp-viewport-h)] flex-col">
     <header class="shrink-0 border-b border-edge bg-surface px-3 py-2 lg:px-4">
       <div class="flex flex-wrap items-center gap-x-3 gap-y-1">
         <h1 class="min-w-0 truncate text-lg font-semibold">{board.project?.name ?? ''}</h1>
