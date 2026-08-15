@@ -386,7 +386,7 @@ describe('replaying a move made offline', () => {
       entityId: taskId,
       semantics: 'move',
       label,
-      move: { columnId: COLUMN_ID, afterId, beforeId },
+      move: { kind: 'task' as const, columnId: COLUMN_ID, afterId, beforeId },
       request: {
         method: 'PATCH',
         path: '/api/tasks/{id}',
@@ -603,6 +603,100 @@ describe('replaying a move made offline', () => {
 
   // One queue holds every project's work. Rekeying a move against another
   // project's board places the card among neighbors it has never had.
+  it("rekeys a queued column move against the board's columns", async () => {
+    unreachable();
+    await outbox.submit(
+      edit({
+        entityId: COLUMN_ID,
+        semantics: 'move',
+        label: 'Moved column',
+        move: { kind: 'column' as const, afterId: AFTER_ID, beforeId: BEFORE_ID },
+        request: {
+          method: 'PATCH',
+          path: '/api/columns/{id}',
+          pathParams: { id: COLUMN_ID },
+          body: { sort_key: OFFLINE_KEY },
+        },
+      })
+    );
+    fetchMock.mockReset();
+    fetchMock.mockImplementation((input: RequestInfo | URL) => {
+      const request = input as Request;
+      if (request.method !== 'GET') {
+        return Promise.resolve(jsonResponse(200, {}));
+      }
+      // The anchors moved while the queue waited, so the offline key is stale.
+      return Promise.resolve(
+        jsonResponse(200, {
+          project: { id: PROJECT_ID },
+          columns: [
+            { id: AFTER_ID, sort_key: ANCHOR },
+            { id: BEFORE_ID, sort_key: NEXT_TO_ANCHOR },
+          ],
+          labels: [],
+          tasks: [],
+        })
+      );
+    });
+    await outbox.drain();
+
+    const keys = await replayedSortKeys();
+    expect(keys[0]).not.toBe(OFFLINE_KEY);
+    expect(keys[0]! > ANCHOR && keys[0]! < NEXT_TO_ANCHOR).toBe(true);
+    expect(outbox.issues).toHaveLength(0);
+  });
+
+  it("rekeys a queued checklist move against the task's own items", async () => {
+    unreachable();
+    await outbox.submit(
+      edit({
+        entityId: OTHER_ID,
+        semantics: 'move',
+        label: 'Reordered a checklist item',
+        move: {
+          kind: 'checklist' as const,
+          taskId: TASK_ID,
+          afterId: AFTER_ID,
+          beforeId: BEFORE_ID,
+        },
+        request: {
+          method: 'PATCH',
+          path: '/api/checklist-items/{id}',
+          pathParams: { id: OTHER_ID },
+          body: { sort_key: OFFLINE_KEY },
+        },
+      })
+    );
+    fetchMock.mockReset();
+    fetchMock.mockImplementation((input: RequestInfo | URL) => {
+      const request = input as Request;
+      if (request.method !== 'GET') {
+        return Promise.resolve(jsonResponse(200, {}));
+      }
+      // The checklist is not on the board payload, so this is the task read.
+      if (new URL(request.url).pathname.includes('/api/tasks/')) {
+        return Promise.resolve(
+          jsonResponse(200, {
+            id: TASK_ID,
+            checklist_items: [
+              { id: AFTER_ID, sort_key: ANCHOR },
+              { id: BEFORE_ID, sort_key: NEXT_TO_ANCHOR },
+            ],
+          })
+        );
+      }
+      return Promise.resolve(
+        jsonResponse(200, { project: { id: PROJECT_ID }, columns: [], labels: [], tasks: [] })
+      );
+    });
+    await outbox.drain();
+
+    const keys = await replayedSortKeys();
+    expect(keys[0]).not.toBe(OFFLINE_KEY);
+    expect(keys[0]! > ANCHOR && keys[0]! < NEXT_TO_ANCHOR).toBe(true);
+    expect(outbox.issues).toHaveLength(0);
+  });
+
   it('rekeys each move against its own project', async () => {
     const OTHER_PROJECT = testUuid('p2');
     const OTHER_COLUMN = testUuid('c2');
@@ -611,7 +705,12 @@ describe('replaying a move made offline', () => {
       edit({
         semantics: 'move',
         label: 'Moved here',
-        move: { columnId: COLUMN_ID, afterId: AFTER_ID, beforeId: BEFORE_ID },
+        move: {
+          kind: 'task' as const,
+          columnId: COLUMN_ID,
+          afterId: AFTER_ID,
+          beforeId: BEFORE_ID,
+        },
         request: {
           method: 'PATCH',
           path: '/api/tasks/{id}',
@@ -626,7 +725,12 @@ describe('replaying a move made offline', () => {
         entityId: OTHER_ID,
         semantics: 'move',
         label: 'Moved there',
-        move: { columnId: OTHER_COLUMN, afterId: AFTER_ID, beforeId: BEFORE_ID },
+        move: {
+          kind: 'task' as const,
+          columnId: OTHER_COLUMN,
+          afterId: AFTER_ID,
+          beforeId: BEFORE_ID,
+        },
         request: {
           method: 'PATCH',
           path: '/api/tasks/{id}',
@@ -694,6 +798,68 @@ describe('the bounds the queue enforces', () => {
       severity: 'failed',
       label: 'change 0',
     });
+  });
+
+  // A queue written before column and checklist moves learned to travel: the
+  // move it holds names no kind, and every scope test would read it as the one
+  // it is not.
+  it('replays a move queued by a build that knew only one kind of move', async () => {
+    const COLUMN_ID = testUuid('c1');
+    const AFTER_ID = testUuid('after');
+    const BEFORE_ID = testUuid('before');
+    await writeOp({
+      id: testUuid('legacy'),
+      seq: 1,
+      userId: user.id,
+      projectId: PROJECT_ID,
+      entityId: TASK_ID,
+      semantics: 'move',
+      label: 'Moved by an older build',
+      // Deliberately the old shape, cast in: this is what is actually at rest.
+      move: { columnId: COLUMN_ID, afterId: AFTER_ID, beforeId: BEFORE_ID } as never,
+      request: {
+        method: 'PATCH',
+        path: '/api/tasks/{id}',
+        pathParams: { id: TASK_ID },
+        body: { column_id: COLUMN_ID, sort_key: OFFLINE_KEY },
+      },
+      queuedAt: new Date().toISOString(),
+      attempts: 0,
+    });
+    unreachable();
+    await outbox.hydrate();
+    // hydrate() starts a drain it does not await, and that one is still using the
+    // rejecting fetch. Settling it here keeps it from landing after the swap below
+    // and sending the offline key for a reason this test is not about.
+    await outbox.drain();
+
+    fetchMock.mockReset();
+    fetchMock.mockImplementation((input: RequestInfo | URL) => {
+      const request = input as Request;
+      if (request.method !== 'GET') {
+        return Promise.resolve(jsonResponse(200, {}));
+      }
+      return Promise.resolve(
+        jsonResponse(200, {
+          project: { id: PROJECT_ID },
+          columns: [],
+          labels: [],
+          tasks: [
+            { id: AFTER_ID, sort_key: ANCHOR, column_id: COLUMN_ID },
+            { id: BEFORE_ID, sort_key: NEXT_TO_ANCHOR, column_id: COLUMN_ID },
+          ],
+        })
+      );
+    });
+    await outbox.drain();
+
+    const patched = fetchMock.mock.calls
+      .map((call) => call[0] as Request)
+      .find((request) => request.method === 'PATCH')!;
+    const { sort_key: replayed } = (await patched.clone().json()) as { sort_key: string };
+    expect(replayed).not.toBe(OFFLINE_KEY);
+    expect(replayed > ANCHOR && replayed < NEXT_TO_ANCHOR).toBe(true);
+    expect(outbox.issues).toHaveLength(0);
   });
 
   // A row stored by some other build, or one that got mangled on the way back

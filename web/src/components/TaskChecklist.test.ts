@@ -242,7 +242,13 @@ describe('TaskChecklist reordering', () => {
     const placed = move.mock.calls[0]![2];
     expect(placed.sort_key > A.sort_key!).toBe(true);
     expect(placed.sort_key < B.sort_key!).toBe(true);
-    expect(move).toHaveBeenCalledWith(T1, C.id, placed);
+    // Named rather than accepted loosely: the intent is the half that survives
+    // the wait when this is queued, and an append here would be the old bug.
+    expect(move).toHaveBeenCalledWith(T1, C.id, placed, {
+      kind: 'between',
+      afterId: A.id,
+      beforeId: B.id,
+    });
   });
 
   it('writes nothing when a row is dropped back where it was picked up', async () => {

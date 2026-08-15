@@ -126,7 +126,12 @@ class MyTasksStore {
       }
       this.error = apiMessage(error, 'Failed to load more tasks');
     } finally {
-      this.loadingMore = false;
+      // Guarded like the two arms above it: an abandoned page clearing this
+      // would report the read that replaced it as finished, re-enabling the
+      // button while that one is still in flight.
+      if (token === this.#fetchToken) {
+        this.loadingMore = false;
+      }
     }
   }
 

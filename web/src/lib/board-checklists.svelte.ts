@@ -1,10 +1,11 @@
 import type { BoardPort } from './board-port';
+import type { MoveIntent } from './outbox-ops';
 import { optimisticTask } from './board-task';
 import type { BoardTask, ChecklistItem } from './board-types';
 import { nowIso } from './dates';
 import { patchById, removeById } from './collections';
 import { newId } from './ids';
-import { append, byRank, placeAtIndex, type Placement } from './ranks';
+import { append, byRank, neighborIds, placeAtIndex, type Neighbors, type Placement } from './ranks';
 import { taskActivity } from './taskActivity.svelte';
 import { truncateTitle } from './titles';
 
@@ -134,11 +135,20 @@ export class BoardChecklists {
 
   // The only checklist write the server records no activity for, so the only one
   // that must not refetch the log.
-  async move(taskId: string, itemId: string, placement: Placement): Promise<void> {
+  async move(
+    taskId: string,
+    itemId: string,
+    placement: Placement,
+    intent: Neighbors
+  ): Promise<void> {
     this.replace(taskId, (items) =>
       patchById(items, itemId, (item) => ({ ...item, ...placement })).sort(byRank)
     );
-    await this.#patch(taskId, itemId, { ...placement }, false, 'Reordered a checklist item');
+    await this.#patch(taskId, itemId, { ...placement }, false, 'Reordered a checklist item', {
+      kind: 'checklist',
+      taskId,
+      ...neighborIds(intent),
+    });
   }
 
   async #patch(
@@ -146,11 +156,14 @@ export class BoardChecklists {
     itemId: string,
     body: { text?: string; checked?: boolean; sort_key?: string },
     logged: boolean,
-    label: string
+    label: string,
+    move?: MoveIntent
   ): Promise<void> {
     const result = await this.#board.send<ChecklistItem>({
       entityId: itemId,
       label,
+      semantics: move === undefined ? undefined : 'move',
+      move,
       request: {
         method: 'PATCH',
         path: '/api/checklist-items/{id}',

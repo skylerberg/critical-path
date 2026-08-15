@@ -885,7 +885,7 @@ class BoardStore {
       entityId: taskId,
       label: `Moved “${truncateTitle(title)}”`,
       semantics: 'move',
-      move: { columnId, ...neighborIds(intent) },
+      move: { kind: 'task', columnId, ...neighborIds(intent) },
       request: {
         method: 'PATCH',
         path: '/api/tasks/{id}',
@@ -1108,7 +1108,7 @@ class BoardStore {
     });
   }
 
-  async moveColumn(columnId: string, placement: Placement): Promise<void> {
+  async moveColumn(columnId: string, placement: Placement, intent: Neighbors): Promise<void> {
     this.columns = this.columns
       .map((column) => (column.id === columnId ? { ...column, ...placement } : column))
       .sort(byRank);
@@ -1116,6 +1116,8 @@ class BoardStore {
     await this.#sendOrFail({
       entityId: columnId,
       label: `Moved column “${truncateTitle(name)}”`,
+      semantics: 'move',
+      move: { kind: 'column', ...neighborIds(intent) },
       request: {
         method: 'PATCH',
         path: '/api/columns/{id}',
@@ -2092,8 +2094,13 @@ class BoardStore {
     return this.#checklists.rename(taskId, itemId, text);
   }
 
-  moveChecklistItem(taskId: string, itemId: string, placement: Placement): Promise<void> {
-    return this.#checklists.move(taskId, itemId, placement);
+  moveChecklistItem(
+    taskId: string,
+    itemId: string,
+    placement: Placement,
+    intent: Neighbors
+  ): Promise<void> {
+    return this.#checklists.move(taskId, itemId, placement, intent);
   }
 
   deleteChecklistItem(taskId: string, itemId: string): Promise<void> {

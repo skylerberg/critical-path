@@ -328,7 +328,8 @@ class OutboxStore {
     // assigning the read wholesale would queue a second copy of the request a
     // drain is at that moment sending.
     const claimed = this.#inflight?.id;
-    this.#ops = claimed === undefined ? stored : stored.filter((op) => op.id !== claimed);
+    const ops = claimed === undefined ? stored : stored.filter((op) => op.id !== claimed);
+    this.#ops = ops.map(withMoveKind);
     this.#enforceBounds();
     // Work read back from a previous load is owed a send as much as work queued
     // in this one.
@@ -358,6 +359,10 @@ class OutboxStore {
       // Moves are the only ops that need this, so a queue without one never pays
       // for it.
       const boards = new Map<string, BoardTasks>();
+      // One entry per task with a queued checklist move, for the same reason
+      // `boards` exists: two moves in one checklist must not both rank against
+      // the list as it stood before the first of them landed.
+      const lists = new Map<string, Keyed[]>();
       while (this.#ops.length > 0) {
         const op = this.#claim();
         try {
@@ -368,7 +373,7 @@ class OutboxStore {
           if (generation !== this.#generation) {
             return;
           }
-          const rekeyed = board === null ? null : this.#rekey(op, board);
+          const rekeyed = board === null ? null : await this.#rekey(op, board, lists);
           const request = rekeyed?.request ?? op.request;
           const outcome = await sendRequest(request);
           if (generation !== this.#generation) {
@@ -381,7 +386,7 @@ class OutboxStore {
           if (outcome.kind === 'ok' || isAlreadyApplied(op, outcome)) {
             applied += 1;
             if (board !== null && op.move !== undefined) {
-              applyMoveLocally(board, op.entityId, op.move.columnId, request);
+              applyMoveLocally(board, op.entityId, op.move, request, lists);
             }
             // Reported only once the move has landed. `adjusted` claims the change
             // was applied somewhere other than where it was aimed, which a placement
@@ -518,17 +523,58 @@ class OutboxStore {
 
   // Pure, and deliberately reports nothing: the caller raises the
   // approximate-placement notice once the move has actually landed.
-  #rekey(op: QueuedOp, board: BoardTasks): { request: SerializedRequest; exact: boolean } {
+  async #rekey(
+    op: QueuedOp,
+    board: BoardTasks,
+    lists: Map<string, Keyed[]>
+  ): Promise<{ request: SerializedRequest; exact: boolean } | null> {
     const move = op.move!;
-    const siblings = board.tasks
-      .filter((task) => task.column_id === move.columnId && task.id !== op.entityId)
-      .sort(byRank);
+    const siblings = await this.#siblingsFor(move, board, lists);
+    // A checklist read that fails leaves the op alone rather than replaying the
+    // offline key against nothing, which is the one thing rekeying exists to avoid.
+    if (siblings === null) {
+      return null;
+    }
     const { placement, exact } = placeBetweenNeighbors(
-      siblings,
+      siblings.filter((row) => row.id !== op.entityId).sort(byRank),
       neighborsFromIds(move.afterId, move.beforeId)
     );
     const body = { ...(op.request.body as Record<string, unknown>), ...placement };
     return { request: { ...op.request, body }, exact };
+  }
+
+  async #siblingsFor(
+    move: MoveIntent,
+    board: BoardTasks,
+    lists: Map<string, Keyed[]>
+  ): Promise<Keyed[] | null> {
+    if (move.kind === 'column') {
+      return board.columns;
+    }
+    if (move.kind === 'task') {
+      return board.tasks.filter((task) => task.column_id === move.columnId);
+    }
+    const cached = lists.get(move.taskId);
+    if (cached !== undefined) {
+      return cached;
+    }
+    const items = await this.#readChecklist(move.taskId);
+    if (items !== null) {
+      lists.set(move.taskId, items);
+    }
+    return items;
+  }
+
+  // The board payload carries no checklist, so this is the one scope that needs
+  // a read of its own. Cached per task for the same reason the board is: two
+  // queued moves in one checklist must not both rank against the same stale list.
+  async #readChecklist(taskId: string): Promise<Keyed[] | null> {
+    try {
+      const result = await api.GET('/api/tasks/{id}', { params: { path: { id: taskId } } });
+      return result.data === undefined ? null : [...result.data.checklist_items];
+    } catch {
+      return null;
+    }
   }
 
   async #boardFor(boards: Map<string, BoardTasks>, projectId: string): Promise<BoardTasks | null> {
@@ -556,7 +602,9 @@ class OutboxStore {
       // Deliberately not routed through the board store: replay needs the
       // server's version to compute against, while the screen must keep showing
       // the user's own until the queue has actually landed.
-      return result.data === undefined ? null : { tasks: [...result.data.tasks] };
+      return result.data === undefined
+        ? null
+        : { tasks: [...result.data.tasks], columns: [...result.data.columns] };
     } catch {
       return null;
     }
@@ -721,22 +769,56 @@ class OutboxStore {
 
 interface BoardTasks {
   tasks: (Keyed & { column_id: string })[];
+  columns: Keyed[];
 }
 
 // Keeps the shadow board in step as moves land, so two queued moves into the
 // same column do not both compute against the same stale neighbors.
+// A move queued before columns and checklist items learned to travel has no
+// `kind`, and every scope test below would read it as the one it is not. Read
+// back as what it was: the only kind that could have been stored then.
+function withMoveKind(op: QueuedOp): QueuedOp {
+  if (op.move === undefined || typeof (op.move as { kind?: unknown }).kind === 'string') {
+    return op;
+  }
+  const legacy = op.move as unknown as {
+    columnId: string;
+    afterId: string | null;
+    beforeId: string | null;
+  };
+  return { ...op, move: { kind: 'task', ...legacy } };
+}
+
 function applyMoveLocally(
   board: BoardTasks,
-  taskId: string,
-  columnId: string,
-  request: SerializedRequest
+  entityId: string,
+  move: MoveIntent,
+  request: SerializedRequest,
+  lists: Map<string, Keyed[]>
 ): void {
   const sortKey = (request.body as { sort_key?: string } | undefined)?.sort_key;
-  const task = board.tasks.find((candidate) => candidate.id === taskId);
-  if (task === undefined || sortKey === undefined) {
+  if (sortKey === undefined) {
     return;
   }
-  task.column_id = columnId;
+  if (move.kind === 'column') {
+    const column = board.columns.find((candidate) => candidate.id === entityId);
+    if (column !== undefined) {
+      column.sort_key = sortKey;
+    }
+    return;
+  }
+  if (move.kind === 'checklist') {
+    const item = lists.get(move.taskId)?.find((candidate) => candidate.id === entityId);
+    if (item !== undefined) {
+      item.sort_key = sortKey;
+    }
+    return;
+  }
+  const task = board.tasks.find((candidate) => candidate.id === entityId);
+  if (task === undefined) {
+    return;
+  }
+  task.column_id = move.columnId;
   task.sort_key = sortKey;
 }
 

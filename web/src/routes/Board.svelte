@@ -649,7 +649,7 @@
         centeringTarget = event.detail.info.id;
       }
       if (drop !== null) {
-        void board.moveColumn(event.detail.info.id, drop.placement);
+        void board.moveColumn(event.detail.info.id, drop.placement, drop.intent);
       }
     }
   }

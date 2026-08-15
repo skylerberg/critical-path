@@ -909,7 +909,7 @@ export const guards = [
     name: 'a replayed move is ranked against where the move before it landed',
     testName: 'rekeys a move against where the move before it just landed',
     file: 'src/lib/outbox.svelte.ts',
-    find: '              applyMoveLocally(board, op.entityId, op.move.columnId, request);\n',
+    find: '              applyMoveLocally(board, op.entityId, op.move, request, lists);\n',
     replace: '',
     tests: ['src/lib/outbox.test.ts'],
   },
@@ -1302,5 +1302,34 @@ export const guards = [
     find: '    entry?.error === true && (task?.open_cross_project_blocker_count ?? 0) > 0\n',
     replace: '    entry?.error === true\n',
     tests: ['src/components/TaskDependencies.test.ts'],
+  },
+  {
+    // The try and catch arms have always been token-guarded; the finally was not,
+    // so the failure is a live read reporting itself finished because an
+    // abandoned one landed.
+    name: 'an abandoned page does not clear the loading flag of the read that replaced it',
+    testName: 'leaves the loading flag belonging to the load that replaced it',
+    file: 'src/lib/myTasks.svelte.ts',
+    find: '      if (token === this.#fetchToken) {\n        this.loadingMore = false;\n      }',
+    replace: '      this.loadingMore = false;',
+    tests: ['src/lib/myTasks.test.ts'],
+  },
+  {
+    // The type makes the argument compulsory; this makes passing a meaningless
+    // one fail, which is what the missing argument used to amount to.
+    name: 'a dropped column queues the columns it landed between',
+    testName: 'moveColumn queues the columns it landed between',
+    file: 'src/lib/board.svelte.ts',
+    find: "      move: { kind: 'column', ...neighborIds(intent) },",
+    replace: "      move: { kind: 'column', afterId: null, beforeId: null },",
+    tests: ['src/lib/board.test.ts'],
+  },
+  {
+    name: 'a reordered checklist item queues the items it landed between',
+    testName: 'moveChecklistItem queues the items it landed between',
+    file: 'src/lib/board-checklists.svelte.ts',
+    find: '      ...neighborIds(intent),',
+    replace: '      afterId: null,\n      beforeId: null,',
+    tests: ['src/lib/board.test.ts'],
   },
 ];

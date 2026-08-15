@@ -397,6 +397,46 @@ describe('myTasks store', () => {
       expect(myTasks.hasMore).toBe(true);
     });
 
+    it('leaves the loading flag belonging to the load that replaced it', async () => {
+      fetchMock.mockImplementation(async () =>
+        jsonResponse(200, { ...payload, next_offset: 1000 })
+      );
+      await myTasks.load();
+
+      let finishStale!: () => void;
+      fetchMock.mockImplementationOnce(
+        async () =>
+          new Promise<Response>((resolve) => {
+            finishStale = () => resolve(jsonResponse(200, { ...payload, next_offset: 2000 }));
+          })
+      );
+      const stale = myTasks.loadMore();
+
+      // A newer read replaces it, so the flag on screen now belongs to that one.
+      myTasks.reset();
+      await myTasks.load();
+
+      let finishFresh!: () => void;
+      fetchMock.mockImplementationOnce(
+        async () =>
+          new Promise<Response>((resolve) => {
+            finishFresh = () => resolve(jsonResponse(200, { ...payload, next_offset: 3000 }));
+          })
+      );
+      const fresh = myTasks.loadMore();
+      expect(myTasks.loadingMore).toBe(true);
+
+      finishStale();
+      await stale;
+
+      // The abandoned page must not report that the live one has finished.
+      expect(myTasks.loadingMore).toBe(true);
+
+      finishFresh();
+      await fresh;
+      expect(myTasks.loadingMore).toBe(false);
+    });
+
     it('leaves a reloaded list alone when a failed page lands after it', async () => {
       fetchMock.mockImplementation(async () =>
         jsonResponse(200, { ...payload, next_offset: 1000 })

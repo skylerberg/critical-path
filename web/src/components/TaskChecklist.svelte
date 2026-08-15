@@ -118,7 +118,7 @@
     if (drop === null) {
       return;
     }
-    void board.moveChecklistItem(taskId, event.detail.info.id, drop.placement);
+    void board.moveChecklistItem(taskId, event.detail.info.id, drop.placement, drop.intent);
   }
 
   // The quick bar reveals an empty checklist; the field it should land in is here.

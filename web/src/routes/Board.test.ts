@@ -962,7 +962,7 @@ describe('Board drop intent', () => {
     // submit added at mount would take call 0 and this would go on passing while
     // measuring a different op.
     const moved = submit.mock.calls.find(([op]) => op.semantics === 'move');
-    expect(moved?.[0].move).toEqual({ columnId: 'c1', afterId: T2, beforeId: T3 });
+    expect(moved?.[0].move).toEqual({ kind: 'task', columnId: 'c1', afterId: T2, beforeId: T3 });
   });
 });
 
