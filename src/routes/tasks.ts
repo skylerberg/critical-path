@@ -76,7 +76,7 @@ import {
   boardTaskSchema,
   duplicateSchema,
   createSeriesFromTaskSchema,
-  taskSeriesCreateResponseSchema,
+  taskSeriesWriteResponseSchema,
   MAX_SERIES_PER_PROJECT,
   jsonResponse,
   emptyResponse,
@@ -501,7 +501,7 @@ router.get(
 );
 
 const createSeriesFromTaskResponses = {
-  201: jsonResponse('Created series', taskSeriesCreateResponseSchema),
+  201: jsonResponse('Created series', taskSeriesWriteResponseSchema),
 };
 
 router.post(

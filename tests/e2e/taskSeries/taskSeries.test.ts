@@ -512,10 +512,30 @@ describe('Recurring series API', () => {
         },
       });
       expect(res.status).toBe(200);
-      expect(((await res.json()) as SeriesBody).description).toEqual({
+      const patched = (await res.json()) as SeriesBody & { dropped_image_count: number };
+      expect(patched.description).toEqual({
         type: 'doc',
         content: [{ type: 'paragraph', content: [{ type: 'text', text: 'kept' }] }],
       });
+      expect(patched.dropped_image_count).toBe(2);
+      expect(Object.keys(patched).sort()).toEqual([...SERIES_KEYS, 'dropped_image_count'].sort());
+    });
+
+    it('reports no dropped images for an edit that sends no description', async () => {
+      const created = await create({
+        description: {
+          type: 'doc',
+          content: [{ type: 'paragraph', content: [{ type: 'text', text: 'first' }] }],
+        },
+      });
+
+      const res = await ctx
+        .request(owner.token)
+        .patch(`/api/task-series/${created.id}`, { title: 'Renamed' });
+      expect(res.status).toBe(200);
+      const patched = (await res.json()) as SeriesBody & { dropped_image_count: number };
+      expect(patched.title).toBe('Renamed');
+      expect(patched.dropped_image_count).toBe(0);
     });
 
     it('touches no card the series already created', async () => {
