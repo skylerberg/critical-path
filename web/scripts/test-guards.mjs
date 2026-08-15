@@ -1332,4 +1332,32 @@ export const guards = [
     replace: '      afterId: null,\n      beforeId: null,',
     tests: ['src/lib/board.test.ts'],
   },
+  // The two below edit the helper that reads app.css rather than app.css itself,
+  // which is not a shortcut: the mutation plugin is a vite `transform`, and a
+  // stylesheet nothing imports as a module is never transformed — aimed at the
+  // file, both come back NEVER-APPLIED. That string IS the whole input to these
+  // tests, so removing the declaration from it is what removing the declaration
+  // from the stylesheet looks like from inside the assertion.
+  {
+    // Deleting the line reads as tidying a declaration the palette seems not to
+    // need — the media query still flips every colour, so the theme looks
+    // unchanged in a screenshot while the UA goes back to painting selected text,
+    // the caret and the scrollbars for a white page.
+    name: 'the UA is told which scheme the page is in',
+    testName: 'declares color-scheme so the UA stops treating the dark theme as light',
+    file: 'src/lib/app-css-test-source.ts',
+    find: "readFileSync(resolve(import.meta.dirname, '../app.css'), 'utf8');",
+    replace:
+      "readFileSync(resolve(import.meta.dirname, '../app.css'), 'utf8').replace('color-scheme: light dark;', '');",
+    tests: ['src/app.css.test.ts'],
+  },
+  {
+    name: 'selected text is painted with the accent pair',
+    testName: 'paints the selection with the accent pair rather than the UA default',
+    file: 'src/lib/app-css-test-source.ts',
+    find: "readFileSync(resolve(import.meta.dirname, '../app.css'), 'utf8');",
+    replace:
+      "readFileSync(resolve(import.meta.dirname, '../app.css'), 'utf8').replace('background-color: var(--cp-accent);', 'background-color: var(--cp-accent-soft);');",
+    tests: ['src/app.css.test.ts'],
+  },
 ];

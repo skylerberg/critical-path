@@ -1,6 +1,17 @@
 @import 'tailwindcss';
 
 :root {
+  /* The palette flips on `prefers-color-scheme`, but that query is a signal the
+     page reads — it tells the browser nothing, so every UA-painted surface stayed
+     light-tuned under the dark theme. Selected text was the visible cost: with
+     this undeclared, Chromium paints the dark rename field's selection at 2.18:1
+     against the field and forces the glyphs to black, which is what "I can't see
+     that the title is selected" was. It also owns the caret, the scrollbars and
+     the default form-control rendering.
+
+     `light dark` rather than `dark`, so the UA follows the same signal the
+     palette does instead of pinning one theme. */
+  color-scheme: light dark;
   --cp-canvas: #fafafa;
   --cp-surface: #ffffff;
   --cp-edge: #e5e5e5;
@@ -98,6 +109,24 @@
     background-color: var(--cp-canvas);
     color: var(--cp-ink);
     -webkit-font-smoothing: antialiased;
+  }
+
+  /* Owned rather than left to the UA, because a default tuned for a white page is
+     what the dark theme was getting. The accent/on-accent pair is the same one the
+     primary button uses, so it carries that pair's contrast guarantee into both
+     themes and needs no second value under the dark media query.
+
+     This rule and `color-scheme` above are load-bearing for each other on WebKit,
+     which is the engine the report came from: with the scheme undeclared WebKit
+     composites a specified selection colour down toward the backdrop — accent
+     lands at #1f2a96, 1.73:1 on the dark field, worse than the default it
+     replaced — and with it declared paints near the value asked for (#6972c8,
+     4.56:1). Removing either one silently takes most of the other's value with
+     it, which is why app.css.test.ts asserts both. Chromium honours the colour
+     literally either way and so cannot show this. */
+  ::selection {
+    background-color: var(--cp-accent);
+    color: var(--cp-on-accent);
   }
 }
 

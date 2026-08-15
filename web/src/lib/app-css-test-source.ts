@@ -32,6 +32,21 @@ export function cssBlock(prelude: string): string {
   throw new Error(`${prelude} has no closing brace`);
 }
 
+function luminance(hex: string): number {
+  const channels = [1, 3, 5].map((at) => Number.parseInt(hex.slice(at, at + 2), 16) / 255);
+  const [r, g, b] = channels.map((c) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4));
+  return 0.2126 * r! + 0.7152 * g! + 0.0722 * b!;
+}
+
+// WCAG contrast over the six-digit hex values cssTokens hands back. Here rather than
+// in either test file because both the project accents and the selection colours
+// hold their palettes to a ratio, and a second copy of colour maths is a second
+// place for it to drift.
+export function contrast(a: string, b: string): number {
+  const [lighter, darker] = [luminance(a), luminance(b)].sort((x, y) => y - x);
+  return (lighter! + 0.05) / (darker! + 0.05);
+}
+
 // Every `--cp-*` hex a theme defines. The light values are everything before the
 // dark media query and the dark ones everything between it and @theme inline, so
 // reordering those three sections in app.css breaks this loudly rather than
