@@ -1132,13 +1132,8 @@ describe('POST /api/columns/:id/reorder', () => {
     expect(staysAfter.column_id).toBe(source);
     expect(staysAfter.sort_key > staysBefore.sort_key).toBe(true);
 
-    // The body reports the run that was asked for, so the card that left is
-    // still named in it, at a position nothing wrote.
     expect(await res.json()).toEqual({
-      moved_tasks: [
-        { id: leaves, column_id: source, sort_key: expect.any(String) },
-        { id: stays, column_id: source, sort_key: staysAfter.sort_key },
-      ],
+      moved_tasks: [{ id: stays, column_id: source, sort_key: staysAfter.sort_key }],
     });
   });
 
@@ -1171,9 +1166,14 @@ describe('POST /api/columns/:id/reorder', () => {
     }
     await archiver.done;
 
-    expect((await reordering).status).toBe(200);
+    const res = await reordering;
+    expect(res.status).toBe(200);
     expect(await positionOf(archived)).toEqual(archivedBefore);
-    expect((await positionOf(stays)).sort_key > staysBefore.sort_key).toBe(true);
+    const staysAfter = await positionOf(stays);
+    expect(staysAfter.sort_key > staysBefore.sort_key).toBe(true);
+    expect(await res.json()).toEqual({
+      moved_tasks: [{ id: stays, column_id: columnId, sort_key: staysAfter.sort_key }],
+    });
   });
 
   // The run is allocated past the column's tail, so the request has to be behind

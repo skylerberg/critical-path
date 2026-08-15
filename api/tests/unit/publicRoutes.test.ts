@@ -44,6 +44,13 @@ describe('assertPublicRoutes', () => {
     }).toThrow(/no longer exist/);
   });
 
+  it('rejects a listed optional-auth route that no longer exists', () => {
+    const removed = routes().filter((route) => route.path !== '/api/attachments/:id/download');
+    expect(() => {
+      assertPublicRoutes(removed);
+    }).toThrow(/optional-auth but no longer exist[\s\S]*GET \/api\/attachments\/:id\/download/);
+  });
+
   it('rejects a route that serves anonymous callers but is not listed as optional-auth', () => {
     const smuggled: RouterRoute[] = [
       ...routes(),

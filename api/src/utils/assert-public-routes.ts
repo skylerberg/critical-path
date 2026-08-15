@@ -62,6 +62,7 @@ export function assertPublicRoutes(routes: RouterRoute[]): void {
   const unmarkedOptional = [...OPTIONAL_AUTH_ROUTES].filter(
     (key) => registered.has(key) && !optional.has(key)
   );
+  const absentOptional = [...OPTIONAL_AUTH_ROUTES].filter((key) => !registered.has(key));
 
   const problems = [
     unlisted.length > 0 &&
@@ -74,6 +75,8 @@ export function assertPublicRoutes(routes: RouterRoute[]): void {
       `serve with or without a token but are not listed as optional-auth:\n  ${unlistedOptional.join('\n  ')}`,
     unmarkedOptional.length > 0 &&
       `are listed as optional-auth but carry no marker, so they now require a token:\n  ${unmarkedOptional.sort().join('\n  ')}`,
+    absentOptional.length > 0 &&
+      `are listed as optional-auth but no longer exist:\n  ${absentOptional.sort().join('\n  ')}`,
   ].filter((problem): problem is string => problem !== false);
 
   if (problems.length > 0) {

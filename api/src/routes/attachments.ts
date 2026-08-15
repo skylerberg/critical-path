@@ -173,7 +173,10 @@ router.post(
       );
     } catch (err) {
       if (err instanceof UploadCapExceededError) {
-        throw capIsQuota ? allowance.exceeded() : tooLarge(maxBytes);
+        // Both caps were passed in already clamped to the remaining quota, so a
+        // limit equal to it is the quota biting; anything else is the byte cap
+        // for the kind that was sniffed, which is not always the file cap.
+        throw err.limit === allowance.remaining ? allowance.exceeded() : tooLarge(err.limit);
       }
       throw err;
     }
