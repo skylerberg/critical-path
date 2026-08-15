@@ -1303,4 +1303,15 @@ export const guards = [
     replace: '    entry?.error === true\n',
     tests: ['src/components/TaskDependencies.test.ts'],
   },
+  {
+    // The try and catch arms have always been token-guarded; the finally was not,
+    // so the failure is a live read reporting itself finished because an
+    // abandoned one landed.
+    name: 'an abandoned page does not clear the loading flag of the read that replaced it',
+    testName: 'leaves the loading flag belonging to the load that replaced it',
+    file: 'src/lib/myTasks.svelte.ts',
+    find: '      if (token === this.#fetchToken) {\n        this.loadingMore = false;\n      }',
+    replace: '      this.loadingMore = false;',
+    tests: ['src/lib/myTasks.test.ts'],
+  },
 ];
