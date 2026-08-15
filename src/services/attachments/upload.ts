@@ -6,7 +6,9 @@ import { logger } from '../../utils/logger';
 import { errorText } from '../../utils/errors';
 
 export class UploadCapExceededError extends Error {
-  constructor() {
+  // Which of the two caps was applied is decided after the sniff, so the cap
+  // that actually bit travels with the error; the caller cannot re-derive it.
+  constructor(readonly limit: number) {
     super('Upload exceeded its byte cap');
   }
 }
@@ -113,7 +115,7 @@ async function pipeToStorage(
     transform(chunk: Buffer, _encoding, callback) {
       size += chunk.length;
       if (size > maxBytes) {
-        callback(new UploadCapExceededError());
+        callback(new UploadCapExceededError(maxBytes));
         return;
       }
       callback(null, chunk);

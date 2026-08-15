@@ -104,9 +104,8 @@ describe('createResetToken / verifyResetToken', () => {
 type Env = (typeof import('../../src/config/env'))['env'];
 
 // The secret both mailed-link families sign with. Its production guard is a
-// lazy getter rather than a boot assertion, so nothing else in the suite can
-// reach it: `environment` is captured at module load, which is what makes
-// loading the module again the only way in.
+// lazy getter rather than a boot assertion, so it is reached by stubbing the
+// environment around the call rather than at boot.
 describe('env.passwordResetSecret', () => {
   afterEach(() => {
     vi.unstubAllEnvs();

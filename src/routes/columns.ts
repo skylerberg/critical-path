@@ -505,12 +505,15 @@ router.post(
       'assigns evenly spaced positions (1000, 2000, …) so later drags have room to midpoint. ' +
       'No column changes, so neither updated_at, column_since nor the activity log are ' +
       'touched. A duplicate id, an id that is archived or in another column, or a missing ' +
-      'id set returns 422 with a plain error body. Emits one `column_tasks_reordered` event ' +
-      'with the moved tasks’ new positions.',
+      'id set returns 422 with a plain error body. A card archived or moved to another column ' +
+      'between the check and the write keeps its position and is left out of the response; a ' +
+      'position taken by a concurrent append returns 409. Emits one `column_tasks_reordered` ' +
+      'event with the moved tasks’ new positions.',
     security: [{ bearerAuth: [] }],
     responses: {
       ...reorderColumnTasksResponses,
       ...badRequestErrorResponse,
+      ...conflictErrorResponse,
       ...unauthorizedErrorResponse,
       ...forbiddenErrorResponse,
       ...notFoundErrorResponse,
@@ -528,7 +531,17 @@ router.post(
 
     const column = await assertColumnWrite(db, user.id, id);
 
-    const movedTasks = await reorderColumnTasks(db, column, task_ids);
+    let movedTasks;
+    try {
+      movedTasks = await reorderColumnTasks(db, column, task_ids);
+    } catch (err) {
+      // The tail lock only excludes appenders that take it, and POST /api/tasks
+      // appends without one, so convention 15's residual still applies.
+      if (isUniqueViolation(err)) {
+        throw new AppError(409, 'Column positions changed during the reorder, retry');
+      }
+      throw err;
+    }
 
     if (movedTasks.length > 0) {
       publishAfterCommit(c, 'column_tasks_reordered', column.project_id, {

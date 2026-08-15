@@ -3,6 +3,7 @@ import { TestContext } from '../../setup/testContext';
 import { newId } from '../../helpers/fixtures';
 import { db } from '../../../src/db/index';
 import { env } from '../../../src/config/env';
+import { IMAGE_MAX_BYTES } from '../../../src/services/attachments/images';
 import {
   cleanupProjects,
   createTaskFixture,
@@ -251,10 +252,8 @@ describe('POST /api/attachments/files', () => {
       .postBytes(uploadPath(taskId, { filename: 'huge.png' }), streamOf(megabyte, 11));
 
     expect(over.status).toBe(413);
-    // Pinned as it stands: the refusal names the file cap even though the image
-    // cap is the one that cut the stream at 10 MB.
     expect((await over.json()).error).toBe(
-      `File exceeds the ${String(env.attachmentMaxBytes)} byte limit`
+      `File exceeds the ${String(IMAGE_MAX_BYTES)} byte limit`
     );
     expect(
       await db
@@ -266,6 +265,33 @@ describe('POST /api/attachments/files', () => {
 
     const after = await listStorageKeys();
     expect([...after].filter((key) => !before.has(key))).toEqual([]);
+  });
+
+  // With quota left between the two caps the image cap is still the one that
+  // cuts, and saying so is the difference between a size the caller can act on
+  // and telling them to delete attachments they do not need to delete.
+  it('names the image cap, not the quota, when both could have refused', async () => {
+    const user = await ctx.createUser('att-imgquota');
+    const { taskId } = await createTaskFixture(user.id, createdProjectIds);
+    const megabyte = Buffer.concat([PNG_1X1, Buffer.alloc(1024 * 1024 - PNG_1X1.length, 0)]);
+    const previous = process.env.PROJECT_STORAGE_QUOTA_BYTES;
+    process.env.PROJECT_STORAGE_QUOTA_BYTES = String(20 * 1024 * 1024);
+    try {
+      expect(env.projectStorageQuotaBytes).toBeGreaterThan(IMAGE_MAX_BYTES);
+      expect(env.projectStorageQuotaBytes).toBeLessThan(env.attachmentMaxBytes);
+
+      const res = await ctx
+        .request(user.token)
+        .postBytes(uploadPath(taskId, { filename: 'wide.png' }), streamOf(megabyte, 11));
+
+      expect(res.status).toBe(413);
+      expect((await res.json()).error).toBe(
+        `File exceeds the ${String(IMAGE_MAX_BYTES)} byte limit`
+      );
+    } finally {
+      if (previous === undefined) delete process.env.PROJECT_STORAGE_QUOTA_BYTES;
+      else process.env.PROJECT_STORAGE_QUOTA_BYTES = previous;
+    }
   });
 
   it('refuses the 51st attachment on a task', async () => {
