@@ -34,10 +34,14 @@
 // row, and the wrapped result sits inside the row's min-height, so nothing short
 // of a laid-out page can tell the two apart.
 //
-// Presses are full pointer sequences (pointerdown/mousedown/focus/pointerup/
-// mouseup/click), not element.click(): the menu dismisses itself from a window
-// click handler that inspects the event target, so which events fire and what
-// they carry is the mechanism under test.
+// Presses come from the driver, through Playwright's real mouse, and never from
+// a MouseEvent built inside the page. This check spent its whole life green over
+// a "Sort by" that dismissed the menu in every browser, because a dispatched
+// click defers the submenu's render until after the event has finished
+// propagating — so the window-level guard that dismisses this menu was handed a
+// row still sitting in the DOM, which under a finger it never is. The header of
+// browser.mjs's `click` has the measurement; the rule it leaves behind is that a
+// press whose point is what other listeners see cannot be synthesised.
 //
 // Chromium only, matching the other browser checks — CI installs no other engine.
 // Boots vite in-process on the first free port at or above 5210 (override with
@@ -77,167 +81,144 @@ async function startServer(plugins = []) {
   return created;
 }
 
-// Shared prelude for both page scripts. String concatenation rather than
-// template literals throughout, so nothing in here collides with the `${}` of
-// the driver that embeds it.
-const HARNESS = `
-  const settled = () => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
-  const pause = (ms) => new Promise((r) => setTimeout(r, ms));
+// Everything the page is asked, installed once per load. It reads and nothing
+// else — the presses arrive from the driver — so no arm can be satisfied by an
+// event this file made up. String concatenation rather than template literals
+// throughout, so nothing in here collides with the `${}` of the driver.
+const HARNESS = `(() => {
   const column = document.querySelector('[data-column-id="${COLUMN}"]');
-  // The trigger, not the popup: both carry this label, and once the menu is open
-  // its "Sort by" row claims aria-haspopup="menu" as well.
-  const kebab = column && column.querySelector('button[aria-label^="Options for"]');
-  const menu = () => column && column.querySelector('[role="menu"]');
+  if (!column) return false;
+  const menu = () => column.querySelector('[role="menu"]');
   const rows = () => (menu() ? [...menu().querySelectorAll('[role^="menuitem"]')] : []);
-  const item = (label) => rows().find((el) => el.textContent.trim() === label) ?? null;
-  const labels = () => rows().map((el) => el.textContent.trim());
   const cards = () =>
     [...column.querySelectorAll('[data-task-id]')].map((el) => ({
       id: el.dataset.taskId,
       title: (el.querySelector('a[aria-label]') || el).getAttribute('aria-label') || '',
     }));
-
-  // What a finger or a mouse actually delivers. element.click() fires the last of
-  // these six and nothing before it, which is enough to reach an onclick and not
-  // enough to reach anything guarding on the press.
-  const press = async (el) => {
-    const r = el.getBoundingClientRect();
-    const at = {
-      bubbles: true, cancelable: true, composed: true, view: window,
-      clientX: Math.round(r.left + r.width / 2),
-      clientY: Math.round(r.top + r.height / 2),
-      button: 0, pointerId: 1, pointerType: 'mouse', isPrimary: true,
-    };
-    el.dispatchEvent(new PointerEvent('pointerdown', Object.assign({}, at, { buttons: 1 })));
-    el.dispatchEvent(new MouseEvent('mousedown', Object.assign({}, at, { buttons: 1 })));
-    // preventScroll, because the header sits in the board's horizontal scroller
-    // and a focus that pans it would move every rect measured after this one.
-    el.focus({ preventScroll: true });
-    // The press and the release are separate turns of the event loop in life, so
-    // anything the press schedules has run by the time the click lands.
-    await settled();
-    el.dispatchEvent(new PointerEvent('pointerup', Object.assign({}, at, { buttons: 0 })));
-    el.dispatchEvent(new MouseEvent('mouseup', Object.assign({}, at, { buttons: 0 })));
-    el.dispatchEvent(new MouseEvent('click', Object.assign({}, at, { buttons: 0, detail: 1 })));
-    await settled();
+  window.__probe = {
+    settled: () => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))),
+    open: () => menu() !== null,
+    // The trigger, not the popup: both carry this label, and once the menu is
+    // open its "Sort by" row claims aria-haspopup="menu" as well.
+    expanded: () =>
+      column.querySelector('button[aria-label^="Options for"]').getAttribute('aria-expanded'),
+    labels: () => rows().map((el) => el.textContent.trim()),
+    cards,
+    ids: () => cards().map((c) => c.id),
+    // Line boxes, not the row's height: every row is min-h-11 and a second 20px
+    // line still fits inside 44px, so the wrap this measures moves nothing a
+    // height assertion — or anything jsdom can compute — would read.
+    doneRow: () => {
+      const row = rows().find((el) => el.textContent.trim() === 'Mark as done column');
+      if (!row) return null;
+      const label = row.querySelector('span');
+      const range = document.createRange();
+      range.selectNodeContents(label);
+      return {
+        checked: row.getAttribute('aria-checked'),
+        icons: row.querySelectorAll('svg').length,
+        // One rect per line box, deduped by top edge: a wrapped label reports two.
+        lines: new Set([...range.getClientRects()].map((r) => Math.round(r.top))).size,
+        // What the text needs against the room the row gives it — a label held to
+        // one line by clipping is on one line and unreadable.
+        needs: label.scrollWidth,
+        room: label.clientWidth,
+      };
+    },
   };
-`;
-
-// The control arm's own page load: it leaves a confirmation modal open, and an
-// open <dialog> makes everything outside it inert.
-const CLOSES_ON_ANOTHER_ITEM = `(async () => {
-  ${HARNESS}
-  if (!kebab) return JSON.stringify({ found: false });
-  await press(kebab);
-  const opened = menu() !== null;
-  const expanded = kebab.getAttribute('aria-expanded');
-  const other = item('Archive all cards');
-  if (!other) return JSON.stringify({ found: true, opened, expanded, items: labels() });
-  await press(other);
-  return JSON.stringify({
-    found: true,
-    opened,
-    expanded,
-    otherFound: true,
-    closed: menu() === null,
-  });
-})()`;
-
-// The done row is measured on its own page load because checking it is a
-// one-way gesture within a load, and the arms below want the row both ways.
-//
-// Line boxes, not the row's height: every row is min-h-11 and a second 20px line
-// still fits inside 44px, so the wrap this arm exists for moves nothing a height
-// assertion — or anything jsdom can compute — would read.
-const DONE_ROW_ON_ONE_LINE = `(async () => {
-  ${HARNESS}
-  const done = () => item('Mark as done column');
-  const shape = () => {
-    const row = done();
-    if (!row) return null;
-    const label = row.querySelector('span');
-    const range = document.createRange();
-    range.selectNodeContents(label);
-    return {
-      checked: row.getAttribute('aria-checked'),
-      icons: row.querySelectorAll('svg').length,
-      // One rect per line box, deduped by top edge: a wrapped label reports two.
-      lines: new Set([...range.getClientRects()].map((r) => Math.round(r.top))).size,
-      // What the text needs against the room the row gives it — a label held to
-      // one line by clipping is on one line and unreadable.
-      needs: label.scrollWidth,
-      room: label.clientWidth,
-    };
-  };
-  if (!kebab) return JSON.stringify({ found: false });
-  await press(kebab);
-  const unchecked = shape();
-  if (!unchecked) return JSON.stringify({ found: true, items: labels() });
-  await press(done());
-  await pause(300);
-  await settled();
-  return JSON.stringify({ found: true, rowFound: true, unchecked, checked: shape() });
-})()`;
-
-const SORT_A_COLUMN = `(async () => {
-  ${HARNESS}
   // The store applies its optimistic order before it sends anything, so every
   // arm below is satisfied by a sort that then died reading the response — which
   // is exactly what a stubbed server echoing the request body produces. Nothing
   // catches the rejection of a void-called mutation, so it surfaces here.
-  const thrown = [];
-  addEventListener('error', (e) => thrown.push(String(e.message)));
+  window.__thrown = [];
+  addEventListener('error', (e) => __thrown.push(String(e.message)));
   addEventListener('unhandledrejection', (e) =>
-    thrown.push(String((e.reason && e.reason.message) || e.reason))
+    __thrown.push(String((e.reason && e.reason.message) || e.reason))
   );
-  if (!kebab) return JSON.stringify({ found: false });
-  const before = cards();
-  // The order the store is about to compute, derived from the same titles by the
-  // same comparison — so the expectation cannot drift from the seed data.
-  const wanted = [...before].sort((a, b) => a.title.localeCompare(b.title)).map((c) => c.id);
+  return true;
+})()`;
 
-  await press(kebab);
-  const opened = menu() !== null;
-  const sortBy = item('Sort by');
-  if (!sortBy) return JSON.stringify({ found: true, opened, items: labels() });
+const KEBAB = `[data-column-id="${COLUMN}"] button[aria-label^="Options for"]`;
+const PRESS_TARGET = '[data-press-target]';
 
-  await press(sortBy);
-  const stillOpen = menu() !== null;
-  const submenu = labels();
-  const option = item('Alphabetically');
-  if (!option) {
-    return JSON.stringify({
-      found: true, opened, stillOpen, submenu,
-      before: before.map((c) => c.id), wanted,
-    });
+// The row is tagged in the page rather than found by a Playwright text selector,
+// so it is matched by the same `textContent.trim()` the arms report their labels
+// from — a row named in a failure and the row that was pressed cannot be two
+// different rows. (`:text-is` would also have missed every row whose label sits
+// in a <span>, which "Sort by" does.) The tag goes on the row itself, so the
+// press lands on the same element a finger would.
+const markRow = (label) => `(() => {
+  for (const stale of document.querySelectorAll('${PRESS_TARGET}')) {
+    stale.removeAttribute('data-press-target');
   }
+  const row = [
+    ...document.querySelectorAll('[data-column-id="${COLUMN}"] [role="menu"] [role^="menuitem"]'),
+  ].find((el) => el.textContent.trim() === ${JSON.stringify(label)});
+  if (!row) return false;
+  row.setAttribute('data-press-target', '');
+  return true;
+})()`;
 
+// Everything an arm asks about the menu, read two frames after the press that
+// preceded it.
+const MENU_STATE = `(async () => {
+  await window.__probe.settled();
+  return JSON.stringify({
+    open: window.__probe.open(),
+    expanded: window.__probe.expanded(),
+    labels: window.__probe.labels(),
+  });
+})()`;
+
+// The done row's geometry. The pause is for the toggle's own round trip: the row
+// is measured after it has taken its check mark, not while it is taking it.
+const DONE_ROW = `(async () => {
+  await new Promise((r) => setTimeout(r, 300));
+  await window.__probe.settled();
+  return JSON.stringify(window.__probe.doneRow());
+})()`;
+
+// Taken before anything is pressed. The order the store is about to compute,
+// derived from the same titles by the same comparison in the same engine — so
+// the expectation cannot drift from the seed data, and cannot disagree with the
+// store over what `localeCompare` means.
+const BEFORE_AND_WANTED = `(() => {
+  const cards = window.__probe.cards();
+  return JSON.stringify({
+    before: cards.map((c) => c.id),
+    wanted: [...cards].sort((a, b) => a.title.localeCompare(b.title)).map((c) => c.id),
+  });
+})()`;
+
+const ARM_THE_REORDER = `(() => {
   window.__requests.length = 0;
   window.__answered.reorders = 0;
-  await press(option);
-  // press() ends two animation frames after the click, and the probe holds the
-  // reorder response for longer than that, so this is the column as the store
-  // left it with nothing back from the server yet — which the counter, read in
-  // the same turn, is what actually establishes.
-  const optimistic = cards().map((c) => c.id);
-  const answeredAtRead = window.__answered.reorders;
-  await pause(500);
-  await settled();
+  return true;
+})()`;
 
+// The column as the store left it, with nothing back from the server yet — which
+// the counter, read in the same turn, is what actually establishes.
+const OPTIMISTIC_ORDER = `(async () => {
+  await window.__probe.settled();
+  return JSON.stringify({
+    ids: window.__probe.ids(),
+    answeredAtRead: window.__answered.reorders,
+  });
+})()`;
+
+const AFTER_THE_ANSWER = `(async () => {
+  await new Promise((r) => setTimeout(r, 500));
+  await window.__probe.settled();
   const reorders = window.__requests.filter(
     (r) => r.method === 'POST' && r.path === '/api/columns/${COLUMN}/reorder'
   );
   return JSON.stringify({
-    found: true, opened, stillOpen, submenu, optionFound: true, thrown,
-    before: before.map((c) => c.id),
-    wanted,
-    optimistic,
-    answeredAtRead,
-    after: cards().map((c) => c.id),
+    after: window.__probe.ids(),
     sent: reorders.map((r) => (r.body && r.body.task_ids) || null),
     other: window.__requests
       .filter((r) => !reorders.includes(r))
       .map((r) => r.method + ' ' + r.path),
+    thrown: window.__thrown,
   });
 })()`;
 
@@ -262,7 +243,13 @@ async function open(probeUrl) {
   await browser.setViewport({ width: 1280, height: 900, mobile: false });
   await browser.goto(probeUrl + CASES, { wait: 300 });
   for (let poll = 0; poll < 60; poll += 1) {
-    if (await browser.eval(MOUNTED)) return;
+    if (await browser.eval(MOUNTED)) {
+      // Installed per load, and its own answer is checked: a harness that found
+      // no column would leave every later read throwing on `undefined`, which is
+      // a broken check and not a broken menu.
+      if ((await browser.eval(HARNESS)) !== true) break;
+      return;
+    }
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
   // Infrastructure, not a verdict on the component: nothing was measured, so
@@ -270,6 +257,25 @@ async function open(probeUrl) {
   console.error('check:column-menu — FAILED: the board never mounted at %s', probeUrl);
   await browser.close();
   process.exit(1);
+}
+
+/** Everything the menu is showing, two frames after the last press. */
+async function menuState() {
+  return JSON.parse(await browser.eval(MENU_STATE));
+}
+
+/**
+ * Press a row by the label a reader sees, with the real mouse. Tags it first and
+ * reports a miss rather than clicking: a selector the menu does not have would
+ * spend Playwright's whole timeout before failing, and the arm wants to name the
+ * rows that were there instead.
+ */
+async function pressRow(label) {
+  if ((await browser.eval(markRow(label))) !== true) {
+    return false;
+  }
+  await browser.click(PRESS_TARGET);
+  return true;
 }
 
 /**
@@ -281,100 +287,126 @@ async function runArms(probeUrl) {
   const check = (name, ok, detail = '') => results.push({ name, ok, detail });
 
   await open(probeUrl);
-  const control = JSON.parse(await browser.eval(CLOSES_ON_ANOTHER_ITEM));
+  await browser.click(KEBAB);
+  const opened = await menuState();
   check(
     'the kebab opens the column menu',
-    control.opened === true && control.expanded === 'true',
-    `menu=${String(control.opened)} aria-expanded=${String(control.expanded)}`
+    opened.open === true && opened.expanded === 'true',
+    `menu=${String(opened.open)} aria-expanded=${String(opened.expanded)}`
   );
   // Without this, "the menu stayed open after Sort by" is also what a press that
   // never landed looks like.
+  const otherPressed = await pressRow('Archive all cards');
+  const afterOther = otherPressed ? await menuState() : null;
   check(
     'another menu item closes the menu (control)',
-    control.otherFound === true && control.closed === true,
-    control.otherFound === true
+    otherPressed && afterOther?.open === false,
+    otherPressed
       ? 'the menu was still on screen after "Archive all cards"'
-      : `no "Archive all cards" row among ${JSON.stringify(control.items)}`
+      : `no "Archive all cards" row among ${JSON.stringify(opened.labels)}`
   );
 
+  // The done row gets its own page load because checking it is a one-way gesture
+  // within a load, and the arms below want the row both ways.
   await open(probeUrl);
-  const doneRow = JSON.parse(await browser.eval(DONE_ROW_ON_ONE_LINE));
+  await browser.click(KEBAB);
+  const doneMenu = await menuState();
+  const uncheckedDone = JSON.parse(await browser.eval(DONE_ROW));
+  const donePressed = await pressRow('Mark as done column');
+  const checkedDone = donePressed ? JSON.parse(await browser.eval(DONE_ROW)) : null;
   // Without this the two arms below are satisfied by a press that never landed:
   // the unchecked row has room to spare and has never wrapped.
   check(
     'the done row takes its check mark (control)',
-    doneRow.rowFound === true &&
-      doneRow.unchecked?.checked === 'false' &&
-      doneRow.checked?.checked === 'true' &&
-      doneRow.checked?.icons === doneRow.unchecked?.icons + 1,
-    doneRow.rowFound === true
-      ? `aria-checked ${String(doneRow.unchecked?.checked)}→${String(doneRow.checked?.checked)},` +
-          ` ${String(doneRow.unchecked?.icons)}→${String(doneRow.checked?.icons)} icons`
-      : `no "Mark as done column" row among ${JSON.stringify(doneRow.items)}`
+    uncheckedDone?.checked === 'false' &&
+      checkedDone?.checked === 'true' &&
+      checkedDone.icons === uncheckedDone.icons + 1,
+    uncheckedDone === null
+      ? `no "Mark as done column" row among ${JSON.stringify(doneMenu.labels)}`
+      : `aria-checked ${String(uncheckedDone.checked)}→${String(checkedDone?.checked)},` +
+          ` ${String(uncheckedDone.icons)}→${String(checkedDone?.icons)} icons`
   );
   check(
     'the checked done row keeps its label on one line',
-    doneRow.checked?.lines === 1,
-    `${String(doneRow.checked?.lines)} line(s), ${String(doneRow.unchecked?.lines)} unchecked`
+    checkedDone?.lines === 1,
+    `${String(checkedDone?.lines)} line(s), ${String(uncheckedDone?.lines)} unchecked`
   );
   // The other way to hold a label to one line, and the one the row's own
   // `truncate` would reach for if the check mark left it without the room.
   check(
     'the checked done row shows its whole label',
-    doneRow.checked !== null && doneRow.checked?.needs <= doneRow.checked?.room,
-    `${String(doneRow.checked?.needs)}px of text in ${String(doneRow.checked?.room)}px`
+    checkedDone !== null && checkedDone.needs <= checkedDone.room,
+    `${String(checkedDone?.needs)}px of text in ${String(checkedDone?.room)}px`
   );
 
   await open(probeUrl);
-  const sort = JSON.parse(await browser.eval(SORT_A_COLUMN));
+  const { before, wanted } = JSON.parse(await browser.eval(BEFORE_AND_WANTED));
+  await browser.click(KEBAB);
+  const menu = await menuState();
+  const sortPressed = await pressRow('Sort by');
+  const submenu = sortPressed ? await menuState() : null;
   // The reported symptom, and the reason this file exists.
   check(
     'Sort by expands the sort options and leaves the menu open',
-    sort.stillOpen === true && (sort.submenu ?? []).includes('Alphabetically'),
-    `menu ${sort.stillOpen === true ? 'open' : 'closed'}, rows ${JSON.stringify(sort.submenu ?? sort.items)}`
+    submenu?.open === true && submenu.labels.includes('Alphabetically'),
+    sortPressed
+      ? `menu ${submenu?.open === true ? 'open' : 'closed'}, rows ${JSON.stringify(submenu?.labels)}`
+      : `no "Sort by" row among ${JSON.stringify(menu.labels)}`
   );
   // Without this a column that was already alphabetical would let a sort that
   // does nothing at all pass the arm below.
   check(
     'the column is not already in the sorted order (control)',
-    Array.isArray(sort.before) && sort.before.join() !== sort.wanted.join(),
-    `${String(sort.before?.length)} cards`
+    Array.isArray(before) && before.join() !== wanted.join(),
+    `${String(before?.length)} cards`
   );
+
+  const optionFound = submenu?.labels.includes('Alphabetically') === true;
+  let optimistic = null;
+  let settled = null;
+  if (optionFound) {
+    await browser.eval(ARM_THE_REORDER);
+    await pressRow('Alphabetically');
+    // Both reads race the probe's held response, which is why the first one
+    // carries the counter that says whether it won.
+    optimistic = JSON.parse(await browser.eval(OPTIMISTIC_ORDER));
+    settled = JSON.parse(await browser.eval(AFTER_THE_ANSWER));
+  }
   // The only arm a sort that sends the right request and moves nothing can fail:
   // the probe is still holding the response, so this order is the store's own.
   check(
     'the cards move before the server answers',
-    sort.optionFound === true &&
-      sort.answeredAtRead === 0 &&
-      sort.optimistic?.join() === sort.wanted.join(),
-    sort.optionFound !== true
+    optionFound && optimistic?.answeredAtRead === 0 && optimistic.ids.join() === wanted.join(),
+    !optionFound
       ? 'the option row was never reached'
-      : sort.answeredAtRead !== 0
-        ? `the reorder was already answered ${String(sort.answeredAtRead)}x when the order was read`
-        : `got ${JSON.stringify(sort.optimistic)}, wanted ${JSON.stringify(sort.wanted)}`
+      : optimistic?.answeredAtRead !== 0
+        ? `the reorder was already answered ${String(optimistic?.answeredAtRead)}x when the order was read`
+        : `got ${JSON.stringify(optimistic?.ids)}, wanted ${JSON.stringify(wanted)}`
   );
   check(
     'choosing a sort option re-orders the cards on screen',
-    sort.optionFound === true && sort.after?.join() === sort.wanted.join(),
-    sort.optionFound === true
-      ? `got ${JSON.stringify(sort.after)}, wanted ${JSON.stringify(sort.wanted)}`
+    optionFound && settled?.after.join() === wanted.join(),
+    optionFound
+      ? `got ${JSON.stringify(settled?.after)}, wanted ${JSON.stringify(wanted)}`
       : 'the option row was never reached'
   );
   check(
     'the sort issues exactly one reorder request, in the new order',
-    sort.sent?.length === 1 &&
-      sort.sent[0]?.join() === sort.wanted.join() &&
-      sort.other?.length === 0,
-    `${String(sort.sent?.length)} reorder(s) ${JSON.stringify(sort.sent)}` +
-      `, ${String(sort.other?.length)} other request(s) ${JSON.stringify(sort.other)}`
+    settled?.sent.length === 1 &&
+      settled.sent[0]?.join() === wanted.join() &&
+      settled.other.length === 0,
+    settled === null
+      ? 'the option row was never reached'
+      : `${String(settled.sent.length)} reorder(s) ${JSON.stringify(settled.sent)}` +
+          `, ${String(settled.other.length)} other request(s) ${JSON.stringify(settled.other)}`
   );
   // Every arm above survives a store that threw on the response, because the
   // order on screen is the optimistic one. This is what makes them mean the
   // whole mutation rather than its first half.
   check(
     'the sort read the reorder response without throwing',
-    sort.optionFound === true && sort.thrown?.length === 0,
-    JSON.stringify(sort.thrown)
+    optionFound && settled?.thrown.length === 0,
+    settled === null ? 'the option row was never reached' : JSON.stringify(settled.thrown)
   );
 
   return results;
@@ -465,6 +497,21 @@ const PLANTED = [
       'the done row takes its check mark (control)',
       'the checked done row keeps its label on one line',
     ],
+  },
+  // The bug this check was rewritten for, and the reason the presses are real:
+  // the guard is put back on the DOM, where the row it is asked about has just
+  // been replaced by the submenu. Under the dispatched press this file used to
+  // make, this plant is invisible — every arm below stays green.
+  {
+    ...regression(
+      'guard-reads-a-detached-row',
+      'src/components/ColumnHeader.svelte',
+      'if (startedInside(event, menuEl)) {',
+      'if (event.target instanceof Node && menuEl?.contains(event.target) === true) {'
+    ),
+    what: 'the outside-click guard judging a click by where its target sits now',
+    breaks: ['Sort by expands the sort options and leaves the menu open'],
+    intact: ['the kebab opens the column menu', 'another menu item closes the menu (control)'],
   },
   {
     ...regression(

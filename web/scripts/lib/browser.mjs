@@ -1,6 +1,6 @@
 // Headless-browser helper for the layout checks and ad-hoc repro, backed by
 // Playwright. Exposes the same minimal surface the old hand-rolled CDP helper
-// did — createBrowser() -> { setViewport, goto, eval, press, screenshot, close } — so
+// did — createBrowser() -> { setViewport, goto, eval, press, click, screenshot, close } — so
 // the check scripts and the browser-repro workflow don't change shape, only the
 // engine underneath. Playwright owns the hard parts the hand-rolled version got
 // wrong: robust launch, orphan killing, and per-platform flags.
@@ -22,14 +22,21 @@
 // CI installs only Chromium, and a committed check that asked for WebKit would
 // fail loudly there rather than skip.
 //
+// `engine: 'firefox'` is here for the reports that name it, and is not installed
+// by `pnpm run playwright:install` — `pnpm exec playwright install firefox` when
+// one arrives, and createBrowser() returns null until then. It has earned its
+// place once already, on a report that "Sort by just closes the menu": the fault
+// turned out to be in all three engines and Firefox was only where it was noticed,
+// which is a conclusion no Chromium-only probe could have reached.
+//
 // createBrowser() returns null only when run locally without that engine
 // installed (so a dev who hasn't run `pnpm run playwright:install` isn't
 // blocked). In CI (process.env.CI set) a launch failure is a real error and is
 // thrown, so the layout gate can't be silently bypassed by a missing browser.
 
-import { chromium, webkit } from 'playwright';
+import { chromium, firefox, webkit } from 'playwright';
 
-const ENGINES = { chromium, webkit };
+const ENGINES = { chromium, firefox, webkit };
 
 // How long to let a navigation announce itself after an evaluate has died on it.
 const NAVIGATION_SETTLE_MS = 500;
@@ -42,7 +49,7 @@ const NAVIGATION_SETTLE_MS = 500;
 export async function createBrowser({ headless = true, engine = 'chromium' } = {}) {
   const launcher = ENGINES[engine];
   if (!launcher) {
-    throw new Error(`Unknown browser engine "${engine}" — expected chromium or webkit`);
+    throw new Error(`Unknown browser engine "${engine}" — expected chromium, firefox or webkit`);
   }
   let browser;
   try {
@@ -195,6 +202,26 @@ export async function createBrowser({ headless = true, engine = 'chromium' } = {
       await ensureContext();
       if (selector !== undefined) await page.focus(selector);
       await page.keyboard.press(key);
+    },
+    /**
+     * Click `selector` with the real mouse, at the element's centre, after
+     * Playwright has waited for it to be visible and hit-testable. `selector` is
+     * Playwright's, so `:text-is("Sort by")` picks a menu row out by its label.
+     *
+     * The difference from dispatching a MouseEvent inside `eval` is not only the
+     * default behaviour `press` describes — it is *when* the page re-renders.
+     * A handler that swaps what was clicked (a menu row that opens a submenu)
+     * lands that swap mid-dispatch under a real press, so every listener further
+     * up the tree is handed a node in no tree at all; a dispatched click leaves
+     * the re-render until propagation is over, and hands those listeners the node
+     * still in place. Measured the same way in all three engines. So an outside-
+     * click guard that reads `contains(event.target)` is green under a synthesised
+     * press and dismisses the menu under a finger — which is exactly what
+     * scripts/check-column-menu.mjs missed until it started clicking for real.
+     */
+    async click(selector) {
+      await ensureContext();
+      await page.click(selector);
     },
     /** Capture a PNG screenshot (Buffer). */
     async screenshot() {
