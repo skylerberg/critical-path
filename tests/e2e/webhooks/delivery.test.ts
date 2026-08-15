@@ -215,15 +215,23 @@ describe('Webhook delivery', () => {
     // The delivered body is the realtime data verbatim, so a board mutation's
     // actor reaches a consumer too. Deliberate, and additive to version 1.
     expect(envelope.data.actor_user_id).toBe(user.id);
-    expect(Number.isNaN(Date.parse(envelope.created_at))).toBe(false);
+    expect(Math.abs(Date.now() - Date.parse(envelope.created_at))).toBeLessThan(60_000);
 
     const headers = received[0].headers;
     expect(headers['x-critical-path-event']).toBe('task_created');
     expect(headers['x-critical-path-delivery']).toBe(queued[0].id);
     expect(headers['x-critical-path-webhook']).toBe(webhookId);
     expect(headers['user-agent']).toBe('CriticalPath-Webhook/1');
+    // A receiver behind a JSON body parser reads an empty body without it.
+    expect(headers['content-type']).toBe('application/json');
+    expect(Number(headers['content-length'])).toBe(Buffer.byteLength(received[0].body));
 
     const timestamp = String(headers['x-critical-path-timestamp']);
+    // Unix seconds, and now: a receiver running the tolerance check the README
+    // documents rejects every delivery if either moves, and the signature alone
+    // cannot say so — it is computed over whatever was sent.
+    expect(timestamp).toMatch(/^\d{10}$/);
+    expect(Math.abs(Date.now() / 1000 - Number(timestamp))).toBeLessThan(60);
     const expected = crypto
       .createHmac('sha256', await secretOf(webhookId))
       .update(`${timestamp}.${received[0].body}`)

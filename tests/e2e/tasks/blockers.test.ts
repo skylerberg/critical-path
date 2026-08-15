@@ -1,5 +1,6 @@
 import { describe, it, expect, afterAll, beforeAll } from 'vitest';
 import { TestContext, TestUser } from '../../setup/testContext';
+import { db } from '../../helpers/database';
 import { newId, rankKey } from '../../helpers/fixtures';
 import { ProjectFixtures } from './taskFixtures';
 
@@ -39,6 +40,22 @@ describe('Task blockers', () => {
     expect(res.status).toBe(200);
     const body = await res.json();
     return body.blocker_ids;
+  }
+
+  async function crossProjectCountOf(id: string): Promise<number> {
+    const res = await ctx.request(user.token).get(`/api/tasks/${id}`);
+    expect(res.status).toBe(200);
+    return (await res.json()).open_cross_project_blocker_count as number;
+  }
+
+  async function edgeExists(blockedId: string, blockerId: string): Promise<boolean> {
+    const row = await db
+      .selectFrom('task_dependency')
+      .select('blocker_task_id')
+      .where('blocked_task_id', '=', blockedId)
+      .where('blocker_task_id', '=', blockerId)
+      .executeTakeFirst();
+    return row !== undefined;
   }
 
   describe('POST /api/tasks/:id/blockers', () => {
@@ -101,6 +118,31 @@ describe('Task blockers', () => {
       const body = await detail.json();
       expect(body.blocker_ids).toEqual([]);
       expect(body.open_cross_project_blocker_count).toBe(1);
+    });
+
+    it('accepts a blocker the caller may read but not write', async () => {
+      const task = await createTask('viewer-side blocked');
+      const ownerId = await fixtures.createUser('blockers-far-owner');
+      const readOnlyProject = await fixtures.createProject('read-only far project', {
+        createdBy: ownerId,
+      });
+      const readOnlyColumn = await fixtures.createColumn(readOnlyProject);
+      const foreignTask = await fixtures.createTaskRow(
+        readOnlyProject,
+        readOnlyColumn,
+        'read-only blocker'
+      );
+      await db
+        .insertInto('project_member')
+        .values({ project_id: readOnlyProject, user_id: user.id, role: 'viewer' })
+        .execute();
+
+      const res = await ctx
+        .request(user.token)
+        .post(`/api/tasks/${task}/blockers`, { blocker_task_id: foreignTask });
+      expect(res.status).toBe(204);
+      expect(await edgeExists(task, foreignTask)).toBe(true);
+      expect(await crossProjectCountOf(task)).toBe(1);
     });
 
     it('rejects an unknown blocker task with 422', async () => {
@@ -275,6 +317,35 @@ describe('Task blockers', () => {
         .request(user.token)
         .delete(`/api/tasks/${blocked}/blockers/${blocker}`);
       expect(again.status).toBe(204);
+
+      const neverExisted = await ctx
+        .request(user.token)
+        .delete(`/api/tasks/${blocked}/blockers/${newId()}`);
+      expect(neverExisted.status).toBe(204);
+    });
+
+    it('detaches an edge whose blocker sits in a project the caller cannot read', async () => {
+      const blocked = await createTask('stranded');
+      const strangerId = await fixtures.createUser('blockers-lost-access');
+      const theirProject = await fixtures.createProject('lost access project', {
+        createdBy: strangerId,
+      });
+      const theirColumn = await fixtures.createColumn(theirProject);
+      const theirTask = await fixtures.createTaskRow(theirProject, theirColumn, 'gone dark');
+      // Seeded directly: no route hands out an edge into a project the caller
+      // cannot read, and losing that access afterwards is the state under test.
+      await fixtures.createDependencyRow(theirTask, blocked);
+      expect(await edgeExists(blocked, theirTask)).toBe(true);
+
+      const removed = await ctx
+        .request(user.token)
+        .delete(`/api/tasks/${blocked}/blockers/${theirTask}`);
+      expect(removed.status).toBe(204);
+
+      expect(await edgeExists(blocked, theirTask)).toBe(false);
+      // A delete that matched nothing answers 204 too, so this is what tells the
+      // two apart: the recount that follows would have restored the 1.
+      expect(await crossProjectCountOf(blocked)).toBe(0);
     });
   });
 });

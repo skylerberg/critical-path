@@ -4,6 +4,7 @@ import { app } from '../../../src/index';
 import { attachRealtime, projectSockets } from '../../../src/services/realtime/index';
 import type { RealtimeHandle } from '../../../src/services/realtime/index';
 import { TestContext, type TestUser } from '../../setup/testContext';
+import { collectBusEntries } from '../../helpers/bus';
 import { uploadPath, newId, rankKey } from '../../helpers/fixtures';
 import { waitFor } from '../projects/helpers';
 import { PNG_1X1, RtClient, settle } from './helpers';
@@ -1033,10 +1034,23 @@ describe('Realtime end to end', () => {
   });
 
   it('evicts removed members via project_deleted, strips their assignments, then goes quiet', async () => {
-    const res = await ctx
-      .request(userA.token)
-      .put(`/api/projects/${projectId}/members`, { user_ids: [] });
-    expect(res.status).toBe(204);
+    // The recipient list is snapshotted in the transaction and honoured with no
+    // access re-check, so the list itself is the only place a widened one — the
+    // owner evicted from a project that still exists — can be caught.
+    const entries = await collectBusEntries(async () => {
+      const res = await ctx
+        .request(userA.token)
+        .put(`/api/projects/${projectId}/members`, { user_ids: [] });
+      expect(res.status).toBe(204);
+    });
+    expect(
+      entries
+        .filter((entry) => entry.type === 'project_deleted')
+        .map((entry) => ({
+          project_id: entry.project_id,
+          recipientUserIds: entry.recipientUserIds,
+        }))
+    ).toEqual([{ project_id: projectId, recipientUserIds: [userB.id] }]);
 
     const evicted = await clientB.waitForEvent(
       (e) => e.type === 'project_deleted' && e.data.id === projectId
@@ -1047,6 +1061,11 @@ describe('Realtime end to end', () => {
       data: { id: projectId },
     });
     await clientB2.waitForEvent((e) => e.type === 'project_deleted' && e.data.id === projectId);
+
+    await settle();
+    expect(clientA.eventsOfType('project_deleted').filter((e) => e.data.id === projectId)).toEqual(
+      []
+    );
 
     const stripEvent = await clientA.waitForEvent(
       (e) => e.type === 'task_relations_set' && e.data.task_id === taskId

@@ -8,9 +8,41 @@ import {
   readCached,
   writeCached,
 } from '../../src/completion/cache';
+import { candidatesFor } from '../../src/completion/candidates';
+import type { CompletionPlan } from '../../src/completion/plan';
+import type { RuntimeContext } from '../../src/context';
+
+const PROJECTS_PLAN: CompletionPlan = { kind: 'values', valueKind: 'project' };
+const ALPHA = { id: 'aaaaaaaa-1111-4111-8111-111111111111', name: 'Alpha' };
+const BETA = { id: 'bbbbbbbb-2222-4222-8222-222222222222', name: 'Beta' };
+const TOKEN_A = 'session-token-aaa';
+const TOKEN_B = 'session-token-bbb';
 
 async function tempDir(): Promise<string> {
   return join(await mkdtemp(join(tmpdir(), 'cpath-cache-')), 'config');
+}
+
+function ctxFor(
+  configDir: string,
+  token: string,
+  projects: { id: string; name: string }[],
+  fetches: { count: number },
+  baseUrl = 'http://localhost:3001'
+): RuntimeContext {
+  return {
+    configDir,
+    token,
+    baseUrl,
+    api: {
+      GET: () => {
+        fetches.count += 1;
+        return Promise.resolve({
+          data: { projects },
+          response: new Response(null, { status: 200 }),
+        });
+      },
+    },
+  } as unknown as RuntimeContext;
 }
 
 async function stampEntry(dir: string, key: string, at: number): Promise<void> {
@@ -45,7 +77,7 @@ describe('completion cache', () => {
     expect(await readCached(dir, 'k')).toBeNull();
   });
 
-  it('does not serve an entry stored under another identity', async () => {
+  it('treats a key nothing was written under as a miss', async () => {
     const dir = await tempDir();
     await writeCached(dir, 'tokenA|url|projects', ['secret']);
     expect(await readCached(dir, 'tokenB|url|projects')).toBeNull();
@@ -69,5 +101,52 @@ describe('completion cache', () => {
     const dir = join(await mkdtemp(join(tmpdir(), 'cpath-cache-')), 'never', 'created');
     await writeCached(dir, 'k', 1);
     expect(await readCached(dir, 'k')).toBe(1);
+  });
+});
+
+describe('completion cache keys', () => {
+  it('serves one account its own entry and re-fetches for another in the same config dir', async () => {
+    const dir = await tempDir();
+    const fetches = { count: 0 };
+
+    expect(await candidatesFor(ctxFor(dir, TOKEN_A, [ALPHA], fetches), PROJECTS_PLAN)).toEqual([
+      { value: 'Alpha', description: 'aaaaaaaa' },
+    ]);
+    expect(fetches.count).toBe(1);
+
+    expect(await candidatesFor(ctxFor(dir, TOKEN_A, [BETA], fetches), PROJECTS_PLAN)).toEqual([
+      { value: 'Alpha', description: 'aaaaaaaa' },
+    ]);
+    expect(fetches.count).toBe(1);
+
+    expect(await candidatesFor(ctxFor(dir, TOKEN_B, [BETA], fetches), PROJECTS_PLAN)).toEqual([
+      { value: 'Beta', description: 'bbbbbbbb' },
+    ]);
+    expect(fetches.count).toBe(2);
+  });
+
+  it('re-fetches for the same account against a different API', async () => {
+    const dir = await tempDir();
+    const fetches = { count: 0 };
+    await candidatesFor(ctxFor(dir, TOKEN_A, [ALPHA], fetches), PROJECTS_PLAN);
+
+    expect(
+      await candidatesFor(
+        ctxFor(dir, TOKEN_A, [BETA], fetches, 'https://staging.example.com'),
+        PROJECTS_PLAN
+      )
+    ).toEqual([{ value: 'Beta', description: 'bbbbbbbb' }]);
+    expect(fetches.count).toBe(2);
+  });
+
+  it('writes a token fingerprint, never the token itself', async () => {
+    const dir = await tempDir();
+    await candidatesFor(ctxFor(dir, TOKEN_A, [ALPHA], { count: 0 }), PROJECTS_PLAN);
+
+    const raw = await readFile(completionCachePath(dir), 'utf8');
+    expect(raw).not.toContain(TOKEN_A);
+    expect(Object.keys(JSON.parse(raw) as object)).toEqual([
+      expect.stringMatching(/^[0-9a-f]{12}\|http:\/\/localhost:3001\|projects$/),
+    ]);
   });
 });

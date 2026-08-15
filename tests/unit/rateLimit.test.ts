@@ -304,6 +304,25 @@ describe('enforceAuthRateLimit source address budget', () => {
 
     expect(await attempt('colleague@example.com', '203.0.113.6')).toBe(204);
   });
+
+  // Login finds the account case-insensitively, so a budget keyed on the
+  // spelling the caller sent would hand every spelling of one address a
+  // counter of its own and bound nothing.
+  it('keys the per-pair budget on the lower-cased email', async () => {
+    for (let i = 0; i < 10; i++) {
+      expect(await attempt('victim@example.com', '203.0.113.8')).toBe(204);
+    }
+
+    expect(await attempt('Victim@Example.com', '203.0.113.8')).toBe(429);
+  });
+
+  it('keys the email budget on the lower-cased email', async () => {
+    for (let i = 0; i < EMAIL_MAX_ATTEMPTS; i++) {
+      expect(await attempt('victim@example.com', `198.51.100.${i}`)).toBe(204);
+    }
+
+    expect(await attempt('VICTIM@EXAMPLE.COM', '203.0.113.9')).toBe(429);
+  });
 });
 
 describe('enforceResetRateLimit', () => {
@@ -335,6 +354,45 @@ describe('enforceResetRateLimit', () => {
     expect(await attempt('user-next@example.com')).toBe(429);
   });
 
+  // A budget keyed on anything request-invariant would still refuse the sixth
+  // attempt above, and would lock every account out of recovery once any one
+  // caller spent five.
+  it('leaves every other source a full budget once one has spent its own', async () => {
+    process.env.TRUST_PROXY = 'true';
+
+    for (let i = 0; i < RESET_IP_MAX_ATTEMPTS; i++) {
+      expect(await attempt(`user-${i}@example.com`, { 'X-Forwarded-For': '203.0.113.1' })).toBe(
+        204
+      );
+    }
+    expect(await attempt('user-next@example.com', { 'X-Forwarded-For': '203.0.113.1' })).toBe(429);
+
+    expect(await attempt('user-other@example.com', { 'X-Forwarded-For': '198.51.100.9' })).toBe(
+      204
+    );
+  });
+
+  // Elapsed times are written out rather than derived from the window constant,
+  // which would move with any shortening of it.
+  it('holds a spent IP budget for the hour rather than a minute', async () => {
+    const start = Date.now();
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(start);
+    try {
+      for (let i = 0; i < RESET_IP_MAX_ATTEMPTS; i++) {
+        expect(await attempt(`user-${i}@example.com`)).toBe(204);
+      }
+      expect(await attempt('user-next@example.com')).toBe(429);
+
+      clock.mockReturnValue(start + 30 * 60_000);
+      expect(await attempt('user-later@example.com')).toBe(429);
+
+      clock.mockReturnValue(start + 60 * 60_000 + 1);
+      expect(await attempt('user-latest@example.com')).toBe(204);
+    } finally {
+      clock.mockRestore();
+    }
+  });
+
   it('caps per email across distinct source IPs', async () => {
     process.env.TRUST_PROXY = 'true';
 
@@ -347,6 +405,31 @@ describe('enforceResetRateLimit', () => {
     expect(await attempt('Victim@Example.com', { 'X-Forwarded-For': '198.51.100.50' })).toBe(429);
 
     expect(await attempt('other@example.com', { 'X-Forwarded-For': '198.51.100.51' })).toBe(204);
+  });
+
+  // A fresh source address every time, so the refusal at half an hour is the
+  // email budget's alone.
+  it('holds a spent email budget for the hour rather than a minute', async () => {
+    process.env.TRUST_PROXY = 'true';
+
+    const start = Date.now();
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(start);
+    try {
+      for (let i = 0; i < RESET_EMAIL_MAX_ATTEMPTS; i++) {
+        expect(await attempt('victim@example.com', { 'X-Forwarded-For': `203.0.113.${i}` })).toBe(
+          204
+        );
+      }
+      expect(await attempt('victim@example.com', { 'X-Forwarded-For': '203.0.113.50' })).toBe(429);
+
+      clock.mockReturnValue(start + 30 * 60_000);
+      expect(await attempt('victim@example.com', { 'X-Forwarded-For': '203.0.113.51' })).toBe(429);
+
+      clock.mockReturnValue(start + 60 * 60_000 + 1);
+      expect(await attempt('victim@example.com', { 'X-Forwarded-For': '203.0.113.52' })).toBe(204);
+    } finally {
+      clock.mockRestore();
+    }
   });
 
   it('uses buckets independent of the auth limiter', async () => {

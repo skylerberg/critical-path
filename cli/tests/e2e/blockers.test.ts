@@ -408,6 +408,8 @@ describe('task blockers', () => {
   describe('across projects', () => {
     let farProjectId: string;
     let farTaskId: string;
+    let farColumnId: string;
+    let farDoneColumnId: string;
 
     beforeAll(async () => {
       const client = tc.request(user.token);
@@ -419,6 +421,8 @@ describe('task blockers', () => {
       const board = (await create.json()) as BoardPayload;
       farProjectId = board.project.id;
       const column = [...board.columns].sort((a, b) => (a.sort_key < b.sort_key ? -1 : 1))[0];
+      farColumnId = column.id;
+      farDoneColumnId = board.columns.find((c) => c.is_done)!.id;
       farTaskId = crypto.randomUUID();
       expect(
         (
@@ -467,6 +471,58 @@ describe('task blockers', () => {
       expect(json.cross_project.blocked_by.map((edge) => edge.task_id)).toEqual([farTaskId]);
     });
 
+    it('names the far blocker, its board and its state in the default output', async () => {
+      const near = await h.runCli([
+        'task',
+        'blockers',
+        'Draft requirements',
+        '--project',
+        projectId,
+      ]);
+      expect(near.exitCode).toBe(0);
+      expect(near.stdout).toContain('Blocked by (other projects):');
+      expect(near.stdout.split('\n').find((l) => l.includes(farTaskId.slice(0, 8)))).toBe(
+        `  ${farTaskId.slice(0, 8)}  [open]     Sign the contract  (CLI Blockers Far Board)`
+      );
+
+      const far = await h.runCli([
+        'task',
+        'blockers',
+        'Sign the contract',
+        '--project',
+        farProjectId,
+      ]);
+      expect(far.exitCode).toBe(0);
+      expect(far.stdout).toContain('Blocks (other projects):');
+      expect(far.stdout).not.toContain('Nothing blocks this task');
+      expect(far.stdout.split('\n').find((l) => l.includes(draftId.slice(0, 8)))).toBe(
+        `  ${draftId.slice(0, 8)}  [open]     Draft requirements  (CLI Blockers Fixture)`
+      );
+    });
+
+    it('marks a far blocker done once it reaches a done column', async () => {
+      const client = tc.request(user.token);
+      const moved = await client.patch(`/api/tasks/${farTaskId}`, { column_id: farDoneColumnId });
+      expect(moved.status).toBe(200);
+      try {
+        const res = await h.runCli([
+          'task',
+          'blockers',
+          'Draft requirements',
+          '--project',
+          projectId,
+        ]);
+        expect(res.exitCode).toBe(0);
+        expect(res.stdout.split('\n').find((l) => l.includes(farTaskId.slice(0, 8)))).toBe(
+          `  ${farTaskId.slice(0, 8)}  [done]     Sign the contract  (CLI Blockers Far Board)`
+        );
+      } finally {
+        expect(
+          (await client.patch(`/api/tasks/${farTaskId}`, { column_id: farColumnId })).status
+        ).toBe(200);
+      }
+    });
+
     it('drops the blocked task out of ready while the far blocker is open', async () => {
       const ready = await h.runCli(['ready', '--project', projectId, '--json']);
       expect(ready.exitCode).toBe(0);
@@ -488,6 +544,71 @@ describe('task blockers', () => {
 
       const ready = await h.runCli(['ready', '--project', projectId, '--json']);
       expect(ready.json<{ id: string }[]>().map((task) => task.id)).toContain(draftId);
+    });
+
+    it('counts a blocker on an unreadable board without naming it', async () => {
+      const stranger = await tc.createUser('cli-blockers-stranger');
+      const strangerClient = tc.request(stranger.token);
+      const secretProjectId = crypto.randomUUID();
+      const created = await strangerClient.post('/api/projects', {
+        id: secretProjectId,
+        name: 'Stranger Private Board',
+      });
+      expect(created.status).toBe(201);
+      const secret = (await created.json()) as BoardPayload;
+      const secretColumn = [...secret.columns].sort((a, b) =>
+        a.sort_key < b.sort_key ? -1 : 1
+      )[0];
+      const secretTaskId = crypto.randomUUID();
+      expect(
+        (
+          await strangerClient.post('/api/tasks', {
+            id: secretTaskId,
+            project_id: secretProjectId,
+            column_id: secretColumn.id,
+            title: 'Sign the NDA',
+          })
+        ).status
+      ).toBe(201);
+
+      const joined = await tc
+        .request(user.token)
+        .put(`/api/projects/${projectId}/members`, { user_ids: [stranger.id] });
+      expect(joined.status).toBe(204);
+      const edge = await strangerClient.post(`/api/tasks/${draftId}/blockers`, {
+        blocker_task_id: secretTaskId,
+      });
+      expect(edge.status).toBe(204);
+
+      const res = await h.runCli([
+        'task',
+        'blockers',
+        'Draft requirements',
+        '--project',
+        projectId,
+      ]);
+      expect(res.exitCode).toBe(0);
+      expect(res.stdout).toContain('Blocked by (other projects):');
+      expect(res.stdout).toContain('  1 task in another project you cannot see');
+      expect(res.stdout).not.toContain('Sign the NDA');
+      expect(res.stdout).not.toContain(secretTaskId.slice(0, 8));
+
+      const json = await h.runCli([
+        'task',
+        'blockers',
+        'Draft requirements',
+        '--project',
+        projectId,
+        '--json',
+      ]);
+      const { cross_project: crossProject } = json.json<{
+        cross_project: {
+          blocked_by: unknown[];
+          hidden_blocked_by_count: number;
+        };
+      }>();
+      expect(crossProject.blocked_by).toEqual([]);
+      expect(crossProject.hidden_blocked_by_count).toBe(1);
     });
   });
 });

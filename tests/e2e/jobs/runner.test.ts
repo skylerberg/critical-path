@@ -1,9 +1,10 @@
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
-import type { Kysely } from 'kysely';
+import { sql, type Kysely } from 'kysely';
 import { db } from '../../../src/db/index';
 import {
   BACKOFF_SECONDS,
   CLAIM_BATCH,
+  LEASE_SECONDS,
   MAX_ATTEMPTS,
   MAX_CONCURRENT_JOBS,
   PERIODIC_MAX_BACKOFF_SECONDS,
@@ -24,8 +25,26 @@ import {
   type EnqueueJobOptions,
   type JobRow,
 } from '../../../src/services/jobs/index';
+import { registerJobHandlers } from '../../../src/services/jobs/register';
 import type { DB, JsonValue } from '../../../src/db/types';
 import { logger } from '../../../src/utils/logger';
+
+// runDueJobs takes its concurrency slots before the claim and returns them in a
+// finally; the claim is the only thing between the two that can be made to
+// throw, and nothing about a real database makes it throw on demand.
+const claimFault = vi.hoisted(() => ({ error: null as Error | null }));
+
+vi.mock('../../../src/services/jobs/queue', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../../src/services/jobs/queue')>();
+  return {
+    ...actual,
+    claimDueJobs: (kinds: string[], limit: number): Promise<JobRow[]> => {
+      const fault = claimFault.error;
+      claimFault.error = null;
+      return fault === null ? actual.claimDueJobs(kinds, limit) : Promise.reject(fault);
+    },
+  };
+});
 
 // The payload catalog is a production guarantee: every kind the app enqueues
 // has a row in it, and both entry points are generic over its keys. What this
@@ -60,6 +79,67 @@ async function makeDue(kind: string): Promise<void> {
   await db.updateTable('job').set({ run_at: new Date() }).where('kind', '=', kind).execute();
 }
 
+// Two sequential claims never meet on a row — the first one's lease has already
+// hidden it. Holding a row from another transaction is what puts a claim on a
+// row that is being claimed, which is all `for update skip locked` is for.
+function holdJobRow(id: string): {
+  taken: Promise<unknown>;
+  release: () => void;
+  done: Promise<void>;
+} {
+  let take = (): void => undefined;
+  const taken = new Promise<void>((resolve) => {
+    take = resolve;
+  });
+  let release = (): void => undefined;
+  const released = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const done = db.transaction().execute(async (trx) => {
+    await trx.selectFrom('job').select('id').where('id', '=', id).forUpdate().execute();
+    take();
+    await released;
+  });
+  return { taken: Promise.race([taken, done]), release, done };
+}
+
+// pg_stat_activity is database-wide and parallel test files share one database,
+// so counting every lock waiter would let another file's deliberate contention
+// (tests/e2e/tasks/bulkMoveLockOrder.test.ts) fail this one. Only a backend
+// blocked inside the claim's own statement is what this asserts about.
+async function claimIsBlocked(): Promise<boolean> {
+  const { rows } = await sql<{ waiting: string }>`
+    select count(*) as waiting from pg_stat_activity
+    where datname = current_database()
+      and wait_event_type = 'Lock'
+      and query like '%update job j%'
+  `.execute(db);
+  return Number(rows[0]!.waiting) > 0;
+}
+
+// A claim that waits for the held row instead of stepping over it would sit
+// there until the statement timeout, which reads as a stalled suite rather than
+// as the failure it is. No waiter appearing is the healthy case, so that side
+// must never settle the race it is run in.
+async function withoutBlocking<T>(claim: Promise<T>): Promise<T> {
+  let done = false;
+  const watch = (async (): Promise<never> => {
+    const deadline = Date.now() + 2000;
+    while (!done && Date.now() < deadline) {
+      if (await claimIsBlocked()) {
+        throw new Error('claimDueJobs waited for a locked row instead of skipping it');
+      }
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    return new Promise<never>(() => undefined);
+  })();
+  try {
+    return await Promise.race([claim, watch]);
+  } finally {
+    done = true;
+  }
+}
+
 // Counting rows and claiming due work are both table-wide, so this file owns
 // the queue outright. afterEach alone left the first test reading whatever an
 // earlier file's post-commit hooks had enqueued — invisible in the default file
@@ -70,6 +150,7 @@ beforeAll(async () => {
 
 afterEach(async () => {
   vi.restoreAllMocks();
+  claimFault.error = null;
   resetJobHandlers();
   await db.deleteFrom('job').execute();
 });
@@ -117,11 +198,48 @@ describe('claimDueJobs', () => {
   it('leases a claimed job so a second claim cannot take it', async () => {
     await enqueue(db, 'test_leased', {});
 
+    const before = Date.now();
     const first = await claimDueJobs(['test_leased'], 10);
     expect(first).toHaveLength(1);
     expect(first[0].attempts).toBe(1);
+    expect(first[0].run_at.getTime()).toBeGreaterThan(before + (LEASE_SECONDS - 5) * 1000);
+    expect(first[0].run_at.getTime()).toBeLessThan(before + (LEASE_SECONDS + 5) * 1000);
 
     expect(await claimDueJobs(['test_leased'], 10)).toHaveLength(0);
+  });
+
+  it('claims an abandoned row again once its lease lapses', async () => {
+    const id = await enqueue(db, 'test_abandoned', {});
+    expect(await claimDueJobs(['test_abandoned'], 10)).toHaveLength(1);
+
+    // The worker that claimed it died mid-run, so neither success nor failure
+    // was ever recorded: the lease running out is the only thing that can make
+    // the row claimable again.
+    await makeDue('test_abandoned');
+
+    const second = await claimDueJobs(['test_abandoned'], 10);
+    expect(second).toHaveLength(1);
+    expect(second[0].id).toBe(id);
+    expect(second[0].attempts).toBe(2);
+  });
+
+  it('steps over a row another claim holds and takes the rest', async () => {
+    const held = await enqueue(db, 'test_contended', {});
+    const free = await enqueue(db, 'test_contended', {});
+
+    const holder = holdJobRow(held);
+    await holder.taken;
+    try {
+      const claimed = await withoutBlocking(claimDueJobs(['test_contended'], 10));
+      expect(claimed.map((row) => row.id)).toEqual([free]);
+    } finally {
+      holder.release();
+      await holder.done;
+    }
+
+    const after = await claimDueJobs(['test_contended'], 10);
+    expect(after.map((row) => row.id)).toEqual([held]);
+    expect(after[0].attempts).toBe(1);
   });
 });
 
@@ -273,6 +391,26 @@ describe('runDueJobs', () => {
     expect(await overrunning).toBe(CLAIM_BATCH);
   });
 
+  it('gives the slots back when the claim itself fails, so the next tick still runs', async () => {
+    let runs = 0;
+    register({
+      kind: 'test_after_fault',
+      timeoutMs: 1000,
+      run: () => {
+        runs += 1;
+        return Promise.resolve();
+      },
+    });
+    await enqueue(db, 'test_after_fault', {});
+
+    claimFault.error = new Error('connection terminated unexpectedly');
+    await expect(runDueJobs()).rejects.toThrow('connection terminated unexpectedly');
+
+    expect(await runDueJobs()).toBe(1);
+    expect(runs).toBe(1);
+    expect(await jobRows('test_after_fault')).toHaveLength(0);
+  });
+
   it('records a failure for a row whose handler went away after the claim', async () => {
     register({
       kind: 'test_unregisters',
@@ -342,13 +480,38 @@ describe('periodic jobs', () => {
     });
     await syncPeriodicJobs(periodicJobs(), registeredJobKinds());
 
+    const before = Date.now();
     expect(await runDueJobs()).toBe(1);
     expect(runs).toBe(1);
 
     const row = await jobRow('test_sweep');
     expect(row.attempts).toBe(0);
     expect(row.last_error).toBeNull();
-    expect(row.run_at.getTime()).toBeGreaterThan(Date.now() + 50_000);
+    expect(row.run_at.getTime()).toBeGreaterThan(before + 55_000);
+    expect(row.run_at.getTime()).toBeLessThan(before + 70_000);
+    expect(await runDueJobs()).toBe(0);
+  });
+
+  it('reschedules a sweep that fell behind from its completion, not from when it was due', async () => {
+    register({
+      kind: 'test_late_sweep',
+      timeoutMs: 1000,
+      intervalSeconds: 60,
+      run: () => Promise.resolve(),
+    });
+    await syncPeriodicJobs(periodicJobs(), registeredJobKinds());
+    await db
+      .updateTable('job')
+      .set({ run_at: new Date(Date.now() - 600_000) })
+      .where('kind', '=', 'test_late_sweep')
+      .execute();
+
+    const before = Date.now();
+    expect(await runDueJobs()).toBe(1);
+
+    const row = await jobRow('test_late_sweep');
+    expect(row.run_at.getTime()).toBeGreaterThan(before + 55_000);
+    expect(row.run_at.getTime()).toBeLessThan(before + 70_000);
     expect(await runDueJobs()).toBe(0);
   });
 
@@ -516,5 +679,26 @@ describe('runJobMaintenance', () => {
       kind: 'test_boot_stranded',
       count: 1,
     });
+  });
+});
+
+// Everything above drives the queue with synthetic kinds; this is the one place
+// the registry a production process boots with is exercised. The Record in
+// register.ts proves only that each kind maps to some `() => void`: a registrar
+// that names another kind, or one that drops its interval, type checks and lints
+// clean while that kind's work stops dead with nothing logged anywhere.
+describe('registerJobHandlers', () => {
+  it('registers every declared kind and schedules the periodic ones', () => {
+    registerJobHandlers();
+
+    expect(registeredJobKinds().sort()).toEqual([
+      'assignment_digest',
+      'attachment_unfurl',
+      'task_series_materialize',
+    ]);
+    expect(periodicJobs().sort((a, b) => a.kind.localeCompare(b.kind))).toEqual([
+      { kind: 'assignment_digest', intervalSeconds: 30 },
+      { kind: 'task_series_materialize', intervalSeconds: 60 },
+    ]);
   });
 });

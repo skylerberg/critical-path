@@ -56,17 +56,22 @@ export function assertEmailConfig(): void {
   }
 }
 
-const rawEnvironment = process.env.ENVIRONMENT;
-const environment: 'development' | 'test' | 'production' =
-  rawEnvironment === 'production'
-    ? 'production'
-    : rawEnvironment === 'test'
-      ? 'test'
-      : 'development';
+type Environment = 'development' | 'test' | 'production';
+
+function currentEnvironment(): Environment {
+  const raw = process.env.ENVIRONMENT;
+  return raw === 'production' ? 'production' : raw === 'test' ? 'test' : 'development';
+}
 
 export const env = {
   port: parseIntOrDefault(process.env.PORT, 3001),
-  environment,
+
+  // Read per call like the getters below rather than frozen at import: a test
+  // that sets ENVIRONMENT to reach a production-only branch used to assert
+  // against the branch it was still on.
+  get environment(): Environment {
+    return currentEnvironment();
+  },
 
   db: {
     hostname: process.env.DB_HOSTNAME || '127.0.0.1',
@@ -113,7 +118,7 @@ export const env = {
   get passwordResetSecret(): string {
     const secret = process.env.PASSWORD_RESET_SECRET;
     if (secret) return secret;
-    if (environment === 'production') {
+    if (currentEnvironment() === 'production') {
       throw new Error('PASSWORD_RESET_SECRET is required in production');
     }
     return 'dev-only-password-reset-secret';

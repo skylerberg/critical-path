@@ -1,7 +1,9 @@
 import { describe, it, expect, afterAll, beforeAll } from 'vitest';
 import { TestContext, TestUser } from '../../setup/testContext';
+import { collectBusEntries } from '../../helpers/bus';
 import { newId, rankKey } from '../../helpers/fixtures';
 import { ProjectFixtures } from './taskFixtures';
+import type { BusEntry } from '../../../src/services/realtime/bus';
 
 // One user owning both projects throughout: the access rules have their own
 // file, and mixing them in here would hide which assertion is about the count.
@@ -67,6 +69,11 @@ describe('Cross-project blocker counts', () => {
     const body = await res.json();
     const task = body.tasks.find((candidate: { id: string }) => candidate.id === taskId);
     return task.open_cross_project_blocker_count as number;
+  }
+
+  async function recountEvents(run: () => Promise<void>): Promise<BusEntry[]> {
+    const seen = await collectBusEntries(run);
+    return seen.filter((entry) => entry.type === 'cross_project_blockers_changed');
   }
 
   async function pair(title: string): Promise<{ blocked: string; blocker: string }> {
@@ -245,6 +252,71 @@ describe('Cross-project blocker counts', () => {
     expect(await countOf(blocked)).toBe(1);
     const detail = await ctx.request(user.token).get(`/api/tasks/${blocked}`);
     expect((await detail.json()).blocker_ids).toEqual([]);
+  });
+
+  // The count is denormalized, so a board that never re-reads it learns of the
+  // change only from this event, and it is addressed to a project the actor may
+  // not belong to.
+  it('publishes the recount to the blocked task’s project, not the blocker’s', async () => {
+    const { blocked, blocker } = await pair('publish');
+
+    const entries = await recountEvents(async () => {
+      const res = await ctx
+        .request(user.token)
+        .patch(`/api/tasks/${blocker}`, { column_id: farDone, sort_key: rankKey(1000) });
+      expect(res.status).toBe(200);
+    });
+
+    expect(entries).toEqual([
+      {
+        type: 'cross_project_blockers_changed',
+        project_id: nearProject,
+        data: { tasks: [{ task_id: blocked, open_cross_project_blocker_count: 0 }] },
+      },
+    ]);
+  });
+
+  it('publishes the recount when the blocker’s whole project is deleted', async () => {
+    const doomed = await fixtures.createProject('doomed publisher', { createdBy: user.id });
+    const doomedColumn = await fixtures.createColumn(doomed);
+    const blocked = await createTask(nearProject, nearColumn, 'publish delete blocked');
+    const blocker = await createTask(doomed, doomedColumn, 'publish delete blocker');
+    await block(blocked, blocker);
+
+    const entries = await recountEvents(async () => {
+      const res = await ctx.request(user.token).delete(`/api/projects/${doomed}`);
+      expect(res.status).toBe(204);
+    });
+
+    expect(entries).toEqual([
+      {
+        type: 'cross_project_blockers_changed',
+        project_id: nearProject,
+        data: { tasks: [{ task_id: blocked, open_cross_project_blocker_count: 0 }] },
+      },
+    ]);
+  });
+
+  it('publishes nothing when a recount finds every count already right', async () => {
+    const column = await fixtures.createColumn(farProject, {
+      name: 'Quiet',
+      sortKey: rankKey(8000),
+    });
+    const blocked = await createTask(nearProject, nearColumn, 'quiet blocked');
+    const blocker = await createTask(farProject, column, 'quiet blocker');
+    await block(blocked, blocker);
+    expect((await ctx.request(user.token).post(`/api/tasks/${blocker}/archive`, {})).status).toBe(
+      200
+    );
+    expect(await countOf(blocked)).toBe(0);
+
+    const entries = await recountEvents(async () => {
+      const res = await ctx.request(user.token).patch(`/api/columns/${column}`, { is_done: true });
+      expect(res.status).toBe(200);
+    });
+
+    expect(entries).toEqual([]);
+    expect(await countOf(blocked)).toBe(0);
   });
 
   it('keeps local and cross-project blockers on separate books', async () => {

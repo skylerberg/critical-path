@@ -1,7 +1,11 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import type { Transaction } from 'kysely';
 import { TestContext } from '../../setup/testContext';
 import { db } from '../../../src/db/index';
-import type { ResolvedSortKey } from '../../../src/db/types';
+import type { DB, ResolvedSortKey } from '../../../src/db/types';
+import { lockColumnTail } from '../../../src/services/boardColumns';
+import { collectBusEntries } from '../../helpers/bus';
+import { waitForLockWaiters } from '../../helpers/database';
 import { newId, rankKey } from '../../helpers/fixtures';
 
 const key2000 = rankKey(2000);
@@ -281,19 +285,24 @@ describe('PATCH /api/columns/:id', () => {
 
   it('returns 422 for a malformed sort key', async () => {
     const projectId = await createProject();
+    const settledKey = rankKey(1000);
+    const columnId = await insertColumn(projectId, { sort_key: settledKey });
+
     for (const bad of ['', 'not a key', 'V0!', 'V00']) {
-      const res = await ctx.request(token).post('/api/columns', {
-        id: newId(),
-        project_id: projectId,
-        name: 'Bad key',
-        sort_key: bad,
-      });
+      const res = await ctx.request(token).patch(`/api/columns/${columnId}`, { sort_key: bad });
       expect(res.status, bad).toBe(422);
 
       const body = await res.json();
       expect(body.error).toBe('Validation failed');
       expect(body.details.some((d: { path: string }) => d.path === 'sort_key')).toBe(true);
     }
+
+    const row = await db
+      .selectFrom('board_column')
+      .select('sort_key')
+      .where('id', '=', columnId)
+      .executeTakeFirstOrThrow();
+    expect(row.sort_key).toBe(settledKey);
   });
 
   it('returns 404 for a nonexistent column', async () => {
@@ -1008,6 +1017,59 @@ describe('POST /api/columns/:id/archive-tasks', () => {
 });
 
 describe('POST /api/columns/:id/reorder', () => {
+  function positionOf(taskId: string) {
+    return db
+      .selectFrom('task')
+      .select(['column_id', 'sort_key'])
+      .where('id', '=', taskId)
+      .executeTakeFirstOrThrow();
+  }
+
+  // Forces an interleave rather than racing one: the transaction takes a lock,
+  // hands control back, and runs `after` only once the caller releases it.
+  function holdInTransaction(
+    lock: (trx: Transaction<DB>) => Promise<unknown>,
+    after?: (trx: Transaction<DB>) => Promise<unknown>
+  ): { taken: Promise<unknown>; release: () => void; done: Promise<void> } {
+    let take!: () => void;
+    const taken = new Promise<void>((resolve) => {
+      take = resolve;
+    });
+    let release!: () => void;
+    const released = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const done = db.transaction().execute(async (trx) => {
+      await lock(trx);
+      take();
+      await released;
+      if (after) {
+        await after(trx);
+      }
+    });
+    return { taken: Promise.race([taken, done]), release, done };
+  }
+
+  // The one thing a request parked on the tail lock can be asked: whether it is
+  // already sitting on a row it has yet to re-stamp.
+  async function rowLocked(taskId: string): Promise<boolean> {
+    try {
+      await db
+        .selectFrom('task')
+        .select('id')
+        .where('id', '=', taskId)
+        .forUpdate()
+        .noWait()
+        .execute();
+      return false;
+    } catch (err) {
+      if (typeof err === 'object' && err !== null && (err as { code?: unknown }).code === '55P03') {
+        return true;
+      }
+      throw err;
+    }
+  }
+
   it('requires auth', async () => {
     const res = await ctx
       .request()
@@ -1038,38 +1100,110 @@ describe('POST /api/columns/:id/reorder', () => {
     const destination = await insertColumn(projectId, { sort_key: rankKey(2000) });
     const stays = await insertTask(projectId, source, 1000);
     const leaves = await insertTask(projectId, source, 2000);
+    const staysBefore = await positionOf(stays);
+    const movedKey = rankKey(7000);
 
-    let releaseHold!: () => void;
-    const held = new Promise<void>((resolve) => {
-      releaseHold = resolve;
-    });
-    const mover = db.transaction().execute(async (trx) => {
-      await trx.selectFrom('task').select('id').where('id', '=', leaves).forUpdate().execute();
-      await held;
-      await trx
-        .updateTable('task')
-        .set({ column_id: destination, sort_key: rankKey(7000) })
-        .where('id', '=', leaves)
-        .execute();
-    });
+    const mover = holdInTransaction(
+      (trx) => trx.selectFrom('task').select('id').where('id', '=', leaves).forUpdate().execute(),
+      (trx) =>
+        trx
+          .updateTable('task')
+          .set({ column_id: destination, sort_key: movedKey })
+          .where('id', '=', leaves)
+          .execute()
+    );
+    await mover.taken;
 
     const reordering = ctx
       .request(token)
       .post(`/api/columns/${source}/reorder`, { task_ids: [leaves, stays] });
-    await new Promise((resolve) => setTimeout(resolve, 150));
-    releaseHold();
-    await mover;
+    try {
+      await waitForLockWaiters(1);
+    } finally {
+      mover.release();
+    }
+    await mover.done;
+
+    const res = await reordering;
+    expect(res.status).toBe(200);
+
+    expect(await positionOf(leaves)).toEqual({ column_id: destination, sort_key: movedKey });
+    const staysAfter = await positionOf(stays);
+    expect(staysAfter.column_id).toBe(source);
+    expect(staysAfter.sort_key > staysBefore.sort_key).toBe(true);
+
+    expect(await res.json()).toEqual({
+      moved_tasks: [{ id: stays, column_id: source, sort_key: staysAfter.sort_key }],
+    });
+  });
+
+  it('leaves a card archived mid-reorder alone', async () => {
+    const projectId = await createProject();
+    const columnId = await insertColumn(projectId);
+    const stays = await insertTask(projectId, columnId, 1000);
+    const archived = await insertTask(projectId, columnId, 2000);
+    const staysBefore = await positionOf(stays);
+    const archivedBefore = await positionOf(archived);
+
+    const archiver = holdInTransaction(
+      (trx) => trx.selectFrom('task').select('id').where('id', '=', archived).forUpdate().execute(),
+      (trx) =>
+        trx
+          .updateTable('task')
+          .set({ archived_at: new Date() })
+          .where('id', '=', archived)
+          .execute()
+    );
+    await archiver.taken;
+
+    const reordering = ctx
+      .request(token)
+      .post(`/api/columns/${columnId}/reorder`, { task_ids: [archived, stays] });
+    try {
+      await waitForLockWaiters(1);
+    } finally {
+      archiver.release();
+    }
+    await archiver.done;
+
+    const res = await reordering;
+    expect(res.status).toBe(200);
+    expect(await positionOf(archived)).toEqual(archivedBefore);
+    const staysAfter = await positionOf(stays);
+    expect(staysAfter.sort_key > staysBefore.sort_key).toBe(true);
+    expect(await res.json()).toEqual({
+      moved_tasks: [{ id: stays, column_id: columnId, sort_key: staysAfter.sort_key }],
+    });
+  });
+
+  // The run is allocated past the column's tail, so the request has to be behind
+  // that lock before it holds any of the rows it re-stamps.
+  it('waits on the column tail lock holding no task row', async () => {
+    const projectId = await createProject();
+    const columnId = await insertColumn(projectId);
+    const first = await insertTask(projectId, columnId, 1000);
+    const second = await insertTask(projectId, columnId, 2000);
+    const before = await tasksInColumn(columnId);
+
+    const holder = holdInTransaction((trx) => lockColumnTail(trx, columnId));
+    await holder.taken;
+
+    const reordering = ctx
+      .request(token)
+      .post(`/api/columns/${columnId}/reorder`, { task_ids: [second, first] });
+    try {
+      await waitForLockWaiters(1);
+      expect(await rowLocked(first)).toBe(false);
+      expect(await tasksInColumn(columnId)).toEqual(before);
+    } finally {
+      holder.release();
+    }
+    await holder.done;
 
     expect((await reordering).status).toBe(200);
-
-    const moved = await db
-      .selectFrom('task')
-      .select(['column_id', 'sort_key'])
-      .where('id', '=', leaves)
-      .executeTakeFirstOrThrow();
-    expect(moved.column_id).toBe(destination);
-    expect(moved.sort_key).toBeTruthy();
+    expect((await tasksInColumn(columnId)).map((row) => row.id)).toEqual([second, first]);
   });
+
   it('re-stamps evenly spaced positions in the given order', async () => {
     const projectId = await createProject();
     const columnId = await insertColumn(projectId);
@@ -1153,5 +1287,29 @@ describe('POST /api/columns/:id/reorder', () => {
       .request(token)
       .post(`/api/columns/${columnId}/reorder`, { task_ids: [only, only] });
     expect(res.status).toBe(422);
+  });
+
+  it('publishes one column_tasks_reordered event carrying the new positions', async () => {
+    const projectId = await createProject();
+    const columnId = await insertColumn(projectId);
+    const first = await insertTask(projectId, columnId, 1000);
+    const second = await insertTask(projectId, columnId, 2000);
+
+    const entries = await collectBusEntries(async () => {
+      const res = await ctx
+        .request(token)
+        .post(`/api/columns/${columnId}/reorder`, { task_ids: [second, first] });
+      expect(res.status).toBe(200);
+    });
+
+    const reordered = await tasksInColumn(columnId);
+    expect(reordered.map((row) => row.id)).toEqual([second, first]);
+    expect(entries).toEqual([
+      {
+        type: 'column_tasks_reordered',
+        project_id: projectId,
+        data: { actor_user_id: userId, column_id: columnId, moved_tasks: reordered },
+      },
+    ]);
   });
 });
