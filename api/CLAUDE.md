@@ -513,23 +513,20 @@ against directly:
   `tests/setup/testContext.ts`): a parsed body has no compile-time link to the
   route that produced it, so name the shape with `res.json<T>()` where it
   matters rather than trying to type the client.
-- `scripts/new-worktree.sh [--only <pkg>[,<pkg>]] <branch> [base-ref]` creates a
-  worktree that can run all of the above: it branches, adds the worktree under
+- **`../scripts/new-worktree.sh [--only <pkg>[,<pkg>]] <branch> [base-ref]`** —
+  at the repository root, not in this package's `scripts/`, which is what every
+  other bare `scripts/…` in this file means. It creates a worktree that can run
+  all of the above: it branches, adds the worktree under
   `~/.worktrees/<repo>/<branch>`, runs `pnpm install` in each of the four
   packages, and copies the untracked `.env` and `.env.test` — which live at
   `api/.env` and `api/.env.test`, not at the checkout root, so a copy loop
-  looking only at the root would match nothing and say nothing. It discovers the
-  packages from `git ls-files '*/package.json'` rather than a hard-coded list, so
-  a fifth package needs no edit here, and it asserts after each install that a
-  `node_modules` actually appeared rather than trusting exit 0 — which is what a
-  stray root `pnpm-workspace.yaml` would otherwise hand you (`No projects found`,
-  exit 0, nothing installed). `--only api,web` narrows the installs; env files
-  are copied for every package regardless. A worktree made by
-  hand and missing any of those fails the checks for reasons that have nothing to
-  do with the change in it — an uninstalled `cli/` in particular fails only the
-  CLI tests, deep into a run.
-  The script resolves everything from the checkout it is run in, so it works
-  from another project's checkout too.
+  looking only at the root would match nothing and say nothing. `--only api,web`
+  narrows the installs; env files are copied for every package regardless. It
+  resolves everything from the checkout it is run in, not from where it lives, so
+  running it from this directory is fine. A worktree made by hand and missing any
+  of that fails the checks for reasons that have nothing to do with the change in
+  it — an uninstalled `cli/` in particular fails only the CLI tests, deep into a
+  run. The root `CLAUDE.md` and `scripts/README.md` carry the rest.
 - A worktree that already exists but predates the script just needs `pnpm install`
   in each of the four package directories. It is cheap: pnpm hardlinks from one
   content-addressable store, so a second checkout costs inodes rather than

@@ -238,7 +238,8 @@ resource "google_compute_backend_bucket" "web" {
 # wildcard host *.criticalpath.skylerberg.com (see the url_map below) routes
 # to this backend for everything except /api, /ws and /health, which still
 # reach the API — so a preview is a full same-origin virtual host and needs
-# no CORS. See terraform/README.md for the bootstrap ordering and DNS steps.
+# no CORS. See the README beside this file for the bootstrap ordering and DNS
+# steps.
 
 # Runtime identity for the edge: read-only on the web bucket (pr/ objects).
 resource "google_service_account" "preview_edge" {
@@ -250,6 +251,52 @@ resource "google_storage_bucket_iam_member" "web_preview_edge" {
   bucket = google_storage_bucket.web.name
   role   = "roles/storage.objectViewer"
   member = "serviceAccount:${google_service_account.preview_edge.email}"
+}
+
+# --- The preview auth credential -------------------------------------------
+# HTTP Basic on every pr-<n>.… host. It is not optional and not decorative: the
+# `previews` matcher below routes /api, /ws and /health straight to the
+# production API, so an open preview is unreviewed code on a guessable public
+# subdomain talking to the real database. preview-edge is fail-closed — it
+# serves 401 until this secret holds a real credential.
+#
+# The value is deliberately NOT here. Terraform creates the secret and one
+# placeholder version so a revision has something to mount; the owner adds the
+# real version out of band. See "Preview auth" in the README beside this file
+# for the two commands. Requires the Secret Manager API
+# (secretmanager.googleapis.com).
+resource "google_secret_manager_secret" "preview_auth" {
+  secret_id = "critical-path-preview-auth"
+
+  replication {
+    auto {}
+  }
+}
+
+# Cloud Run resolves "latest" at revision start, and a secret with no enabled
+# version fails the deploy outright — so version 1 exists only to let the
+# service come up before anyone has set a credential. preview-edge knows this
+# exact string and refuses it, so the placeholder can never be presented back
+# as the credential even though it sits in a public repository.
+resource "google_secret_manager_secret_version" "preview_auth_placeholder" {
+  secret = google_secret_manager_secret.preview_auth.id
+  # Keep in sync with PLACEHOLDER_CREDENTIAL in preview-edge/auth.ts.
+  secret_data = "preview-auth-not-configured"
+
+  lifecycle {
+    # Editing the literal above would otherwise replace this version — creating
+    # a *newer* one, which is what "latest" resolves to, silently reverting the
+    # owner's real credential to the placeholder on an unrelated apply.
+    ignore_changes = [secret_data]
+  }
+}
+
+# On the secret, not at the project level: the edge reads this one value and
+# has no business reading the API's secrets.
+resource "google_secret_manager_secret_iam_member" "preview_edge_preview_auth" {
+  secret_id = google_secret_manager_secret.preview_auth.secret_id
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:${google_service_account.preview_edge.email}"
 }
 
 # Terraform bootstraps the service config; the preview-edge deploy workflow
@@ -273,6 +320,18 @@ resource "google_cloud_run_service" "preview_edge" {
           name  = "PREVIEW_HOST_SUFFIX"
           value = local.preview_host_suffix
         }
+        env {
+          name = "PREVIEW_AUTH"
+          value_from {
+            secret_key_ref {
+              name = google_secret_manager_secret.preview_auth.secret_id
+              # "latest", not a pinned version: the owner sets the credential by
+              # adding a new version, and nothing should have to re-apply
+              # terraform for the service to pick it up.
+              key = "latest"
+            }
+          }
+        }
       }
     }
   }
@@ -284,11 +343,21 @@ resource "google_cloud_run_service" "preview_edge" {
 
   metadata {
     annotations = {
-      # Only the global LB (and internal callers) may reach the edge directly;
-      # the public run.app URL is blocked so the auth gate can't be bypassed.
+      # Defence in depth, not the gate itself — the gate is PREVIEW_AUTH, inside
+      # the container, and it applies to every route in. This keeps the public
+      # run.app URL, which no host rule and no LB log covers, from reaching the
+      # edge at all.
       "run.googleapis.com/ingress" = "internal-and-cloud-load-balancing"
     }
   }
+
+  # Neither is inferred from the container's secret_key_ref: a revision whose
+  # service account cannot read the secret, or whose secret has no version, does
+  # not start, and terraform would otherwise race both on a fresh apply.
+  depends_on = [
+    google_secret_manager_secret_iam_member.preview_edge_preview_auth,
+    google_secret_manager_secret_version.preview_auth_placeholder,
+  ]
 
   lifecycle {
     ignore_changes = [template[0].spec[0].containers[0].image]

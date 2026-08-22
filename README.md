@@ -10,11 +10,19 @@ critical-path highlighting — in one repository with four packages.
 | `cli/`          | `cpath`, a full command-line client for the API.                   |
 | `preview-edge/` | The Cloud Run worker that serves pull-request previews.            |
 
+`infra/terraform/` holds the terraform for all of it — the load balancer that
+fronts `api/` and `web/`, the bucket the web build is uploaded to, the Cloud Run
+service that serves previews — and is not a package.
+
 Each package has its own `package.json`, `pnpm-lock.yaml` and
 `pnpm-workspace.yaml`; `api/` and `web/` also have their own `README.md`, and
 the CLI is documented in `api/README.md`. **This is not a pnpm workspace** —
 install each package where it lives, and never add a `pnpm-workspace.yaml` at
 the repository root. `CLAUDE.md` explains why.
+
+`docs/` holds the prose that is about the product rather than about one package:
+`docs/feature-research.md` is the survey of the category and the accepted /
+declined decision on all 251 features, which is where the roadmap comes from.
 
 ## Requirements
 
@@ -48,6 +56,20 @@ pnpm add --global ./cli     # installs the global `cpath` command
 
 `api/README.md` has the command reference.
 
+## Making a worktree
+
+```sh
+scripts/new-worktree.sh <branch> [base-ref]
+scripts/new-worktree.sh --only api,web <branch>
+```
+
+Creates `~/.worktrees/<repo>/<branch>` — outside the repository, so no recursive
+search has a second copy of the codebase to walk — copies the untracked `.env`
+files, which live in `api/` rather than at the checkout root, and runs
+`pnpm install` in each package. A worktree made by hand instead fails the checks
+for reasons that have nothing to do with the change in it. `scripts/README.md`
+has the details.
+
 ## Regenerating the API clients
 
 `web/` and `cli/` each generate their API client from `api/`'s OpenAPI and
@@ -70,8 +92,8 @@ Each package runs its own, from its own directory — `pnpm -C api test`,
 `pnpm -C web run check:all`, `pnpm -C cli run check`. CI is split the same way:
 `.github/workflows/api-ci.yaml` and `web-ci.yaml`, each filtered to the paths it
 covers, plus `codegen-ci.yaml` for the generated clients, `repo-ci.yaml` for
-`.githooks/`, `scripts/` and the workflow files themselves, and `k8s-ci.yaml`
-for the manifests. Because every
+`.githooks/`, `scripts/` and the workflow files themselves, `k8s-ci.yaml`
+for the manifests, and `infra-ci.yaml` for the terraform. Because every
 one of those is path-filtered, none of them can be a required status check on
 its own; `ci-gate.yaml` is unfiltered, reads the rest, and is the one to
 require.

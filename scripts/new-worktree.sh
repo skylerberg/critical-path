@@ -19,6 +19,12 @@
 # it works from a sibling project too, single-package ones included
 # (`../some-project/scripts/new-worktree.sh <branch>`).
 #
+# At the repository root rather than in api/scripts/, where it lived until it
+# bootstrapped four packages: api-deploy.yaml's `paths:` filter includes
+# 'api/scripts/**', so every edit to this developer-only script pushed a
+# production API release — image build, migration job and rolling restart — for
+# a file no image ever contains.
+#
 # Usage: scripts/new-worktree.sh [--only <pkg>[,<pkg>]] <branch> [base-ref]
 
 set -euo pipefail

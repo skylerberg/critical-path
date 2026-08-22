@@ -72,7 +72,7 @@ name: CI Gate
 # there is nothing to wait for, as long as the api suite when there is. That is
 # the price of a cross-workflow join, and the part of it worth shedding is
 # already shed inside API CI, where per-job change detection ends a
-# terraform-only run in seconds instead of starting four Postgres shards.
+# manifest-only run in seconds instead of starting four Postgres shards.
 #
 # The hole this leaves. A workflow that *should* have run and did not — a
 # `paths:` filter narrowed by mistake — leaves no run behind, and is from here
@@ -139,13 +139,15 @@ jobs:
               'API CI' | 'Web CI' | 'Codegen CI') return 0 ;;
               # Repo CI lints the workflow files and the root shell and runs
               # the format-touched tests; K8s CI validates the manifests
-              # api-deploy applies. Both check something and both are seconds
-              # long. Repo CI is also the one workflow that reads this file:
-              # it fails a pull request whose `pull_request` workflows are not
-              # all named in one of these two cases, so a rename that misses
-              # this list is caught on the commit that made it rather than on
-              # every pull request afterwards.
-              'Repo CI' | 'K8s CI') return 0 ;;
+              # api-deploy applies; Infra CI validates the terraform that
+              # defines the load balancer every package is served through. All
+              # three check something and all three are seconds long. Repo CI is
+              # also the one workflow that reads this file: it fails a pull
+              # request whose `pull_request` workflows are not all named in one
+              # of these two cases, so a rename that misses this list is caught
+              # on the commit that made it rather than on every pull request
+              # afterwards.
+              'Repo CI' | 'K8s CI' | 'Infra CI') return 0 ;;
               *) return 1 ;;
             esac
           }
@@ -194,7 +196,7 @@ jobs:
             # and only the newest of them is that workflow's answer. Reopening a
             # pull request re-triggers every workflow here at the *unchanged*
             # head sha (`reopened` is in the default `pull_request` types, which
-            # all five blocking workflows take), and force-pushing back to a sha
+            # every blocking workflow takes), and force-pushing back to a sha
             # already pushed once does the same. The earlier run keeps whatever
             # conclusion it ended with, so without this a single cancelled or
             # failed attempt would hold the gate red for every later attempt on

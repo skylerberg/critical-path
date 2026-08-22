@@ -33,6 +33,11 @@ Then push and read the CI run.
   `.githooks/post-commit` runs both over the files each commit touched and
   amends the result in. `format:check` failing on uncommitted edits means
   nothing has fixed them yet — commit, and it resolves.
+- Every check here needs this package's own `node_modules`, and a bare
+  `git worktree add` gives you none — every command above then fails on that
+  rather than on your change. `scripts/new-worktree.sh <branch>`, at the
+  **repository root**, is the way to make one: it installs all four packages and
+  copies the untracked `.env` files across.
 - The browser checks need `pnpm run playwright:install` once locally. They skip
   with a warning if Chromium is missing; in CI a launch failure throws instead.
 - Each of `check:layout`, `check:layout:real`, `check:task-detail`,

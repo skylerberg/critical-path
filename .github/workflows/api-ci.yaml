@@ -47,10 +47,10 @@ jobs:
   # The `paths:` filter above is the outer bound and stays exactly as wide as the
   # packages this workflow covers; narrowing it is how coverage disappears with
   # nothing to show for it. It is still much wider than what the jobs below read:
-  # `api/terraform/**`, `api/k8s/**` and `api/docs/**` all sit inside it and no
-  # step here checks anything about any of them, so a terraform edit used to run
-  # four Postgres+Redis shards and two Docker builds. This job refines within the
-  # bound the filter already set. It never widens it.
+  # `api/k8s/**` and `api/docs/**` both sit inside it and no step here checks
+  # anything about either, so a manifest edit used to run four Postgres+Redis
+  # shards and two Docker builds. This job refines within the bound the filter
+  # already set. It never widens it.
   #
   # The cost is one extra runner in front of everything — checkout plus the diff,
   # around 20s of added latency on every run — against four service containers
@@ -127,21 +127,28 @@ jobs:
           # to its package and costs a job, where an allowlist would drop it and
           # cost the coverage instead.
           #
-          #   api/terraform/**  no step runs terraform
           #   api/k8s/**        no step here reads a manifest. k8s-ci.yaml parses
           #                     them and api-deploy.yaml applies them; both carry
           #                     their own filter.
-          #   api/docs/**       two research notes. The Dockerfile copies only
-          #                     package.json, the lockfile, pnpm-workspace.yaml,
-          #                     scripts/ and src/, so they are not build input
-          #                     either.
+          #   api/docs/**       scaling.md, the bench harness's write-up. The
+          #                     Dockerfile copies only package.json, the
+          #                     lockfile, pnpm-workspace.yaml, scripts/ and
+          #                     src/, so it is not build input either. The
+          #                     product-wide feature research that used to sit
+          #                     beside it is at `docs/feature-research.md` now,
+          #                     outside `api/**` and so outside this workflow.
+          #
+          # The terraform entry that used to head this list is gone with the
+          # directory: it lives at `infra/terraform/`, which `api/**` does not
+          # match, so infra-ci.yaml is the whole of its CI and there is nothing
+          # left here to subtract.
           #
           # api/README.md and api/CLAUDE.md are deliberately absent from that
           # list. tests/unit/documentedLimits.test.ts and
           # tests/unit/eventCatalog.test.ts read both files and assert the
           # numbers and the event table in them against the code, so an edit to
           # either really can fail the suite.
-          inert='^api/(terraform|k8s|docs)/'
+          inert='^api/(k8s|docs)/'
           relevant="$(printf '%s\n' "$changed" | grep -Ev "$inert" || true)"
 
           emit() {
@@ -312,6 +319,11 @@ jobs:
           cache-dependency-path: 'preview-edge/pnpm-lock.yaml'
       - run: pnpm -C preview-edge install --frozen-lockfile
       - run: pnpm -C preview-edge run type-check
+      # `node --test` over the .ts file directly — node 22.18+ strips the types,
+      # so the package needs no test runner and no dependency for this. It
+      # covers auth.ts, the fail-closed preview gate, which is the one piece
+      # here whose failure mode is silent.
+      - run: pnpm -C preview-edge run test
 
   # The Dockerfiles are otherwise unverified until a merge to main triggers a
   # production build and push. Build both here, without pushing, so a broken
