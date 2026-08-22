@@ -26,6 +26,7 @@ import { deduplicateOpenAPISpec } from './spec/openapi-dedupe';
 import { assertUniqueOperationIds } from './spec/openapi-assert-unique-operation-ids';
 import { buildSchemaNameRegistry } from './spec/schema-registry';
 import { env, assertEmailConfig, assertProxyConfig } from './config/env';
+import { buildInfo } from './config/buildInfo';
 import { APP_NAME } from './config/constants';
 import { corsMiddleware } from './middleware/cors';
 import { errorHandler } from './middleware/errorHandler';
@@ -105,12 +106,20 @@ app.use('*', transactionMiddleware);
 // carry the `skipAuth` marker, and `assertPublicRoutes` below pins that set.
 app.use('*', authMiddleware);
 
+// Answers what is running as well as whether it is running. The branch and
+// commit name the deployed build without anyone reading a workflow log, and in
+// development they are what tell two checkouts serving two ports apart. Both
+// are public and the commit is short: seven characters identify the build to
+// someone who already has the repository, and little to anyone else.
 const healthCheck = async (c: Context) => {
+  const build = buildInfo();
+  const body = { branch: build.branch, commit: build.commit };
+
   try {
     await sql`select 1`.execute(db);
-    return c.json({ status: 'healthy' });
+    return c.json({ status: 'healthy', ...body });
   } catch {
-    return c.json({ status: 'unhealthy' }, 503);
+    return c.json({ status: 'unhealthy', ...body }, 503);
   }
 };
 

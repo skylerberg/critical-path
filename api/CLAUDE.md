@@ -525,6 +525,25 @@ against directly:
   put a worktree inside the repository: it is a second full copy of the codebase
   that every recursive search has to walk.
 
+# Health, and which build is running
+
+`GET /health` and `GET /` share one handler and answer `status` plus the
+`branch` and short `commit` that produced the running code.
+
+The status half reaches the database, which is the point of a readiness probe:
+answering healthy without it puts a pod that cannot serve one request back into
+the load balancer's rotation. Liveness is a TCP check rather than this one, so
+a database outage drains replicas without restart-looping every one of them.
+
+The build half is `src/config/buildInfo.ts`. The deploy substitutes `{BRANCH}`
+and `{COMMITHASH}` into `k8s/deployment.yaml` as `BUILD_BRANCH` and
+`BUILD_COMMIT`; there is no `.git` in the image, so nothing else could tell the
+process what it is. Locally both are absent and it reads the checkout instead,
+which is the case that earns its keep — two worktrees serving two ports are
+indistinguishable until one of them says which branch it is. That pairs with
+`src/utils/serverStartup.ts`, which already refuses to leave a bind failure
+looking like a healthy server.
+
 # Deploys and migrations
 
 Production deploys are rolling: the migration job runs first, then old and
