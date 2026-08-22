@@ -2,6 +2,7 @@ import { toOpenAPISchema } from '@standard-community/standard-openapi';
 import type { StandardSchemaV1 } from '@standard-schema/spec';
 import { ENVELOPE_VERSION } from '../services/webhooks/queue';
 import { REALTIME_CLOSE_CODES } from '../services/realtime/closeCodes';
+import { HEARTBEAT_INTERVAL_MS } from '../services/realtime/heartbeat';
 import {
   REALTIME_EVENT_TYPES,
   eventScope,
@@ -83,13 +84,25 @@ export async function buildRealtimeEventsDocument(): Promise<Record<string, unkn
         'Generated from the declaration tables in src/services/realtime by `pnpm run realtime:dump`. ' +
         'RealtimeEvent is the envelope a /ws socket receives; WebhookEvent is the body ' +
         'POSTed to a project webhook registration; RealtimeCloseCode is what that socket ' +
-        'can be closed with. Not an HTTP API: it declares no paths.',
+        'can be closed with, and RealtimeHeartbeatMs how often it is pinged. Not an HTTP ' +
+        'API: it declares no paths.',
     },
     paths: {},
     components: {
       schemas: {
         RealtimeEvent: { oneOf: socketRefs },
         WebhookEvent: { oneOf: webhookRefs },
+        // A single `const`, so the generator emits a literal type and no runtime
+        // value — the property codegen-ci.yaml's drift check rests on. A client
+        // annotates its own copy of the number with this, which is how raising
+        // the interval reaches that client as a compile error.
+        RealtimeHeartbeatMs: {
+          description:
+            'Milliseconds between server pings on an open /ws socket. A client that treats ' +
+            'silence as a dead connection must allow several of these before tearing one down.',
+          type: 'integer',
+          const: HEARTBEAT_INTERVAL_MS,
+        },
         // A generator keeps a schema's own description and drops its members',
         // so every code's meaning has to be in this one string or it does not
         // cross the boundary at all.

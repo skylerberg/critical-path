@@ -275,6 +275,90 @@ describe('tiptapToMarkdown', () => {
     }
   });
 
+  it('moves a marked run edge whitespace outside its delimiters', () => {
+    // `a~~ spaced ~~b` is not strikethrough at all — GFM opens a run only on
+    // non-whitespace — so the round trip used to hand back one text node with
+    // the mark gone and two literal `~~` sitting in the middle of the words.
+    const cases = [
+      { mark: 'strike', md: 'a ~~spaced~~ b' },
+      { mark: 'bold', md: 'a **spaced** b' },
+      { mark: 'italic', md: 'a *spaced* b' },
+    ];
+    for (const { mark, md } of cases) {
+      const doc = {
+        type: 'doc',
+        content: [
+          {
+            type: 'paragraph',
+            content: [
+              { type: 'text', text: 'a' },
+              { type: 'text', text: ' spaced ', marks: [{ type: mark }] },
+              { type: 'text', text: 'b' },
+            ],
+          },
+        ],
+      };
+      expect(findTiptapDocProblem(doc)).toBeNull();
+      expect(tiptapToMarkdown(doc)).toBe(md);
+
+      const reparsed = markdownToTiptap(md);
+      expect(findTiptapDocProblem(reparsed)).toBeNull();
+      expect(content(reparsed)[0].content).toEqual([
+        { type: 'text', text: 'a ' },
+        { type: 'text', text: 'spaced', marks: [{ type: mark }] },
+        { type: 'text', text: ' b' },
+      ]);
+      // The words the mark covered are unchanged: no delimiter leaked into them.
+      expect(collect(content(reparsed), 'text').map((node) => node.text)).toEqual([
+        'a ',
+        'spaced',
+        ' b',
+      ]);
+      expect(tiptapToMarkdown(reparsed)).toBe(md);
+    }
+  });
+
+  it('drops a mark that covers only whitespace rather than delimiting nothing', () => {
+    const doc = {
+      type: 'doc',
+      content: [
+        {
+          type: 'paragraph',
+          content: [
+            { type: 'text', text: 'a' },
+            { type: 'text', text: '   ', marks: [{ type: 'strike' }] },
+            { type: 'text', text: 'b' },
+          ],
+        },
+      ],
+    };
+    expect(findTiptapDocProblem(doc)).toBeNull();
+    expect(tiptapToMarkdown(doc)).toBe('a   b');
+  });
+
+  it('trims a nested mark from the inside out', () => {
+    const doc = {
+      type: 'doc',
+      content: [
+        {
+          type: 'paragraph',
+          content: [
+            { type: 'text', text: 'a' },
+            { type: 'text', text: ' x ', marks: [{ type: 'italic' }, { type: 'bold' }] },
+            { type: 'text', text: 'b' },
+          ],
+        },
+      ],
+    };
+    expect(findTiptapDocProblem(doc)).toBeNull();
+    const md = tiptapToMarkdown(doc);
+    expect(md).toBe('a ***x*** b');
+    const marked = (content(markdownToTiptap(md))[0].content ?? []).find(
+      (node) => node.text === 'x'
+    );
+    expect((marked?.marks ?? []).map((mark) => mark.type).sort()).toEqual(['bold', 'italic']);
+  });
+
   it('renders a mention as @label, in a paragraph and in a list item', () => {
     const mention = { type: 'mention', attrs: { id: MENTION_UUID, label: 'Alice' } };
     const doc = {

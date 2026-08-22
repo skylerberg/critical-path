@@ -123,8 +123,8 @@ function mergePersonGroups(groups: readonly MyTaskPersonGroup[][]): MyTaskPerson
       tasks.set(task.id, task);
     }
   }
-  // The server's ordering, restated because a merged group's size is not known
-  // until every page is in: busiest first, unassigned last.
+  // Re-sorted into the server's order once the pages are merged: busiest first,
+  // unassigned last. api/src/routes/myTasks.ts defines it.
   return [...byUser]
     .map(([user_id, tasks]) => ({ user_id, tasks: [...tasks.values()] }))
     .sort((a, b) => {
@@ -133,6 +133,19 @@ function mergePersonGroups(groups: readonly MyTaskPersonGroup[][]): MyTaskPerson
       }
       return b.tasks.length - a.tasks.length || a.user_id.localeCompare(b.user_id);
     });
+}
+
+// The bucket list is paged rather than grouped, but it needs the same merge for
+// the same reason: the server pages with OFFSET over a ranking it recomputes per
+// request, so a card that crosses the page boundary between two reads is served
+// on both pages, and `cpath mine` would print its row twice. The later copy
+// wins — it is the fresher read.
+function mergeTaskPages(pages: readonly MyTask[][]): MyTask[] {
+  const byId = new Map<string, MyTask>();
+  for (const task of pages.flat()) {
+    byId.set(task.id, task);
+  }
+  return [...byId.values()];
 }
 
 // The page is large enough that a second request is rare, but resolving a task
@@ -161,7 +174,7 @@ export async function listMyTasks(ctx: RuntimeContext): Promise<MyTasksResponse>
   }
 
   return {
-    tasks: pages.flatMap((page) => page.tasks),
+    tasks: mergeTaskPages(pages.map((page) => page.tasks)),
     waiting_on_you: mergePersonGroups(pages.map((page) => page.waiting_on_you)),
     you_are_waiting_on: mergePersonGroups(pages.map((page) => page.you_are_waiting_on)),
     next_offset: null,

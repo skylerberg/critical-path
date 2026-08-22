@@ -190,7 +190,7 @@ describe('project commands', () => {
   });
 
   it('leaves a name that is shaped like an alias reachable by that name', async () => {
-    // Decodes to a valid uuid, which is what lets a decode shadow a name.
+    // A name that also decodes to a valid uuid, so the decode can shadow it.
     const name = 'ArchivedRoadmapQ3Notes';
     expect(decodeId(name)).not.toBeNull();
     const board = await createProject(name);

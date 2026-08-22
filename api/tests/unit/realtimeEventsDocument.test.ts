@@ -2,6 +2,7 @@ import { readdir, readFile } from 'node:fs/promises';
 import { describe, it, expect } from 'vitest';
 import { buildRealtimeEventsDocument } from '../../src/spec/realtime-events';
 import * as closeCodes from '../../src/services/realtime/closeCodes';
+import { HEARTBEAT_INTERVAL_MS } from '../../src/services/realtime/heartbeat';
 import {
   carriesActor,
   REALTIME_EVENT_TYPES,
@@ -84,6 +85,25 @@ describe('realtime close codes', () => {
       expect(schemas.RealtimeCloseCode.description).toContain(String(code));
       expect(schemas.RealtimeCloseCode.description).toContain(meaning);
     }
+  });
+});
+
+describe('realtime heartbeat', () => {
+  // A bare `const`, deliberately: openapi-typescript turns one into a literal
+  // type and no runtime value, which is the property codegen-ci.yaml's drift
+  // check rests on. Written as an `enum` or a `oneOf` of one it would still
+  // type-check the clients, so the shape is pinned here rather than left to
+  // whoever next edits the builder.
+  it('publishes the interval as a single literal the clients can annotate against', async () => {
+    const { schemas } = (await buildRealtimeEventsDocument()).components as {
+      schemas: Record<string, Record<string, unknown>>;
+    };
+    const heartbeat = schemas.RealtimeHeartbeatMs;
+
+    expect(heartbeat.type).toBe('integer');
+    expect(heartbeat.const).toBe(HEARTBEAT_INTERVAL_MS);
+    expect(heartbeat.enum).toBeUndefined();
+    expect(heartbeat.oneOf).toBeUndefined();
   });
 });
 

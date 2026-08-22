@@ -1258,7 +1258,7 @@ describe('the reconnect schedule', () => {
 describe('the socket as a reachability signal', () => {
   // The board's revalidating reads are skipped for as long as this socket holds
   // coverage, so while it is healthy there is no HTTP traffic left to answer the
-  // question. The API heartbeats every 30s, which makes the socket itself the
+  // question. The API heartbeats regardless, which makes the socket itself the
   // answer — and without this the app sits behind an offline notice applying
   // live events from the very server it says it cannot reach.
   it('counts any frame as proof, the heartbeat included', async () => {

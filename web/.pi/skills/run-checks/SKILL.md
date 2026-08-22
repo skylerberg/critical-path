@@ -21,8 +21,7 @@ pnpm run check                       # svelte-check, after a type or API change
 pnpm run check:layout:real           # after a board layout change
 pnpm run check:task-detail           # after touching the card overlay
 pnpm run check:a11y                  # after changing markup or a colour token
-pnpm run check:comments              # after moving a rule between a comment and a doc
-pnpm run check:static                # comments, svelte-check, lint, format; ~20s
+pnpm run check:static                # svelte-check, lint, format; ~20s
 ```
 
 Then push and read the CI run.
@@ -40,10 +39,12 @@ Then push and read the CI run.
   copies the untracked `.env` files across.
 - The browser checks need `pnpm run playwright:install` once locally. They skip
   with a warning if Chromium is missing; in CI a launch failure throws instead.
-- Each of `check:layout`, `check:layout:real`, `check:task-detail`,
-  `check:comments` and `check:a11y` takes `--selftest`, which re-runs its cases
-  against something deliberately put back on the bug. Run it after changing what
-  one asserts.
+- Each of `check:layout`, `check:layout:real`, `check:task-detail` and
+  `check:a11y` takes `--selftest`, which re-runs its cases against something
+  deliberately put back on the bug. Run it after changing what one asserts.
+- The prose check left this package: `node scripts/check-comments.mjs`, run from
+  the repository root, reads all four packages' comments and docs — including
+  this skill — and `repo-ci.yaml` runs it on every pull request.
 - Tests are colocated (`src/**/*.test.ts`) and mount components because
   `svelteTesting()` is wired in `vite.config.ts` — do not remove it.
 - A stale `src/api/api.generated.ts` fails only under `pnpm run check`, never

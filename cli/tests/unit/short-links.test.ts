@@ -2,8 +2,9 @@ import { describe, expect, it } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import { decodeId, encodeId, slugify, taskUrl } from '../../src/short-links';
 
-// Asserted verbatim in the web app's twin suite; the two implementations share no
-// package, and these pairs are the only thing that stops them drifting.
+// Asserted verbatim in web/src/lib/short-links.test.ts, the web app's twin
+// suite. The two copies share no package, and these pairs are what stops them
+// drifting.
 const VECTORS: [uuid: string, alias: string][] = [
   ['00000000-0000-0000-0000-000000000000', 'AAAAAAAAAAAAAAAAAAAAAA'],
   ['ffffffff-ffff-ffff-ffff-ffffffffffff', 'HxECNQWFdpvuJxIw3HPrmH'],
@@ -58,9 +59,9 @@ describe('decodeId', () => {
     }
   });
 
-  // Fixed-width big-endian base62 is a bijection, so this replaces the old
-  // scheme's problem outright: base64url's four spare bits gave every id fifteen
-  // working spellings, and the decoder had to re-encode to reject them.
+  // Fixed-width big-endian base62 gives each id one spelling; that is the case
+  // the base64url scheme it replaced could not make, and the web twin asserts it
+  // from the other end.
   it('gives an id exactly one spelling', () => {
     const [uuid, alias] = VECTORS[2]!;
     const ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';

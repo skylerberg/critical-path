@@ -37,10 +37,14 @@ export const createTasksBatchItemSchema = type({
   'sort_key?': sortKey,
 });
 
+// Named because the CLI sizes its own pre-flight check against it and the route
+// description quotes it; a bare literal here left three copies of one ceiling.
+export const TASK_BATCH_LIMIT = 100;
+
 export const createTasksBatchSchema = type({
   project_id: uuid,
   column_id: uuid,
-  tasks: createTasksBatchItemSchema.array().atLeastLength(1).atMostLength(100),
+  tasks: createTasksBatchItemSchema.array().atLeastLength(1).atMostLength(TASK_BATCH_LIMIT),
 });
 
 export const tasksBatchResponseSchema = type({ tasks: boardTaskSchema.array() });

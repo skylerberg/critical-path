@@ -7,7 +7,7 @@ export type ProjectView = 'board' | 'graph';
 // `cpath project show <alias>` failed outright for 1 project in 64. Base62
 // needs the same 22 characters for 128 bits (62^22 > 2^128), so the fix costs
 // no length — only the bit-slicing, which base62 cannot use. Kept identical to
-// the CLI's copy in critical-path-api/cli/src/short-links.ts.
+// the CLI's copy in `cli/src/short-links.ts`.
 const ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
 const BASE = BigInt(ALPHABET.length);
 const ALIAS_LENGTH = 22;

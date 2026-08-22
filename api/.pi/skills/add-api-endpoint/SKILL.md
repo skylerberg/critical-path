@@ -13,15 +13,13 @@ are in `src/routes/tasks.ts` and `src/routes/projects.ts`.
 
 In `src/index.ts`, `app.route('/api/<prefix>', <router>))`. Upload routes that
 need a larger body get a **second** `app.route` on the same prefix so a
-route-level `bodyLimit` runs before the global cap (see `imageUploadRouter`,
-`avatarUploadRouter`).
+route-level `bodyLimit` runs before the global cap (see `avatarUploadRouter`).
 
 ## 2. Transaction
 
 POST/PUT/PATCH/DELETE handlers run inside `transactionMiddleware` (already
-applied globally). Read and write through `c.get('db')` — **never** import
-`db` directly in a handler. Opt out only with the `skipAutoTransaction` marker
-middleware. Post-commit work (e.g. deleting storage objects) goes through
+applied globally), and there is no opt-out. Read and write through
+`c.get('db')` — **never** import `db` directly in a handler. Post-commit work (e.g. deleting storage objects) goes through
 `c.get('postCommitHooks')`, so it does not run on rollback.
 
 ## 3. Client-supplied id (POST)
@@ -58,8 +56,8 @@ normalize fail-closed: anything not exactly `editor` reads as `viewer`.
 - **Mutations** assert write: `assertProjectWrite` / `assertTaskWrite`.
 
 **404 for a caller with no access; 403 only for a caller who can already read
-the row** (a viewer attempting a mutation). A new mutating route that asserts
-only access is a defect. The owner-only 403s are `PUT /api/projects/:id/owner`
+the row** (a viewer attempting a mutation). A mutating route that asserts only
+access is a defect. The owner-only 403s are `PUT /api/projects/:id/owner`
 and `DELETE /api/projects/:id`. Comments are the deliberate exception: viewers
 may post/edit/delete their own, so comment handlers assert **access**, not
 write.
@@ -75,12 +73,12 @@ Every mutation publishes an event via `publishAfterCommit` from
 `src/services/realtime` (runs as a post-commit hook, so nothing is published on
 rollback). Snapshot `recipientUserIds` inside the transaction for events about
 rows/access that are gone post-commit (`project_deleted`, membership evictions);
-events about live rows rely on the delivery layer's per-event access re-check.
+for live rows the delivery layer re-checks access per event.
 The event catalog and envelope are in `README.md`.
 
 ## 9. Response shape
 
-Mutations with no useful body return `c.body(null, 204)`. Otherwise return the
+A mutation with no useful body returns `c.body(null, 204)`. Otherwise return the
 documented shape (e.g. the board task shape from `fetchBoardTaskRows`).
 
 ## 10. After the code

@@ -13,6 +13,7 @@ import {
   MAX_SOCKETS_PER_ADDRESS,
   MAX_SOCKETS_PER_USER,
 } from '../../src/services/realtime/transport';
+import { HEARTBEAT_INTERVAL_MS } from '../../src/services/realtime/heartbeat';
 import { MAX_SUBSCRIPTIONS_PER_SOCKET } from '../../src/services/realtime/state';
 
 // Ceilings are the part of the documentation a reader acts on — an operator
@@ -110,6 +111,26 @@ const LIMITS: DocumentedLimit[] = [
     value: MAX_SUBSCRIPTIONS_PER_SOCKET,
     phrase: (v) => `${String(v)} subscriptions`,
     documents: BOTH,
+  },
+  {
+    // Quoted in seconds in all three sentences below, which is how an integrator
+    // reads it; the constant is milliseconds because setInterval is.
+    what: 'socket heartbeat interval',
+    value: HEARTBEAT_INTERVAL_MS,
+    phrase: (v) => `every ${String(v / 1000)} seconds`,
+    documents: README_ONLY,
+  },
+  {
+    what: 'socket heartbeat interval (token-activity wording)',
+    value: HEARTBEAT_INTERVAL_MS,
+    phrase: (v) => `${String(v / 1000)}-second heartbeat`,
+    documents: README_ONLY,
+  },
+  {
+    what: 'socket heartbeat interval (agent-facing wording)',
+    value: HEARTBEAT_INTERVAL_MS,
+    phrase: (v) => `heartbeat every ${String(v / 1000)}s`,
+    documents: [{ name: 'CLAUDE.md', text: claudeMd }],
   },
 ];
 

@@ -57,10 +57,10 @@ function changedTasks(userId: string, project: ProjectRef): RawBuilder<{ id: str
 // carrying both, because the two forms plan nothing alike. Asked as one, the
 // arms correlate only on `changed.id`, and the planner hoists each into a hash
 // of everything in task_activity and task_comment that clears the seen marker —
-// rebuilt once per project. For a caller in 160 projects that was a sequential
-// scan of both tables 160 times over: ~350k buffer hits and 800ms for a screen
-// that should cost single-digit milliseconds. Split, each arm drives its own
-// (task_id, created_at) index and stops at the first hit.
+// rebuilt once per project. Measured at ~350k buffer hits and 800ms for a screen
+// that should cost single-digit milliseconds; docs/scaling.md carries the
+// numbers and the query plans. Split, each arm drives its own (task_id,
+// created_at) index and stops at the first hit.
 //
 // The two forms answer identically: ∃x.(P(x) ∨ Q(x)) is ∃x.P(x) ∨ ∃x.Q(x).
 export function hasUnseenChanges(userId: string): RawBuilder<boolean> {

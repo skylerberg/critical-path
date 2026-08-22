@@ -1,8 +1,8 @@
-// Alphanumeric, not base64url: a base64url alias can begin with '-', and an
-// argument that begins with '-' is an option to every CLI parser there is, so
-// `cpath project show <alias>` failed outright for 1 project in 64. Base62
-// needs the same 22 characters for 128 bits (62^22 > 2^128), so the fix costs
-// no length — only the bit-slicing, which base62 cannot use.
+// Alphanumeric, not base64url, because an alias beginning with '-' is an option
+// to every CLI parser there is and `cpath project show <alias>` failed outright
+// for 1 project in 64. Why base62 costs no length, and what the fixed width
+// buys, is recorded once in web/src/lib/short-links.ts; this file is kept
+// identical to it.
 const ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
 const BASE = BigInt(ALPHABET.length);
 const ALIAS_LENGTH = 22;
@@ -19,8 +19,8 @@ export function encodeId(uuid: string): string {
     throw new TypeError(`Not a UUID: ${uuid}`);
   }
   let value = BigInt(`0x${uuid.replace(/-/g, '')}`);
-  // Fixed width rather than the shortest form: padding with the zero digit is
-  // what keeps every alias 22 characters and the encoding a bijection.
+  // Fixed width rather than the shortest form, for the reason the web copy
+  // records.
   const digits = new Array<string>(ALIAS_LENGTH);
   for (let i = ALIAS_LENGTH - 1; i >= 0; i--) {
     digits[i] = ALPHABET[Number(value % BASE)];
@@ -29,12 +29,9 @@ export function encodeId(uuid: string): string {
   return digits.join('');
 }
 
-// 22 base62 characters address about eight times as many values as a uuid has,
-// so a well-formed alias can still name nothing. That is the range check below,
-// and it is the whole of canonicality here: fixed-width big-endian base62 gives
-// each id exactly one spelling, unlike the base64url scheme this replaced,
-// where four spare bits gave every id fifteen. Null rather than a throw: this
-// runs on whatever the user typed.
+// 22 base62 characters address more values than a uuid has, so a well-formed
+// alias can still name nothing; the range check below is the whole of
+// canonicality. Null rather than a throw: this runs on whatever the user typed.
 export function decodeId(alias: string): string | null {
   if (!ALIAS_RE.test(alias)) {
     return null;

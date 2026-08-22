@@ -62,6 +62,7 @@ import {
   idSchema,
   createTaskSchema,
   createTasksBatchSchema,
+  TASK_BATCH_LIMIT,
   tasksBatchResponseSchema,
   patchTaskSchema,
   taskDetailResponseSchema,
@@ -314,7 +315,8 @@ router.post(
     tags: ['Tasks'],
     summary: 'Create tasks in bulk',
     description:
-      'Create between 1 and 100 tasks in one column of one project in a single request, for ' +
+      `Create between 1 and ${String(TASK_BATCH_LIMIT)} tasks in one column of one project in ` +
+      'a single request, for ' +
       'pasting a list. The client supplies every task id, so a retry after a dropped response ' +
       'cannot double-create. Each item carries only a title and a position: descriptions, ' +
       'due dates, labels and assignees are set afterwards with the single-task endpoints. ' +

@@ -25,6 +25,12 @@ type CloseAction = 'revalidate' | 'yield';
 // The record is the contract: a code added to the API's table widens the
 // generated union and this stops compiling, and one removed leaves an excess
 // key. Either way the change surfaces here rather than as a socket nobody routed.
+//
+// cpath keeps the twin of this table in cli/src/watch.ts. The two are not meant
+// to be one module and could not be: what each client then DOES about a code
+// differs, since a tab can stand down and wait to be looked at where a process
+// someone started has to say why it stopped. Routing the same set of codes is
+// the part that has to agree, and the generated union is what makes it.
 const CLOSE_ACTIONS: Record<RealtimeCloseCode, CloseAction> = {
   4401: 'revalidate',
   4429: 'yield',
@@ -193,9 +199,9 @@ class RealtimeClient {
   #onMessage(raw: unknown): void {
     // Ahead of every guard below, because the fact being recorded is that a
     // frame arrived at all — a type this client does not know still crossed the
-    // network. The API heartbeats every 30s, so this answers the reachability
-    // question continuously and for free, which matters because the reads that
-    // would otherwise answer it are skipped exactly while this socket is up.
+    // network. The API heartbeats on an interval of its own, so this answers the
+    // reachability question continuously and for free, which matters because the
+    // reads that would otherwise answer it are skipped while this socket is up.
     connectivity.noteReached();
     if (typeof raw !== 'string') {
       return;
