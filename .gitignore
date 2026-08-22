@@ -1,0 +1,10 @@
+# Root-level only, deliberately. Every pattern here is anchored with a leading
+# slash: an unanchored one (`node_modules`, `dist`) matches at every depth and
+# would silently widen what the four per-package .gitignore files already do,
+# each of which is tuned to its own package and travels with it.
+#
+# There is no root package and never will be — four packages, four lockfiles, no
+# pnpm workspace (see CLAUDE.md). A node_modules here means someone ran an
+# install at the root, which installs nothing and helps nobody; it is ignored so
+# it cannot be committed, not because it is expected.
+/node_modules/

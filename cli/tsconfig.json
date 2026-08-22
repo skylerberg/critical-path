@@ -1,4 +1,31 @@
 {
-  "extends": "../tsconfig.json",
-  "include": ["src/**/*", "tests/**/*"]
+  // Self-contained since the hoist: cli/ is a sibling of api/, not a directory
+  // inside it, so there is no parent tsconfig to inherit these from. Keep the
+  // options in step with api/tsconfig.json — cli/tests import api/src.
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noImplicitReturns": true,
+    "noFallthroughCasesInSwitch": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "noEmit": true,
+    "resolveJsonModule": true,
+    "lib": ["ESNext"],
+    // cli/tests are executed by the api package's vitest, so these two resolve
+    // from api/node_modules at run time. Before the hoist tsc found them by
+    // walking up out of cli/; now it has to be told. A new import from api's
+    // tree fails here loudly rather than silently, which is the right way round.
+    "paths": {
+      "vitest": ["../api/node_modules/vitest"],
+      "@hono/node-server": ["../api/node_modules/@hono/node-server"]
+    }
+  },
+  "include": ["src/**/*", "tests/**/*"],
+  "exclude": ["**/node_modules", "**/dist"]
 }

@@ -13,13 +13,36 @@
     "forceConsistentCasingInFileNames": true,
     "noEmit": true,
     "resolveJsonModule": true,
-    "lib": ["ESNext"]
+    "lib": ["ESNext"],
+    // ../cli files are compiled with THESE options, and cli/ has no
+    // node_modules of its own for vitest or @hono/node-server. Before the
+    // hoist, resolution walked up out of api/cli and found them here; from a
+    // sibling it walks to the monorepo root and finds nothing, so tsc reports
+    // "cannot find module" on every cli test file. Mapping them rather than
+    // adding them to cli/package.json is deliberate: the suite runs from api/,
+    // so api/node_modules is what resolves at runtime too, and a second copy
+    // under cli/ would put two vitest instances in the resolver's path.
+    "paths": {
+      "vitest": ["./node_modules/vitest"],
+      "@hono/node-server": ["./node_modules/@hono/node-server"]
+    }
   },
-  // cli/ is a separate package with its own lock and node_modules, but it
+  // ../cli is a sibling package with its own lock and node_modules, but it
   // belongs to this TypeScript project so that an editor resolves its files
   // against these options. Left out, every cli file falls back to an inferred
   // project with no module resolution, and reads as a wall of "cannot find
-  // module" that has nothing to do with the code.
-  "include": ["src/**/*", "tests/**/*", "scripts/**/*", "vitest.config.ts", "cli/**/*", "bench/**/*"],
-  "exclude": ["**/node_modules", "**/dist"]
+  // module" that has nothing to do with the code. The path has to climb out of
+  // api/: an include pattern that matches nothing costs no diagnostic and no
+  // non-zero exit, so this silently covers zero cli files if it is ever wrong.
+  "include": [
+    "src/**/*",
+    "tests/**/*",
+    "scripts/**/*",
+    "vitest.config.ts",
+    "../cli/**/*",
+    "bench/**/*"
+  ],
+  // "**/dist" is relative to this file and so does not reach the sibling; a
+  // built cli leaks its dist/*.d.ts into this project without the second entry.
+  "exclude": ["**/node_modules", "**/dist", "../cli/dist"]
 }

@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
-import { TestContext, type TestUser } from '../../../tests/setup/testContext';
+import { TestContext, type TestUser } from '../../../api/tests/setup/testContext';
 import { COMPLETION_TIMEOUT_MS } from '../../src/commands/completion';
 import { completionCachePath } from '../../src/completion/cache';
 import { createCliHarness, type CliHarness } from './helpers';

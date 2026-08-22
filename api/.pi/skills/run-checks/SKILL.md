@@ -3,7 +3,7 @@ name: run-checks
 description: Run the full pre-finish check suite for the Critical Path API repo. Use before declaring work done or opening a PR — type-check, lint, format, the test suite, and the CLI sub-package checks. Includes the local-data safety rule.
 ---
 
-# Run checks (critical-path-api)
+# Run checks (api package)
 
 Run all of these before declaring done. CI runs the same set (`.github/workflows/ci.yaml`).
 
@@ -14,7 +14,7 @@ pnpm run type-check       # tsc over src/, tests/, scripts/, vitest.config.ts
 pnpm run lint             # eslint src tests
 pnpm run format:check     # prettier --check
 pnpm test                 # vitest against game_dev_test (loads .env.test)
-pnpm -C cli run check   # CLI: type-check + lint + format:check
+pnpm -C ../cli run check   # CLI: type-check + lint + format:check
 ```
 
 Run `pnpm run lint:fix` / `pnpm run format` to autofix, then re-check. The repo
@@ -37,10 +37,11 @@ must never be wiped, truncated, or bulk-deleted. Only `game_dev_test` /
 ## If you changed the API surface
 
 A changed request/response shape requires regenerating the web and CLI clients
-— run the `change-api-schema` skill, then re-run `pnpm -C cli run check`.
+— run the `change-api-schema` skill, then re-run `pnpm -C ../cli run check`.
 
 ## CLI worktree note
 
 A worktree installs its own dependencies (`scripts/new-worktree.sh` does this,
 once per package), so run the CLI checks from the worktree — the root
-`pnpm test` also drives the CLI e2e suites.
+`pnpm test` also drives the CLI e2e suites: vitest.config.ts includes
+`../cli/tests/**/*.test.ts`, reaching out of this package into the sibling.

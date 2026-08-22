@@ -1,6 +1,6 @@
-// Locating and freshness-checking a generated document from the API repo. Shared
-// by both generators, which differ only in which document they read and what
-// they emit from it.
+// Locating and freshness-checking a generated document from the api package.
+// Shared by both generators, which differ only in which document they read and
+// what they emit from it.
 
 import { readFile, stat } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
@@ -8,66 +8,41 @@ import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 
-// The api repo's name, and what generated output is labeled with. A constant
-// rather than whatever directory supplied the document: a worktree's directory is
-// named for its branch and an API_REPO_DIR override is one machine's path, and
-// neither belongs in the header of a committed file.
-const API_REPO_NAME = 'critical-path-api';
-
-// Where to look for that repo on disk, and nothing more. A bare name is resolved
-// against every ancestor of this script and against the main checkout; an
-// absolute path is taken as given, which is how a change spanning both repos
-// points at an api worktree instead of the main checkout sitting beside it.
-const API_REPO_DIR = process.env.API_REPO_DIR || API_REPO_NAME;
 const __dirname = dirname(fileURLToPath(import.meta.url));
+
+// The api package, by fixed relative path: this directory is two levels under
+// the repository root and api is this package's sibling there. Nothing is
+// searched for and nothing is overridable, because one commit now holds both
+// sides of every schema change — the document that describes the api sources in
+// this working tree is the only one this app should ever be generated from.
+const API_DIR = resolve(__dirname, '..', '..', 'api');
+
+// What generated output is labeled with. Repo-relative and constant, so a
+// committed header records which package answered rather than one machine's
+// path — and so a header naming a URL instead is visible at a glance.
+const API_LABEL = 'api';
 
 // The deployed API, not a dev server: a dev server is whatever build someone last
 // started and nothing here can tell how old it is, which is exactly how a client
 // drifts releases behind without anyone noticing.
-export const API_ORIGIN = process.env.API_ORIGIN || 'https://criticalpath.skylerberg.com';
+const API_ORIGIN = process.env.API_ORIGIN || 'https://criticalpath.skylerberg.com';
 
-// The API repo is a sibling of the *main* checkout, which a worktree outside the
-// repository cannot reach by walking up. Ask git where the main checkout is and
-// look beside that too, so a worktree anywhere on disk still finds the document
-// rather than silently falling back to the network.
-function mainCheckout() {
-  try {
-    const gitDir = execFileSync(
-      'git',
-      ['rev-parse', '--path-format=absolute', '--git-common-dir'],
-      { cwd: __dirname, encoding: 'utf8' }
-    ).trim();
-    return gitDir === '' ? null : dirname(gitDir);
-  } catch {
-    return null;
-  }
-}
+// Reading the deployed API is for generating a client outside this repository,
+// which is impossible-by-construction for the app that lives in it. So it is
+// opt-in and never a fallback: unreachable sources fail the run instead. It was
+// the automatic last resort once, and a lookup that stopped resolving therefore
+// regenerated this app's client from production — one header line, in a file
+// thousands of lines long, was the only tell.
+const ALLOW_REMOTE = process.env.ALLOW_REMOTE_SPEC === '1';
 
-function findApiRoot() {
-  const roots = [];
-  for (let dir = __dirname; ; ) {
-    roots.push(dir);
-    const parent = dirname(dir);
-    if (parent === dir) break;
-    dir = parent;
-  }
-  const main = mainCheckout();
-  if (main !== null) roots.push(main, dirname(main));
-  for (const dir of roots) {
-    const candidate = resolve(dir, API_REPO_DIR);
-    if (existsSync(resolve(candidate, 'package.json'))) return candidate;
-  }
-  return null;
-}
-
-// Which package script in the api repo produces each document.
+// Which package script in the api package produces each document.
 const DUMP_SCRIPTS = {
   'openapi.json': 'openapi:dump',
   'realtime-events.json': 'realtime:dump',
 };
 
 // Re-dumping beats deciding whether the dump is stale. Both dumps are pure
-// functions of the api repo's source — no database, under two seconds — so
+// functions of the api package's source — no database, under two seconds — so
 // producing one on the spot is cheaper than being wrong about it, and it is the
 // only answer that cannot be a false alarm in either direction.
 //
@@ -89,11 +64,9 @@ function redump(apiRoot, filename) {
   }
 }
 
-// Absolute, and printed on every local read: which checkout answered is the one
-// thing the output never used to say, and a run that quietly reads the main
-// checkout while the change under test sits in a worktree beside it looks exactly
-// like a run that worked. It also names writing into another checkout, which is a
-// side effect worth reporting even though the file is gitignored there.
+// Absolute, and printed on every local read: which document answered is the one
+// thing the output never used to say, and a run that read the wrong one looks
+// exactly like a run that worked.
 function announce(dumpPath, redumped) {
   console.log(`${redumped ? 'Re-dumped' : 'Reading existing'} ${dumpPath}`);
 }
@@ -101,91 +74,93 @@ function announce(dumpPath, redumped) {
 // A stale document silently drops whole endpoints from the client, and the result
 // only fails under svelte-check — never under vitest, which strips types.
 //
-// `redumped` says the file was just produced from this checkout, which settles
-// the question exactly; the mtime comparison below is only for when that was not
-// possible. It reads the dump's mtime against the newest file that determines it.
-// Comparing against the HEAD commit date instead calls a good dump stale after
-// any merge or pull, since HEAD moves whether or not anything under src/ did —
-// and even against the sources it is only a proxy, because reverting a file
-// rewrites it without changing what it says.
+// `redumped` says the file was just produced from the sources in this working
+// tree, which settles the question exactly; the mtime comparison below is only
+// for when that was not possible. It reads the dump's mtime against the newest
+// file that determines it. Comparing against the HEAD commit date instead calls a
+// good dump stale after any merge or pull, since HEAD moves whether or not
+// anything under the api package's src did — and even against the sources it is
+// only a proxy, because reverting a file rewrites it without changing what it
+// says.
 async function assertIsFresh(path, { redumped }) {
+  if (redumped) return;
   const apiRoot = dirname(path);
-  const git = (args) => execFileSync('git', ['-C', apiRoot, ...args], { encoding: 'utf8' }).trim();
 
-  if (!redumped) {
-    let sources;
-    try {
-      sources = git(['ls-files', 'src']).split('\n').filter(Boolean);
-    } catch {
-      return;
-    }
-
-    const { mtime } = await stat(path);
-    let newest = null;
-    for (const relative of sources) {
-      const stats = await stat(resolve(apiRoot, relative)).catch(() => null);
-      if (stats !== null && (newest === null || stats.mtime > newest.mtime)) {
-        newest = { mtime: stats.mtime, relative };
-      }
-    }
-    if (newest !== null && mtime < newest.mtime) {
-      throw new Error(
-        `${path} was written ${mtime.toISOString()}, older than ${newest.relative} ` +
-          `(${newest.mtime.toISOString()}), and it could not be re-dumped automatically.\n` +
-          `Re-dump it in the api repo first, or the generated output will be missing things.`
-      );
-    }
-  }
-
-  // Survives a re-dump: dumping a checkout that is behind produces a confidently
-  // wrong document rather than a stale one, which is worse.
-  let behind;
+  let sources;
   try {
-    behind = git(['rev-list', '--count', 'HEAD..origin/main']);
+    sources = execFileSync('git', ['-C', apiRoot, 'ls-files', 'src'], { encoding: 'utf8' })
+      .trim()
+      .split('\n')
+      .filter(Boolean);
   } catch {
     return;
   }
-  if (behind !== '0') {
+
+  const { mtime } = await stat(path);
+  let newest = null;
+  for (const relative of sources) {
+    const stats = await stat(resolve(apiRoot, relative)).catch(() => null);
+    if (stats !== null && (newest === null || stats.mtime > newest.mtime)) {
+      newest = { mtime: stats.mtime, relative };
+    }
+  }
+  if (newest !== null && mtime < newest.mtime) {
     throw new Error(
-      `${apiRoot} is ${behind} commit(s) behind origin/main, so ${path} cannot describe them.\n` +
-        `Run \`git pull\` there, then regenerate.`
+      `${path} was written ${mtime.toISOString()}, older than ${newest.relative} ` +
+        `(${newest.mtime.toISOString()}), and it could not be re-dumped automatically.\n` +
+        `Dump it in the api package first, or the generated output will be missing things.`
     );
   }
 }
 
+function missingApiPackage(filename) {
+  return new Error(
+    `No api package at ${API_DIR}, so ${filename} cannot be produced from this checkout.\n` +
+      `It is a fixed path within this repository and is expected to exist; a missing one ` +
+      `means the checkout is incomplete.\n` +
+      `To generate against the deployed API on purpose — which describes a release, not ` +
+      `this working tree — set ALLOW_REMOTE_SPEC=1 (optionally with API_ORIGIN).`
+  );
+}
+
+async function fetchDocument(target) {
+  const res = await fetch(target);
+  if (!res.ok) {
+    throw new Error(`Failed to fetch ${target}: HTTP ${res.status}`);
+  }
+  return { doc: await res.json(), source: target };
+}
+
 /**
- * Load a document by explicit path, then a sibling checkout's dump, then the
- * deployed API. Only the dump can be freshness-checked, so it wins over the
- * network whenever one is present.
+ * Load a document from the api package in this repository. An explicit path or
+ * URL overrides that; the deployed API is reached only when asked for, never as
+ * a fallback.
  */
 export async function loadDocument({ filename, urlPath, path, url }) {
   // Labeled by repo-relative name rather than the path it was read from, so the
   // header of a committed generated file does not record one machine's checkout.
-  const label = `${API_REPO_NAME}/${filename}`;
+  const label = `${API_LABEL}/${filename}`;
   if (path) {
     const redumped = redump(dirname(path), filename);
     announce(path, redumped);
     await assertIsFresh(path, { redumped });
     return { doc: JSON.parse(await readFile(path, 'utf8')), source: label };
   }
-  if (!url) {
-    const apiRoot = findApiRoot();
-    if (apiRoot !== null) {
-      const dumped = resolve(apiRoot, filename);
-      const redumped = redump(apiRoot, filename);
-      // A repo that has never been dumped and could not be dumped now has
-      // nothing to read, so fall through to the network rather than failing.
-      if (redumped || existsSync(dumped)) {
-        announce(dumped, redumped);
-        await assertIsFresh(dumped, { redumped });
-        return { doc: JSON.parse(await readFile(dumped, 'utf8')), source: label };
-      }
-    }
+  if (url) return fetchDocument(url);
+  if (!existsSync(API_DIR)) {
+    if (ALLOW_REMOTE) return fetchDocument(`${API_ORIGIN}${urlPath}`);
+    throw missingApiPackage(filename);
   }
-  const target = url || `${API_ORIGIN}${urlPath}`;
-  const res = await fetch(target);
-  if (!res.ok) {
-    throw new Error(`Failed to fetch ${target}: HTTP ${res.status}`);
+  const dumped = resolve(API_DIR, filename);
+  const redumped = redump(API_DIR, filename);
+  if (!redumped && !existsSync(dumped)) {
+    throw new Error(
+      `${dumped} does not exist and \`pnpm run ${DUMP_SCRIPTS[filename]}\` in ${API_DIR} failed.\n` +
+        `Install the api package's dependencies and give it a .env, then retry — the dump ` +
+        `needs neither a database nor a running server.`
+    );
   }
-  return { doc: await res.json(), source: target };
+  announce(dumped, redumped);
+  await assertIsFresh(dumped, { redumped });
+  return { doc: JSON.parse(await readFile(dumped, 'utf8')), source: label };
 }

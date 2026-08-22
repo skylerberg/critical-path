@@ -2,7 +2,7 @@ import { describe, it, expect, afterAll, beforeAll } from 'vitest';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { TestContext, type TestUser } from '../../../tests/setup/testContext';
+import { TestContext, type TestUser } from '../../../api/tests/setup/testContext';
 import { createCliHarness, type CliHarness } from './helpers';
 import { markdownToTiptap } from '../../src/markdown';
 import type { components } from '../../src/api/api.generated';

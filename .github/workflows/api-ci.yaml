@@ -1,9 +1,24 @@
-name: CI
+name: API CI
 
+# Scoped to the packages this workflow actually checks. The api suite runs
+# cli/tests/** too, and the images job builds the preview-edge image, so a
+# change to either of those packages has to land here as well.
 on:
   push:
     branches: [main]
+    paths:
+      - 'api/**'
+      - 'cli/**'
+      - 'preview-edge/**'
+      - '.github/workflows/api-ci.yaml'
+      - '.github/workflows/api-deploy.yaml'
   pull_request:
+    paths:
+      - 'api/**'
+      - 'cli/**'
+      - 'preview-edge/**'
+      - '.github/workflows/api-ci.yaml'
+      - '.github/workflows/api-deploy.yaml'
 
 jobs:
   # Fast, DB-free checks. Runs in parallel with the test shards below, so a
@@ -18,20 +33,22 @@ jobs:
         with:
           node-version: '24'
           cache: 'pnpm'
+          # Two lockfiles, neither of them web's: the resulting hash is what
+          # keeps this cache entry distinct from web-ci's.
           cache-dependency-path: |
-            pnpm-lock.yaml
+            api/pnpm-lock.yaml
             cli/pnpm-lock.yaml
-      - run: pnpm install --frozen-lockfile
+      - run: pnpm -C api install --frozen-lockfile
       - run: pnpm -C cli install --frozen-lockfile
-      - run: pnpm run format:check
-      - run: pnpm run lint
-      - run: pnpm run type-check
-      - run: pnpm run knip
-      # The root scripts cover src/, tests/, scripts/ and vitest.config.ts.
-      # cli/ stays separate because its imports resolve from cli/node_modules,
-      # and pnpm test runs the CLI suites through tsx, which strips types
-      # without checking them. It gets its own install above for the same
-      # reason it has its own lockfile.
+      - run: pnpm -C api run format:check
+      - run: pnpm -C api run lint
+      - run: pnpm -C api run type-check
+      - run: pnpm -C api run knip
+      # The api scripts cover api/src, api/tests, api/scripts and
+      # api/vitest.config.ts. cli/ stays separate because its imports resolve
+      # from cli/node_modules, and pnpm test runs the CLI suites through tsx,
+      # which strips types without checking them. It gets its own install above
+      # for the same reason it has its own lockfile.
       - run: pnpm -C cli run check
 
   # The suite runs with vitest fileParallelism:false: files within a run share
@@ -80,16 +97,17 @@ jobs:
           node-version: '24'
           cache: 'pnpm'
           cache-dependency-path: |
-            pnpm-lock.yaml
+            api/pnpm-lock.yaml
             cli/pnpm-lock.yaml
-      - run: pnpm install --frozen-lockfile
-      # The suite includes cli/tests/**, whose imports (commander,
+      - run: pnpm -C api install --frozen-lockfile
+      # The suite includes the CLI tests, whose imports (commander,
       # openapi-fetch, mdast-*) resolve from cli/node_modules.
       - run: pnpm -C cli install --frozen-lockfile
       # Node's --env-file hard-errors when the file is missing, so write it.
+      # It is read with a path relative to api/, which is where the suite runs.
       - name: Write .env.test
         run: |
-          cat > .env.test <<'EOF'
+          cat > api/.env.test <<'EOF'
           DB_HOSTNAME=127.0.0.1
           DB_PORT=5432
           DB_USER=postgres
@@ -103,7 +121,13 @@ jobs:
       # into the script's argv, where vitest reads it as end-of-options and
       # ignores everything after — so `pnpm test -- --shard=1/4` silently runs
       # the whole suite in every shard and passes.
-      - run: pnpm test --shard=${{ matrix.shard }}/${{ strategy.job-total }}
+      #
+      # working-directory rather than `-C api`, so the invocation pnpm's
+      # argument forwarding is known to handle is byte-for-byte the one that
+      # ran before the move. Everything else here uses `-C` because it has to
+      # reach more than one package.
+      - working-directory: api
+        run: pnpm test --shard=${{ matrix.shard }}/${{ strategy.job-total }}
 
   preview-edge:
     runs-on: ubuntu-latest
@@ -120,7 +144,9 @@ jobs:
 
   # The Dockerfiles are otherwise unverified until a merge to main triggers a
   # production build and push. Build both here, without pushing, so a broken
-  # image fails on the pull request instead.
+  # image fails on the pull request instead. Each context is the package
+  # directory, which is also what makes docker read that package's
+  # .dockerignore.
   images:
     runs-on: ubuntu-latest
     steps:
@@ -131,7 +157,7 @@ jobs:
       - name: 'Build API image'
         uses: docker/build-push-action@v7
         with:
-          context: .
+          context: api
           push: false
           cache-from: 'type=gha,scope=api'
           cache-to: 'type=gha,mode=max,scope=api'

@@ -1,9 +1,9 @@
 import { describe, it, expect, afterAll, beforeAll } from 'vitest';
-import { TestContext, type TestUser } from '../../../tests/setup/testContext';
+import { TestContext, type TestUser } from '../../../api/tests/setup/testContext';
 import { createCliHarness, type CliHarness } from './helpers';
 import type { components } from '../../src/api/api.generated';
 
-import { rankKey } from '../../../tests/helpers/fixtures';
+import { rankKey } from '../../../api/tests/helpers/fixtures';
 type Comment = components['schemas']['Comment'];
 
 describe('comment commands', () => {

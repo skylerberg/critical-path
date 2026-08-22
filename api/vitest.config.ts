@@ -40,7 +40,14 @@ export default defineConfig({
     // not run concurrently; this also forces a single worker.
     fileParallelism: false,
     env: { TEST_DB_BASE: base, DB_DATABASE: database, DB_POOL_MAX: poolMax },
-    include: ['tests/e2e/**/*.test.ts', 'tests/unit/**/*.test.ts', 'cli/tests/**/*.test.ts'],
+    // cli/ is a sibling package in this monorepo, not a subdirectory: its tests
+    // run in this suite, so the glob has to climb out of api/. Pointed at a
+    // path that does not exist, vitest collects nothing from it and exits 0.
+    include: [
+      'tests/e2e/**/*.test.ts',
+      'tests/unit/**/*.test.ts',
+      '../cli/tests/**/*.test.ts',
+    ],
     globalSetup: ['./tests/setup/globalSetup.ts'],
     setupFiles: ['./tests/setup/assertTestDatabase.ts', './tests/setup/resetProcessState.ts'],
     coverage: {

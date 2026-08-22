@@ -13,7 +13,11 @@ import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 
-const API_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
+const CLI_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+
+// cli/ and api/ are sibling packages; the dumps are produced by api/ and land there.
+export const REPO_ROOT = resolve(CLI_ROOT, '..');
+export const API_ROOT = resolve(REPO_ROOT, 'api');
 
 export function redump(script) {
   try {

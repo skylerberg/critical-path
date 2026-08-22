@@ -1,5 +1,8 @@
 #!/bin/sh
-# Auto-fix lintable issues in the files just committed, then amend.
+# Auto-fix lintable issues in the files just committed, then amend the commit.
+# One hook for the whole monorepo: format-touched buckets the paths by package
+# and runs each package's own fixers on its own files, so a commit spanning two
+# packages gets both.
 
 if [ -n "$SKIP_POST_COMMIT" ]; then
   exit 0
@@ -17,6 +20,7 @@ if [ -d "$(git rev-parse --git-path rebase-merge)" ] ||
   exit 0
 fi
 
+# The union of every package's extensions; format-touched narrows per package.
 files=$(git diff-tree --no-commit-id --name-only -r HEAD | grep -E '\.(ts|svelte|mjs)$')
 [ -z "$files" ] && exit 0
 

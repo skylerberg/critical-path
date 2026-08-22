@@ -3,7 +3,7 @@ name: run-checks
 description: Run the checks for the Critical Path web repo (Svelte 5 + Vite). Use before opening a PR — which mostly means running the few checks that cover what you changed and letting CI run the rest.
 ---
 
-# Run checks (critical-path-web)
+# Run checks (web package)
 
 `pnpm run check:all` is the whole gate, and CI runs exactly that
 (`.github/workflows/ci.yaml` is one step). `package.json` is where the list

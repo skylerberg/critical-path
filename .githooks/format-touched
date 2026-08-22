@@ -1,0 +1,146 @@
+#!/bin/sh
+# Run each package's fixers over the named files and fold the result into HEAD.
+# Shared by post-commit and post-rewrite, which differ only in how they arrive at
+# the file list and in when amending HEAD is safe.
+#
+# Arguments are repo-root-relative paths, which is what git reports. There is no
+# repo-root node_modules and deliberately never will be (four packages, four
+# lockfiles, no pnpm workspace), so a path is bucketed by its first segment and
+# each bucket runs through `pnpm -C <pkg> exec`. That runs with cwd=<pkg>, so the
+# bucket's paths go in with the package prefix stripped — handing it api/src/x.ts
+# would make it look for api/api/src/x.ts and find nothing, silently. Dispatching
+# is not cosmetic either: only web's prettier has prettier-plugin-svelte, so a
+# .svelte file sent to api's exits on "Cannot find package".
+
+[ $# -eq 0 ] && exit 0
+
+# Hooks already start at the top of the working tree, but only ever having to
+# reason about one cwd is worth the two lines. GIT_DIR is absolutized first
+# because git hands it to a hook relative ('.git'), and that stops meaning this
+# repository the moment anything cd's.
+if [ -n "$GIT_DIR" ] && [ -d "$GIT_DIR" ]; then
+  GIT_DIR=$(cd "$GIT_DIR" && pwd)
+  export GIT_DIR
+fi
+root=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
+[ -n "$root" ] || exit 0
+cd "$root" || exit 0
+
+# Both fixers search upward from the file for their config, so cli/ inherited
+# api's for as long as it was nested inside it. Hoisted to a sibling it inherits
+# nothing, and there is no repo-root config for it to reach — a root
+# eslint.config.js or .prettierrc would be read by all four packages, which is
+# the opposite of what four separate packages means. eslint at least exits 2 with
+# no config; prettier just reformats the whole file to its own defaults, every
+# line changed and exit 0. So a fixer only runs where the package owns its
+# config.
+has_config() {
+  hc_dir=$1
+  case $2 in
+    eslint) hc_names='eslint.config.js eslint.config.mjs eslint.config.cjs eslint.config.ts' ;;
+    # Config files only, deliberately: prettier also reads a top-level "prettier"
+    # key in package.json, and no grep tells that key apart from the "prettier"
+    # devDependency every one of these packages already has. All four keep the
+    # .prettierrc.json convention, so this is the honest test.
+    prettier)
+      hc_names='.prettierrc .prettierrc.json .prettierrc.json5 .prettierrc.yaml .prettierrc.yml .prettierrc.js .prettierrc.mjs .prettierrc.cjs prettier.config.js prettier.config.mjs prettier.config.cjs prettier.config.ts'
+      ;;
+    *) return 1 ;;
+  esac
+  for hc_name in $hc_names; do
+    [ -f "$hc_dir/$hc_name" ] && return 0
+  done
+  return 1
+}
+
+# eslint exits 1 when problems remain after --fix and 2 when it could not run at
+# all; prettier exits 1 on a file it cannot parse and 2 on an internal error. The
+# old hooks ended every fixer line with `|| true`, which made a hook wired to the
+# wrong directory look exactly like a working one — the failure this layout
+# invites — so only the "problems remain" status stays quiet. Nothing here fails
+# the commit: git ignores a post-commit exit status anyway, so noise is the only
+# lever there is.
+run_fixer() {
+  rf_pkg=$1
+  rf_tool=$2
+  shift 2
+  if [ ! -x "$rf_pkg/node_modules/.bin/$rf_tool" ]; then
+    echo "githooks: no $rf_tool in $rf_pkg/node_modules — run 'pnpm -C $rf_pkg install'; files left unformatted" >&2
+    return 0
+  fi
+  if ! has_config "$rf_pkg" "$rf_tool"; then
+    echo "githooks: $rf_pkg has no $rf_tool config of its own — add one under $rf_pkg/; files left unformatted" >&2
+    return 0
+  fi
+  pnpm -C "$rf_pkg" exec "$rf_tool" "$@" && return 0
+  rf_status=$?
+  [ "$rf_status" -eq 1 ] && return 0
+  echo "githooks: $rf_tool exited $rf_status in $rf_pkg — files left unformatted" >&2
+  return 0
+}
+
+fix_package() {
+  fp_pkg=$1
+  shift
+  [ $# -eq 0 ] && return 0
+  run_fixer "$fp_pkg" eslint --fix "$@"
+  # --log-level warn: silent when it succeeds, still loud on a syntax error.
+  # Without it this prints a line per file on every commit.
+  run_fixer "$fp_pkg" prettier --write --log-level warn "$@"
+}
+
+targets=''
+api_targets=''
+web_targets=''
+cli_targets=''
+
+for f in "$@"; do
+  [ -f "$f" ] || continue
+  # Leave files with unstaged WIP alone so the amend doesn't swallow it.
+  git diff --quiet -- "$f" || continue
+  rel=${f#*/}
+  case $f in
+    # api: eslint covers src tests bench, prettier the .ts under them. No .svelte
+    # can exist here and api has no prettier-plugin-svelte to parse one.
+    api/*)
+      case $rel in
+        *.ts | *.mjs) api_targets="$api_targets $rel" ;;
+        *) continue ;;
+      esac
+      ;;
+    # web: eslint runs over the whole package and prettier over src, and both
+    # know .svelte through eslint-plugin-svelte and prettier-plugin-svelte.
+    web/*)
+      case $rel in
+        *.ts | *.svelte | *.mjs) web_targets="$web_targets $rel" ;;
+        *) continue ;;
+      esac
+      ;;
+    # cli: eslint covers src tests, prettier those plus bin/*.mjs scripts/*.mjs.
+    cli/*)
+      case $rel in
+        *.ts | *.mjs) cli_targets="$cli_targets $rel" ;;
+        *) continue ;;
+      esac
+      ;;
+    # preview-edge holds neither fixer, and a path outside every package
+    # (workflows, root docs) has none that owns it.
+    *) continue ;;
+  esac
+  targets="$targets $f"
+done
+
+[ -z "$targets" ] && exit 0
+
+fix_package api $api_targets
+fix_package web $web_targets
+fix_package cli $cli_targets
+
+changed=''
+for f in $targets; do
+  git diff --quiet -- "$f" || changed="$changed $f"
+done
+[ -z "$changed" ] && exit 0
+
+git add $changed
+SKIP_POST_COMMIT=1 git commit --amend --no-edit --no-verify

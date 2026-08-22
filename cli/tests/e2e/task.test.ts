@@ -1,9 +1,9 @@
 import { describe, it, expect, afterAll, beforeAll } from 'vitest';
-import { TestContext, type TestUser } from '../../../tests/setup/testContext';
+import { TestContext, type TestUser } from '../../../api/tests/setup/testContext';
 import { createCliHarness, type CliHarness } from './helpers';
 import { displayTitle } from '../../src/output';
 import { decodeId, encodeId, slugify } from '../../src/short-links';
-import { TASK_TITLE_MAX_LENGTH } from '../../../src/schemas/tasks';
+import { TASK_TITLE_MAX_LENGTH } from '../../../api/src/schemas/tasks';
 import type { components } from '../../src/api/api.generated';
 
 type BoardPayload = components['schemas']['BoardResponse'];

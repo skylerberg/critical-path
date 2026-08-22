@@ -6,17 +6,17 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { dirname, relative, resolve } from 'node:path';
 import openapiTS, { astToString } from 'openapi-typescript';
-import { redump } from './redump.mjs';
+import { API_ROOT, REPO_ROOT, redump } from './redump.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const SPEC_URL = process.env.SPEC_URL;
-const SPEC_PATH = process.env.SPEC_PATH ?? resolve(__dirname, '..', '..', 'openapi.json');
+const SPEC_PATH = process.env.SPEC_PATH ?? resolve(API_ROOT, 'openapi.json');
 const OUTPUT_PATH = resolve(__dirname, '..', 'src', 'api', 'api.generated.ts');
 
 const HTTP_METHODS = new Set(['get', 'post', 'put', 'patch', 'delete', 'head', 'options', 'trace']);
 
 // Repo-relative so the committed header never records an absolute checkout path.
-const source = SPEC_URL ?? relative(resolve(__dirname, '..', '..'), SPEC_PATH);
+const source = SPEC_URL ?? relative(REPO_ROOT, SPEC_PATH);
 const HEADER = `// AUTO-GENERATED FROM ${source}
 // DO NOT EDIT. Regenerate with: pnpm run generate-api
 // Deprecated operations and schemas are filtered out at generation time.
@@ -31,7 +31,7 @@ async function loadSpec() {
     return res.json();
   }
   if (process.env.SPEC_PATH === undefined && redump('openapi:dump')) {
-    console.log('Re-dumped openapi.json');
+    console.log(`Re-dumped ${SPEC_PATH}`);
   }
   return JSON.parse(await readFile(SPEC_PATH, 'utf8'));
 }

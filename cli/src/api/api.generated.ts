@@ -1,4 +1,4 @@
-// AUTO-GENERATED FROM openapi.json
+// AUTO-GENERATED FROM api/openapi.json
 // DO NOT EDIT. Regenerate with: pnpm run generate-api
 // Deprecated operations and schemas are filtered out at generation time.
 

@@ -1,17 +1,17 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { serve, type ServerType } from '@hono/node-server';
-import { app } from '../../../src/index';
+import { app } from '../../../api/src/index';
 import {
   attachRealtime,
   projectSockets,
   socketsForUser,
   type RealtimeHandle,
-} from '../../../src/services/realtime/index';
-import { TestContext, type TestUser } from '../../../tests/setup/testContext';
-import { newId } from '../../../tests/helpers/fixtures';
-import { waitFor } from '../../../tests/e2e/projects/helpers';
+} from '../../../api/src/services/realtime/index';
+import { TestContext, type TestUser } from '../../../api/tests/setup/testContext';
+import { newId } from '../../../api/tests/helpers/fixtures';
+import { waitFor } from '../../../api/tests/e2e/projects/helpers';
 import { createCliHarness, type CliHarness, type CliRunHandle, type CliRunResult } from './helpers';
-import { rankKey } from '../../../tests/helpers/fixtures';
+import { rankKey } from '../../../api/tests/helpers/fixtures';
 
 interface EventLine {
   type: string;

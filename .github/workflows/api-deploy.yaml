@@ -1,21 +1,27 @@
-name: production-deploy
-run-name: Production Deploy
+name: api-production-deploy
+run-name: API Production Deploy
 on:
   workflow_dispatch:
   push:
     branches:
       - main
     paths:
-      - 'src/**'
-      - 'package.json'
-      - 'pnpm-lock.yaml'
-      - 'pnpm-workspace.yaml'
-      - 'Dockerfile'
-      - 'k8s/**'
-      - '.github/workflows/deploy.yaml'
+      - 'api/src/**'
+      - 'api/scripts/**'
+      - 'api/package.json'
+      - 'api/pnpm-lock.yaml'
+      - 'api/pnpm-workspace.yaml'
+      - 'api/Dockerfile'
+      - 'api/k8s/**'
+      - '.github/workflows/api-deploy.yaml'
 # No cancel-in-progress: a killed run could leave a migration mid-flight.
+#
+# The group is a literal rather than '${{ github.workflow }}'. That expression
+# expands to the `name:` above, and the web deploy — which does cancel in
+# progress — used to carry the same name, so the two shared one group and a web
+# deploy could cancel an api deploy mid-migration.
 concurrency:
-  group: '${{ github.workflow }}'
+  group: 'api-production-deploy'
 jobs:
   deploy-to-production:
     runs-on: ubuntu-latest
@@ -52,19 +58,24 @@ jobs:
 
       - uses: 'docker/setup-buildx-action@v4'
 
+      # Context is api/, not the repo root: every COPY in api/Dockerfile is
+      # context-relative and names something inside api/, and this is also what
+      # makes docker read api/.dockerignore.
       - name: 'Build and push image'
         uses: 'docker/build-push-action@v7'
         with:
-          context: .
+          context: api
           push: true
           tags: '${{ env.IMAGE }}:${{ github.sha }}'
           cache-from: 'type=gha'
           cache-to: 'type=gha,mode=max'
 
       - name: 'Apply base manifests'
+        working-directory: api
         run: kubectl apply -f k8s/namespace.yaml -f k8s/serviceaccount.yaml -f k8s/redis.yaml -f k8s/pdb.yaml -f k8s/service.yaml
 
       - name: 'Run database migrations'
+        working-directory: api
         run: |
           kubectl -n critical-path delete job "critical-path-migrate-$GITHUB_SHA" --ignore-not-found
           sed "s/{COMMITHASH}/$GITHUB_SHA/g" k8s/migrate-job.yaml | kubectl apply -f -
@@ -90,6 +101,7 @@ jobs:
           exit 1
 
       - name: 'Deploy'
+        working-directory: api
         run: |
           sed "s/{COMMITHASH}/$GITHUB_SHA/g" k8s/deployment.yaml | kubectl apply -f -
           kubectl -n critical-path rollout status deployment/critical-path-api --timeout=300s

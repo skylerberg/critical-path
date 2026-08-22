@@ -2,7 +2,7 @@ import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { PassThrough } from 'node:stream';
-import { app } from '../../../src/index';
+import { app } from '../../../api/src/index';
 import { run } from '../../src/run';
 import { MemoryStore } from '../../src/credentials/memory';
 import type { CliDeps } from '../../src/context';

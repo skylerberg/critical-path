@@ -1,12 +1,19 @@
-name: production-deploy
-run-name: Production Deploy
+name: web-production-deploy
+run-name: Web Production Deploy
 on:
   workflow_dispatch:
   push:
     branches:
       - main
+    paths:
+      - 'web/**'
+      - '.github/workflows/web-deploy.yaml'
+# A literal group, not '${{ github.workflow }}': that expression expands to the
+# `name:` above, which the api deploy used to share — and cancel-in-progress
+# here would then cancel an api deploy mid-migration. The two deploys are
+# deliberately independent.
 concurrency:
-  group: '${{ github.workflow }}'
+  group: 'web-production-deploy'
   cancel-in-progress: true
 jobs:
   deploy-to-production:
@@ -14,6 +21,9 @@ jobs:
     permissions:
       contents: 'read'
       id-token: 'write'
+    defaults:
+      run:
+        working-directory: web
     env:
       BUCKET: critical-path-web-prod
 
@@ -24,6 +34,7 @@ jobs:
         with:
           node-version: '24'
           cache: 'pnpm'
+          cache-dependency-path: web/pnpm-lock.yaml
 
       - run: pnpm install --frozen-lockfile
       - run: pnpm run build
@@ -36,10 +47,12 @@ jobs:
 
       - uses: 'google-github-actions/setup-gcloud@v3'
 
+      # An action input, so the job's working-directory does not apply: the
+      # path is relative to the workspace root.
       - name: 'Upload site'
         uses: 'google-github-actions/upload-cloud-storage@v3'
         with:
-          path: 'dist'
+          path: 'web/dist'
           destination: '${{ env.BUCKET }}'
           parent: false
           process_gcloudignore: false

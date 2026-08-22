@@ -1,6 +1,6 @@
 import { describe, it, expect, afterAll, beforeAll } from 'vitest';
 import { PassThrough } from 'node:stream';
-import { TestContext, type TestUser } from '../../../tests/setup/testContext';
+import { TestContext, type TestUser } from '../../../api/tests/setup/testContext';
 import { createCliHarness, type CliHarness } from './helpers';
 import { configPath, saveConfig } from '../../src/config';
 import { createContext, type CliDeps, type GlobalFlags } from '../../src/context';

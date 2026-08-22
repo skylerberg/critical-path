@@ -1,13 +1,24 @@
-name: CI
+name: Web CI
 
 on:
   push:
     branches: [main]
+    paths:
+      - 'web/**'
+      - '.github/workflows/web-ci.yaml'
+      - '.github/workflows/web-deploy.yaml'
   pull_request:
+    paths:
+      - 'web/**'
+      - '.github/workflows/web-ci.yaml'
+      - '.github/workflows/web-deploy.yaml'
 
 jobs:
   ci:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -15,12 +26,16 @@ jobs:
         with:
           node-version: 24
           cache: pnpm
+          # Named explicitly: the default is a lockfile at the repo root, and
+          # there is none. It also keeps this cache entry distinct from the api
+          # workflows', which hash api/ and cli/ lockfiles instead.
+          cache-dependency-path: web/pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile
       - name: Cache Playwright browsers
         uses: actions/cache@v4
         with:
           path: ~/.cache/ms-playwright
-          key: ${{ runner.os }}-playwright-${{ hashFiles('pnpm-lock.yaml') }}
+          key: ${{ runner.os }}-web-playwright-${{ hashFiles('web/pnpm-lock.yaml') }}
       - run: pnpm exec playwright install --with-deps chromium
       # One step, because the list of checks belongs in package.json where the
       # docs can point at it instead of copying it. Splitting it back out buys a

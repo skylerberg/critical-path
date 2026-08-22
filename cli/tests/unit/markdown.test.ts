@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { markdownToTiptap, tiptapToMarkdown, type TiptapDoc } from '../../src/markdown';
 import { CliError, EXIT } from '../../src/api/errors';
-import { findTiptapDocProblem } from '../../../src/schemas/tiptap';
+import { findTiptapDocProblem } from '../../../api/src/schemas/tiptap';
 
 const IMAGE_UUID = '123e4567-e89b-12d3-a456-426614174000';
 const IMAGE_SRC = `/api/images/${IMAGE_UUID}`;

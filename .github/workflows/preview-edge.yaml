@@ -11,8 +11,11 @@ on:
       - '.github/workflows/preview-edge.yaml'
   workflow_dispatch:
 
+# A literal group, like the two production deploys: '${{ github.workflow }}'
+# expands to the `name:` field, which is a shared namespace now that seven
+# workflows live in one repository.
 concurrency:
-  group: '${{ github.workflow }}'
+  group: 'preview-edge-deploy'
   cancel-in-progress: true
 
 jobs:

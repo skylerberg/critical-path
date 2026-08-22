@@ -1,6 +1,11 @@
-# critical-path-api
+# Critical Path — api
 
 TypeScript API for **Critical Path**, a project-management suite (Hono + Kysely + Postgres).
+
+This is the `api/` package of the Critical Path monorepo. `web/` is the frontend,
+`cli/` is the `cpath` command-line client, and `preview-edge/` serves PR
+previews. Each installs separately — this is not a pnpm workspace. Commands
+below run from this directory unless they name another package.
 
 ## Requirements
 
@@ -13,14 +18,16 @@ TypeScript API for **Critical Path**, a project-management suite (Hono + Kysely 
 createdb game_dev
 createdb game_dev_test
 
+cd api
 cp .env.example .env        # defaults expect role `skylerberg`, no password
-pnpm install                 # also activates the .githooks post-commit hook
+pnpm install                 # also activates the repository's .githooks hooks
 
 pnpm run migrate             # migrate the dev database
 pnpm run migrate:test        # migrate the test database
 ```
 
-Create `.env.test` for the test suite:
+Create `api/.env.test` for the test suite — both env files live in this package,
+not at the top of the checkout:
 
 ```
 DB_USER=skylerberg
@@ -30,7 +37,7 @@ ENVIRONMENT=test
 ```
 
 `DB_DATABASE` here is the _base_ name: each checkout derives and creates its
-own `game_dev_test_<checkout>_<hash>` from it, so parallel worktrees never
+own `game_dev_test_api_<hash>` from it, so parallel worktrees never
 share a test database. See [Testing](#testing).
 
 ## Development
@@ -2552,10 +2559,16 @@ you care about.
 
 The test database name is **derived, not configured**. `vitest.config.ts`
 takes `DB_DATABASE` from `.env.test` as a base — it must end in `_test` — and
-appends this checkout's directory name and a hash of its absolute path, giving
-e.g. `game_dev_test_signup_ip_cap_3f2a1b9c`. `globalSetup` creates the database
+appends this package directory's name and a sha256 of its absolute path, giving
+e.g. `game_dev_test_api_3f2a1b9c`. `globalSetup` creates the database
 on first use (`CREATE DATABASE`, so the role needs `CREATEDB`) and stamps it
 with `COMMENT ON DATABASE` naming the checkout it belongs to.
+
+The directory it names is this package's, and that is `api` in every worktree, so
+the readable half of the name no longer identifies the branch — two worktrees
+give `game_dev_test_api_<hash>` twice over with different hashes. Isolation is
+unaffected, since the hash is taken over the absolute path; telling two of them
+apart by eye means reading the `COMMENT ON DATABASE` stamp.
 
 This exists because the opening `TRUNCATE` is fatal to a suite running beside
 it: two worktrees sharing one database meant one run wiped the other's rows
@@ -2646,10 +2659,10 @@ what is still unbounded and why, and what was checked and cleared.
 
 ## CLI (`cpath`)
 
-A full command-line client lives in `cli/` as a standalone package
-(`critical-path-cli`). It has its own lockfile and `node_modules` on purpose:
-nothing about the deployed API image or the deploy workflow changes when the
-CLI changes.
+A full command-line client is the sibling package `cli/` (`critical-path-cli`).
+It has its own lockfile and `node_modules` on purpose: nothing about the deployed
+API image or the deploy workflow changes when the CLI changes. From the
+repository root:
 
 ```sh
 pnpm -C cli install --frozen-lockfile         # once; also required before running the CLI tests
@@ -2843,10 +2856,14 @@ token; `CRITICAL_PATH_PROJECT` sets the default project;
 `cpath task url` builds links from, which is a separate setting because the web
 app and the API need not share an origin.
 
-After changing the API surface, regenerate the CLI's committed types:
+After changing the API surface, regenerate both committed clients — the CLI's
+and the web app's — in the same commit as the change. Each re-dumps this
+package's spec for itself, so no separate `openapi:dump` is needed. From the
+repository root:
 
 ```sh
-pnpm run openapi:dump && pnpm -C cli run generate-api
+pnpm -C cli run generate-api
+pnpm -C web run generate:api
 ```
 
 ## Known limitations (v1)

@@ -2,10 +2,14 @@
 # the package.json "pnpm" field is no longer read at all. Keys are camelCase — a
 # kebab-case key is ignored silently, with no warning and exit 0.
 #
-# No `packages:` key, so this file makes the root the only member. cli/ and
-# preview-edge/ each have their own copy of this file and their own lockfile, which is
-# what keeps deploy.yaml's path filter exact: a CLI dependency bump touches
-# cli/pnpm-lock.yaml and cannot trigger a production API deploy.
+# No `packages:` key, so this file makes api/ the only member. This is a monorepo but
+# deliberately NOT a pnpm workspace: web/, cli/ and preview-edge/ are siblings of this
+# directory and each has its own copy of this file, its own lockfile and its own
+# node_modules. That separation is what keeps api-deploy.yaml's path filter exact — a
+# CLI dependency bump touches cli/pnpm-lock.yaml and cannot trigger a production API
+# deploy. Never create a pnpm-workspace.yaml at the monorepo root: a package that lost
+# its own would resolve to it, and `pnpm install` then prints "No projects found" and
+# EXITS 0 with no node_modules.
 
 # strictDepBuilds fails the install on any dependency whose install scripts have not
 # been ruled on, so a denial has to be written down rather than left out. Exact names
@@ -17,7 +21,7 @@ allowBuilds:
   esbuild: true # downloads its platform binary
   '@scarf/scarf': false # telemetry; scarfSettings.enabled already neuters it
 
-# Off, everywhere in both repos. The idea — fail loudly when node_modules is stale
+# Off, in all four packages. The idea — fail loudly when node_modules is stale
 # rather than silently install — did not survive contact with this setup, in two
 # measured ways that each produce a hard failure with nothing actually wrong:
 #

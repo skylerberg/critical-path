@@ -1,7 +1,7 @@
 import { describe, it, expect, afterAll, beforeAll } from 'vitest';
-import { TestContext, type TestUser } from '../../../tests/setup/testContext';
-import { db } from '../../../tests/helpers/database';
-import { newId } from '../../../tests/helpers/fixtures';
+import { TestContext, type TestUser } from '../../../api/tests/setup/testContext';
+import { db } from '../../../api/tests/helpers/database';
+import { newId } from '../../../api/tests/helpers/fixtures';
 import { createCliHarness, type CliHarness } from './helpers';
 import type { components } from '../../src/api/api.generated';
 

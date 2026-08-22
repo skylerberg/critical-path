@@ -3,7 +3,7 @@
 allowBuilds:
   esbuild: true
 
-# Off. The root pnpm-workspace.yaml carries the two measurements behind that; both
+# Off. api/pnpm-workspace.yaml carries the two measurements behind that; both
 # produce a hard failure with nothing actually wrong, and both survive the
 # `pnpm install` the error tells you to run.
 verifyDepsBeforeRun: false

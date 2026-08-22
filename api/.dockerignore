@@ -1,6 +1,6 @@
+# Resolved against the build context, which is api/ — cli/, preview-edge/,
+# .github/ and .githooks/ are siblings of it and cannot be reached from here.
 .git
-.githooks
-.github
 .claude
 # Globbed: the bare name matches only the top level, and pnpm gives every nested
 # package a node_modules of its own.
@@ -16,4 +16,3 @@ eslint-rules
 .env.*
 *.md
 openapi.json
-cli

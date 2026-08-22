@@ -1,26 +1,28 @@
-# critical-path-web
+# Critical Path — web
 
 Critical Path — a project-management suite (kanban boards, task dependency graphs,
 critical-path highlighting). Svelte 5 SPA + PWA built with Vite; no SvelteKit.
 
-The companion API lives in [`critical-path-api`](../critical-path-api).
+This is the `web/` package of the Critical Path monorepo. The API it talks to is
+the `api/` package beside it; `cli/` and `preview-edge/` are the other two. Each
+installs separately — this is not a pnpm workspace.
 
 ## Setup
 
-Requires Node >= 22.
+Requires Node >= 22. From the repository root:
 
 ```sh
-pnpm install
+pnpm -C web install
 ```
 
-`pnpm install` also activates the repo's git hooks (`.githooks/`) via the `prepare` script.
+That also activates the repository's git hooks (the root `.githooks/`) via the `prepare` script.
 If your pnpm config disables lifecycle scripts, run `pnpm run prepare` once manually.
 That setting is unrelated to `allowBuilds` in `pnpm-workspace.yaml`, which governs
 whether *dependencies* may run install scripts, not whether this project runs its own.
 
 ## Development
 
-Start the API first (port 3001, see the `critical-path-api` README), then:
+Start the API first — `pnpm -C api run dev` on port 3001, see `api/README.md` — then:
 
 ```sh
 pnpm run dev
@@ -32,20 +34,19 @@ Vite serves the app on <http://localhost:5173> and proxies `/api` to
 ## Generated API types
 
 `src/api/api.generated.ts` and `src/api/realtime.generated.ts` are generated from
-the API repo and committed:
+the `api/` package and committed:
 
 ```sh
 pnpm run generate:api
 pnpm run generate:realtime
 ```
 
-Each looks for a sibling `critical-path-api` checkout, re-dumps it, and prints
-the absolute path it read; with no checkout to find it falls back to the deployed
-API, never to a dev server. Dumping first is not needed. Regenerate after any API
-schema change and commit the result.
-
-Working across both repos at once — where the schema change is in an API worktree
-rather than the checkout beside this one — needs `API_REPO_DIR`; see CLAUDE.md.
+Each re-dumps `api/` at its fixed path in this working tree and prints the
+absolute path it read; dumping first is not needed, and a missing `api/` is an
+error rather than a fall back to the deployed API. Because the schema and the
+client are now in one tree, regenerate in the same commit as the API change.
+`ALLOW_REMOTE_SPEC=1` opts into the deployed API instead, for generating a
+client somewhere other than this repository; see CLAUDE.md.
 
 ## Checks
 
@@ -58,8 +59,9 @@ pnpm run preview       # serve the production build
 `check:all` is the list; `package.json` is where to read it. Some of it runs in a
 headless browser, so run `pnpm run playwright:install` once first.
 
-Do not run `prettier --write` or `eslint --fix` by hand — `.githooks/post-commit`
-runs both over each commit's files and amends the result in.
+Do not run `prettier --write` or `eslint --fix` by hand — the repository root's
+`.githooks/post-commit` runs each package's own pair over that package's files
+and amends the result in.
 
 ## Production
 

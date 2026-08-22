@@ -15,7 +15,7 @@
         "bench/**/*.ts"
       ]
     },
-    "cli": {
+    "../cli": {
       "project": [
         "src/**/*.ts",
         "tests/**/*.ts",
@@ -26,7 +26,7 @@
   },
   "ignore": [
     "src/db/types.generated.ts",
-    "cli/src/api/*.generated.ts"
+    "../cli/src/api/*.generated.ts"
   ],
   "ignoreDependencies": [
     "kysely-codegen",

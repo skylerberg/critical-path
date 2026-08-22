@@ -1,4 +1,4 @@
-// AUTO-GENERATED FROM realtime-events.json
+// AUTO-GENERATED FROM api/realtime-events.json
 // DO NOT EDIT. Regenerate with: pnpm run generate-realtime
 
 export type paths = Record<string, never>;

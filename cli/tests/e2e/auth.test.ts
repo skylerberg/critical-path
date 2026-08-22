@@ -1,8 +1,8 @@
 import { describe, it, expect, afterAll } from 'vitest';
-import { TestContext } from '../../../tests/setup/testContext';
-import { db } from '../../../tests/helpers/database';
+import { TestContext } from '../../../api/tests/setup/testContext';
+import { db } from '../../../api/tests/helpers/database';
 import { createCliHarness } from './helpers';
-import { createResetToken } from '../../../src/services/resetToken';
+import { createResetToken } from '../../../api/src/services/resetToken';
 import type { components } from '../../src/api/api.generated';
 
 type Me = components['schemas']['Me'];

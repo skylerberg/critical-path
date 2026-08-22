@@ -1,32 +1,47 @@
-# critical-path-api
+# critical-path — `api/`
 
 Backend for "Critical Path". Plain
 Postgres + Kysely — no Supabase, no Docker, no OpenTelemetry.
 
+This is one package of four in a monorepo (`api/`, `web/`, `cli/`,
+`preview-edge/`). The root `CLAUDE.md` carries what is true across all of them —
+in particular the **two-commit deploy rule**, which this package's changes are
+half of. `web/CLAUDE.md` is the frontend's manual.
+
+**Where commands run.** Unless it says otherwise, a bare `pnpm run …` or
+`pnpm test` in this file is an api-package command: run it from `api/`, or as
+`pnpm -C api run …` from the repository root. Anything naming another package
+(`pnpm -C cli …`, `pnpm -C web …`) is written from the repository root; from
+inside `api/` those are `pnpm -C ../cli …`.
+
 # Package manager
 
-pnpm, pinned by `packageManager` in each package.json. **Three packages, three
-lockfiles, three `pnpm-workspace.yaml` files** — root, `cli/`, `preview-edge/` —
-and deliberately not one pnpm workspace. Install each where it lives:
-`pnpm install`, `pnpm -C cli install`, `pnpm -C preview-edge install`. The
-separate lockfiles are what keep `deploy.yaml`'s path filter exact; a shared one
-would make a CLI dependency bump redeploy the production API.
+pnpm, pinned by `packageManager` in each package.json. **Four packages, four
+lockfiles, four `pnpm-workspace.yaml` files** — `api/`, `web/`, `cli/`,
+`preview-edge/` — and deliberately not one pnpm workspace, with **no root
+`pnpm-workspace.yaml` at all** (the root `CLAUDE.md` records what creating one
+does, and it exits 0 while doing it). Install each where it lives:
+`pnpm -C api install`, `pnpm -C web install`, `pnpm -C cli install`,
+`pnpm -C preview-edge install`. The separate lockfiles are what keep
+`.github/workflows/api-deploy.yaml`'s path filter exact — it names
+`api/pnpm-lock.yaml` and deliberately not `cli/pnpm-lock.yaml`, so a CLI
+dependency bump still cannot redeploy the production API.
 
 `pnpm-workspace.yaml` is a settings file here, not a workspace declaration: none
-of the three has a `packages:` key. pnpm 11 reads settings from nowhere else —
+of the four has a `packages:` key. pnpm 11 reads settings from nowhere else —
 not `.npmrc` beyond auth and registry, not package.json's `pnpm` field, not npm's
 `overrides`. Keys are camelCase, and a kebab-case one is dropped without a word.
 
-All three files turn `verifyDepsBeforeRun` **off**, and the root file's comment
-records the two measurements behind that. It fails on a nested package.json even
+All four files turn `verifyDepsBeforeRun` **off**, and `api/pnpm-workspace.yaml`'s
+comment records the two measurements behind that. It fails on a nested package.json even
 when that package is not a member, and it fails under `CI` because pnpm computes
 a different `enableGlobalVirtualStore` default there than the install recorded —
-which is what killed every `check:test-guards` child in the web repo, since each
+which is what killed every `check:test-guards` child in `web/`, since each
 is spawned with `CI=1`. Both failures survive `pnpm install`. Off is what npm did.
 
 `allowBuilds` gates whether a dependency may run install scripts, and
 `strictDepBuilds` fails the install on any that is unlisted — a denial counts,
-an omission does not, and each file rules only on its own tree. The root allows
+an omission does not, and each file rules only on its own tree. `api/` allows
 `argon2` and `esbuild` and denies `@scarf/scarf` in writing; `cli/` and
 `preview-edge/` each allow `esbuild` alone.
 
@@ -34,29 +49,40 @@ Beware `pnpm run x -- <arg>`: pnpm forwards the `--` into argv where npm dropped
 it, and vitest treats it as end-of-options. `pnpm test -- --shard=1/4` runs the
 entire suite and passes.
 
-# Companion repository
+# The two clients
 
-`../critical-path-web` is the Svelte 5 frontend for this API. Run the API
-first (`pnpm run dev`, port 3001), then the web app (`pnpm run dev` in
-`../critical-path-web`, port 5173) — Vite proxies `/api` and `/ws` to
-`localhost:3001`.
+`web/` is the Svelte 5 frontend for this API. Run the API first
+(`pnpm -C api run dev`, port 3001), then the web app (`pnpm -C web run dev`,
+port 5173) — Vite proxies `/api` and `/ws` to `localhost:3001`.
 
 Both the web app and the `cli/` package generate their API client from this
-repo's OpenAPI spec. A change to any request/response schema must regenerate
-the committed clients and commit them together: `pnpm -C cli run
-generate-api` here and `pnpm run generate:api` in `../critical-path-web`.
+package's OpenAPI spec, and both now live in this repository, which is the whole
+point of the merge: **a request/response schema change and both regenerated
+clients belong in one commit.** Run them from the repository root:
+
+```sh
+pnpm -C cli run generate-api
+pnpm -C web run generate:api
+```
+
 Neither needs `pnpm run openapi:dump` first — both generators re-dump before
-reading, because the dump is a pure function of `src/` (no database, under two
-seconds) and producing one is cheaper than reasoning about whether the old one
-is stale. See `../critical-path-web/CLAUDE.md` for the frontend's
-conventions.
+reading, because the dump is a pure function of `api/src/` (no database, under
+two seconds) and producing one is cheaper than reasoning about whether the old
+one is stale. Both resolve this package by a fixed in-repo path rather than
+searching for a checkout, so there is no way to generate against the wrong tree
+and no way to generate against a stale one; a missing `api/` is a fatal error,
+not a quiet fallback to the deployed API. See `web/CLAUDE.md` for the
+frontend's conventions.
 
 Realtime and webhook event types come from a second document,
 `realtime-events.json`, because `/ws` has no HTTP request or response to put in
-the OpenAPI spec — see convention 14. It is dumped locally and gitignored, the
-same as `openapi.json`, and served at `GET /api/realtime-events.json` so a client
-can generate against a deployed API without a checkout of this repo. Both the
-web app and the CLI generate from it.
+the OpenAPI spec — see convention 14. It is dumped locally to `api/` and
+gitignored, the same as `openapi.json`, and served at
+`GET /api/realtime-events.json` so a client can generate against a deployed API
+without a checkout of this repo. Both the web app and the CLI generate from it,
+and their committed clients record the source as `api/openapi.json` and
+`api/realtime-events.json` — repo-relative, so no machine's paths land in a
+committed file.
 
 # Conventions
 
@@ -154,11 +180,13 @@ web app and the CLI generate from it.
     name someone. `publishAfterCommit` therefore takes `CallerPayload<T>`, the
     payload minus the field it fills in from the session; `publish` still takes
     the whole thing.
-    After changing a payload run `pnpm run realtime:dump` and
-    `pnpm -C cli run generate-realtime`, and commit the regenerated
-    `cli/src/api/realtime.generated.ts`. The dump itself is gitignored like
-    `openapi.json`; what the clients check is that theirs is not older than this
-    repo's HEAD.
+    After changing a payload run `pnpm -C cli run generate-realtime` and
+    `pnpm -C web run generate:realtime` from the repository root, and commit both
+    regenerated clients (`cli/src/api/realtime.generated.ts`,
+    `web/src/api/realtime.generated.ts`) in the same commit as the payload. Each
+    re-dumps for itself, so `pnpm run realtime:dump` is only needed to refresh
+    `api/realtime-events.json` for something else. The dump itself is gitignored
+    like `openapi.json`.
 15. Every `sort_key` is unique within its scope, and the `task` index spans
     archived rows on purpose, so a key a client computed — ranked against only
     the rows that client can see — is a request, not a value to store. The
@@ -249,8 +277,9 @@ web app and the CLI generate from it.
   stateless HMAC (`PASSWORD_RESET_SECRET`, required in production), 15-minute
   TTL. Every link the server mails is built in `src/services/webLinks.ts` from
   `APP_URL_BASE`, never in the service that sends it: the paths are pinned there
-  and again in the web app's `src/lib/router.test.ts`, which is what keeps a
-  route rename from quietly turning mail into a not-found page. `POST
+  and again in `web/src/lib/router.test.ts`, which is what keeps a
+  route rename from quietly turning mail into a not-found page — and which is now
+  a file in this repository, so a rename and its pin land in one commit. `POST
   /api/auth/forgot-password` answers 204 and enqueues the send as a post-commit
   hook for an address that has an account, 404 for one that does not, and 429
   past either reset budget. It is deliberately informative: signup already
@@ -274,23 +303,35 @@ web app and the CLI generate from it.
 
 # CLI
 
-`cli/` is a standalone nested package (`critical-path-cli`, command
-`cpath`) — a full CLI client for this API. It deliberately keeps its own
+`cli/` is a **sibling package** of this one (`critical-path-cli`, command
+`cpath`) — a full CLI client for this API. It was nested at `api/cli/` until the
+monorepo merge, and most of what used to work by directory ancestry now has to
+be written down: it carries its own `eslint.config.js`, `.prettierrc.json`,
+`.gitignore` and a self-contained `tsconfig.json`, because a config search that
+walks up out of `cli/` reaches the repository root, where there is deliberately
+nothing for it to find. It deliberately keeps its own
 pnpm-lock.yaml and node_modules (`pnpm -C cli install --frozen-lockfile`) so the deployed image
 and the deploy workflow's path filters are untouched by CLI changes; never
-add CLI dependencies to the root package.json. CLI tests are part of the root
-`pnpm test` (they drive the Hono app in-process via `cli/tests/e2e/helpers.ts`);
+add CLI dependencies to `api/package.json`. CLI tests are part of the api
+package's `pnpm test` — `api/vitest.config.ts` includes
+`../cli/tests/**/*.test.ts`, and they drive the Hono app in-process via
+`cli/tests/e2e/helpers.ts`, which imports it as `../../../api/src/index`. That
+climbing glob is load-bearing and silent when wrong: vitest exits 0 on an
+include that matches nothing, so assert the collected file count rather than the
+exit status after touching it.
 CLI checks run from `cli/`: `pnpm run type-check && pnpm run lint &&
-pnpm run format:check`. Knip is the exception that covers both from the root, because
-`cli` is a knip workspace in knip.json — that is what resolves CLI imports
-against `cli/package.json` instead of the root's, and it is unrelated to pnpm
-workspaces, which this repo still must not use. Three lockfiles is what keeps
-`deploy.yaml`'s path filter exact: one shared lockfile would make a CLI
+pnpm run format:check`, or `pnpm -C cli run check` for all three. Knip is the
+exception that covers both packages from `api/`, because `../cli` is a knip
+workspace in `api/knip.json` — that is what resolves CLI imports against
+`cli/package.json` instead of api's, and it is unrelated to pnpm workspaces,
+which this repo still must not use. Four lockfiles is what keeps
+`api-deploy.yaml`'s path filter exact: one shared lockfile would make a CLI
 dependency bump redeploy the production API. After changing the API
 surface, run `pnpm -C cli run generate-api` and commit the regenerated
 `cli/src/api/api.generated.ts`; after changing a realtime payload, run
 `pnpm -C cli run generate-realtime` and commit
-`cli/src/api/realtime.generated.ts` alongside it. Both re-dump first, so
+`cli/src/api/realtime.generated.ts` alongside it — in the same commit as the
+schema change, together with web's. Both re-dump first, so
 `openapi:dump` and `realtime:dump` are only needed to refresh the dumps for
 something else.
 
@@ -303,8 +344,18 @@ branches are rebased, only the PR itself lands as a merge commit) and check at
 three points:
 
 ```sh
-git fetch origin && git rev-list --count HEAD..origin/main   # 0 means current
+git fetch origin && git rev-list --count HEAD..origin/main -- api/   # 0 means current
 ```
+
+**The pathspec is what makes that number mean anything now.** One `main` serves
+both projects, so the bare count is red almost always and says nothing about
+whether your base has moved: over 60 days api landed 189 first-parent commits
+and web 245, and on one day it was api 6 and web 34. `-- api/` asks the question
+the old bare count used to ask. Drop the pathspec deliberately when the change
+spans both packages, and read the answer as two numbers rather than one. Being
+behind on the *other* package is not a reason to rebase mid-change; it is a
+reason to rebase before you push, because a branch that no longer applies is a
+branch that no longer applies whichever package moved.
 
 1. **Before starting.** A stale base means writing against code that has moved,
    and it is also where duplicated work comes from: run `gh pr list` and
@@ -327,14 +378,19 @@ tracked copy, so merging main raises a modify/delete conflict on it. Keep the
 deletion — the file is a dump now. Taking "modified" instead, which is the side
 git's hint nudges you toward, silently puts a 140KB generated file back under
 version control, and `tests/unit/generatedDocuments.test.ts` is what fails when it
-does.
+does. That guard now scans the whole repository rather than this package: it
+resolves the checkout root with `git rev-parse --show-toplevel` and matches by
+basename, so a tracked dump under `api/`, `web/`, `cli/` or at the monorepo root
+fails it. The root is the case the widening was written for — a generator whose
+path anchor is one directory off writes its dump there, where nothing reads it.
 
 Two ways a stale base has produced *wrong* conclusions here, both worth guarding
 against directly:
 
 - **Comments about build configuration go stale.** `tsc` covers `src`, `tests`,
-  `scripts` and `vitest.config.ts`; a comment claiming tests are unchecked was
-  true when written and false a release later. Read `package.json` and
+  `scripts`, `vitest.config.ts` and `../cli`; a comment claiming tests are
+  unchecked was true when written and false a release later, and one calling
+  `cli/` a subdirectory was true until the merge. Read `package.json` and
   `tsconfig.json` rather than a comment describing them.
 - **"No diff" is not a passing check.** `git diff --quiet <file>` is vacuously
   clean for a gitignored file, and for one a failed command never wrote —
@@ -347,8 +403,10 @@ against directly:
 - `pnpm run dev` — API on port 3001.
 - **Run only the tests your change touches; let CI run the rest.** A single
   file or directory is
-  `node --env-file=.env.test node_modules/vitest/vitest.mjs run <path>` and
-  takes seconds. The full `pnpm test` is ~3 minutes, and running it after every
+  `node --env-file=.env.test node_modules/vitest/vitest.mjs run <path>`, run from
+  `api/`, and takes seconds. A CLI test file is reached the same way with the
+  `../` prefix — `… run ../cli/tests/e2e/task.test.ts` — because those files are
+  collected by this package's vitest, not by one of cli's own. The full `pnpm test` is ~3 minutes, and running it after every
   edit is most of the wall-clock in a long session for almost no extra signal —
   CI runs it on every push, sharded. Reach for the full suite once, before
   opening the PR, and when a change is broad enough that you cannot name the
@@ -361,6 +419,12 @@ against directly:
   is the same thing for paths you name yourself. Neither replaces the suite: a
   file nothing imports yet resolves to no tests at all, and a test that breaks
   through shared state rather than an import is invisible to both.
+  It diffs the whole repository and then partitions: `api/` and `cli/` are the
+  paths this suite has tests for, and a change anywhere else is printed as an
+  explicit skipped block naming that package's own `pnpm -C <pkg> test`, rather
+  than being handed to vitest to collect nothing from. The `cli/` half of that is
+  pinned to `vitest.config.ts`'s include — if cli ever gets a vitest project of
+  its own and leaves this one, both have to change together.
 - `pnpm test` — full suite (loads `.env.test`, migrates + truncates). It needs
   the machine mostly to itself: several e2e tests drive dozens of sequential
   requests inside one `it` against a 30s `testTimeout`, and a browser or a
@@ -380,10 +444,17 @@ against directly:
   own responsibility. That is also why `--sequence.shuffle.files` passes and
   plain `--sequence.shuffle` does not.
 - The test database name is derived, never configured: `vitest.config.ts`
-  appends this checkout's directory name and a hash of its path to the
+  appends this package directory's name and a sha256 of its absolute path to the
   `_test`-suffixed base in `.env.test`, and `globalSetup` creates it. That is
   what lets agents in parallel worktrees run the suite at once — the opening
-  `TRUNCATE` would otherwise wipe or block a suite running beside it. Never set
+  `TRUNCATE` would otherwise wipe or block a suite running beside it.
+  **Isolation survived the merge; the readable half of the name did not.** The
+  directory it names is this package's, which is now called `api` in every
+  worktree, so two parallel worktrees read `game_dev_test_api_<hash>` and
+  `game_dev_test_api_<other hash>` instead of being named for their branches. The
+  hash still separates them — it is taken over the absolute path — but telling
+  two of them apart in `psql` means matching the hash, and `COMMENT ON DATABASE`
+  still records the checkout each one belongs to. Never set
   `DB_DATABASE` to reach a specific database; both the config and the workers
   assert the derived name and fail loudly. Two suites in the *same* checkout
   would still share one database, so `globalSetup` takes a Postgres advisory
@@ -393,46 +464,80 @@ against directly:
   and passing on the rerun. Run suites from separate worktrees to get them in
   parallel. `pnpm run test:db:prune` clears databases whose checkout is gone
   (add `--legacy` for unstamped leftovers).
+- **Never run `prettier --write` or `eslint --fix` by hand**, here or in any
+  package. The repository-root `.githooks/post-commit` runs each package's own
+  fixers over the files that commit touched and amends the result in, dispatching
+  by the first segment of each path, and `.githooks/post-rewrite` covers a rebase,
+  which git builds without firing `post-commit`. Two consequences: `format:check`
+  is only meaningful on a *committed* tree — failing it on uncommitted edits means
+  nothing has fixed them yet, which is why it stays in CI, since that is the
+  assertion the hook actually ran — and a lint error about import order mid-edit
+  is the unfixed state rather than a decision waiting on you. `preview-edge/` is
+  the one package the hook does not touch: it has a `.prettierrc.json` but no
+  prettier binary of its own, so its single source file is left to editors.
 - Two files check the shared Redis path against a real server and skip without
   `REDIS_TEST_URL` in `.env.test` (`redis://127.0.0.1:6379/15`, `brew install
   redis`); CI has one and fails there rather than skipping. Never put
   `REDIS_URL` in `.env.test` — that puts the whole suite on one shared signup
   budget and it collapses into 429s.
 - `pnpm run type-check`, `pnpm run lint`, `pnpm run format`. `type-check` covers
-  `src/`, `tests/`, `scripts/`, `vitest.config.ts` and `cli/` — the root
-  `tsconfig.json` is the check-everything project and emits nothing;
-  `pnpm run build` uses `tsconfig.build.json`, which is `src/` only. `cli/` is in that
+  `src/`, `tests/`, `scripts/`, `vitest.config.ts` and `../cli/` — `api/tsconfig.json`
+  is the check-everything project and emits nothing;
+  `pnpm run build` uses `tsconfig.build.json`, which is `src/` only. `../cli/` is in that
   project despite being a separate package, so an editor resolves its files
   against real options; left out, every file under `cli/` falls back to an
   inferred project and reads as a wall of "cannot find module" that has nothing
-  to do with the code. In tests
+  to do with the code — and note that the include has to *climb* now, which is
+  the failure mode with no symptom: a pattern that matches nothing costs no
+  diagnostic and no non-zero exit. `cli/tsconfig.json` is a second, self-contained
+  copy of these same options (it has no parent to extend since the hoist), so the
+  two must be kept in step, and it carries one thing api's does not: a `paths`
+  mapping sending `vitest` and `@hono/node-server` to `../api/node_modules`,
+  because cli's tests are executed by this package's vitest and cli does not
+  depend on either. Bare-specifier resolution is the one thing that does not
+  follow the include across the package boundary. In tests
   `res.json()` is deliberately `any` (`JsonBody` in
   `tests/setup/testContext.ts`): a parsed body has no compile-time link to the
   route that produced it, so name the shape with `res.json<T>()` where it
   matters rather than trying to type the client.
-- `scripts/new-worktree.sh <branch> [base-ref]` creates a worktree that can run
-  all of the above: it branches, adds the worktree under
-  `~/.worktrees/<repo>/<branch>`, runs `pnpm install` in each of the three
-  packages, and copies the untracked `.env` and `.env.test`. A worktree made by
+- `scripts/new-worktree.sh [--only <pkg>[,<pkg>]] <branch> [base-ref]` creates a
+  worktree that can run all of the above: it branches, adds the worktree under
+  `~/.worktrees/<repo>/<branch>`, runs `pnpm install` in each of the four
+  packages, and copies the untracked `.env` and `.env.test` — which live at
+  `api/.env` and `api/.env.test`, not at the checkout root, so a copy loop
+  looking only at the root would match nothing and say nothing. It discovers the
+  packages from `git ls-files '*/package.json'` rather than a hard-coded list, so
+  a fifth package needs no edit here, and it asserts after each install that a
+  `node_modules` actually appeared rather than trusting exit 0 — which is what a
+  stray root `pnpm-workspace.yaml` would otherwise hand you (`No projects found`,
+  exit 0, nothing installed). `--only api,web` narrows the installs; env files
+  are copied for every package regardless. A worktree made by
   hand and missing any of those fails the checks for reasons that have nothing to
   do with the change in it — an uninstalled `cli/` in particular fails only the
   CLI tests, deep into a run.
   The script resolves everything from the checkout it is run in, so it works
-  from a sibling project too.
+  from another project's checkout too.
 - A worktree that already exists but predates the script just needs `pnpm install`
-  in each package directory. It is cheap: pnpm hardlinks from one
+  in each of the four package directories. It is cheap: pnpm hardlinks from one
   content-addressable store, so a second checkout costs inodes rather than
   downloads. Do not symlink `node_modules` back to the main checkout — an install
   from the worktree would then rewrite the tree the main checkout is using. Never
   put a worktree inside the repository: it is a second full copy of the codebase
   that every recursive search has to walk.
 
-# Migration workflow
+# Deploys and migrations
 
 Production deploys are rolling: the migration job runs first, then old and
 new pods serve side by side. Every migration must therefore be
 backward-compatible with the previous release (no dropping/renaming columns
 the running code still reads; do that in a follow-up release).
+
+**The same discipline now extends past the database to the web client — see the
+two-commit deploy rule in the root `CLAUDE.md`.** Both deploys fire from one
+push and web wins the race by roughly two minutes, so an endpoint this package
+adds must reach `main` in an earlier merge than the web code that calls it. The
+constraint is the one above in a different costume: something old is serving
+while something new is going out, over a window whose length you do not control.
 
 1. Add `src/db/migrations/NNNN_name.ts` exporting `up`/`down`.
 2. `pnpm run migrate` and `pnpm run migrate:test`.
