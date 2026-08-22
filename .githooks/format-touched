@@ -11,6 +11,11 @@
 # would make it look for api/api/src/x.ts and find nothing, silently. Dispatching
 # is not cosmetic either: only web's prettier has prettier-plugin-svelte, so a
 # .svelte file sent to api's exits on "Cannot find package".
+#
+# The buckets are space-separated path lists that have to word-split when they
+# expand, which is the one thing SC2086 exists to flag. Disabled for the file so
+# the reason sits here rather than four times below.
+# shellcheck disable=SC2086
 
 [ $# -eq 0 ] && exit 0
 

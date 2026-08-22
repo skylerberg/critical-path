@@ -5,9 +5,9 @@ description: Run the checks for the Critical Path web repo (Svelte 5 + Vite). Us
 
 # Run checks (web package)
 
-`pnpm run check:all` is the whole gate, and CI runs exactly that
-(`.github/workflows/ci.yaml` is one step). `package.json` is where the list
-lives; nothing else should copy it.
+`pnpm run check:all` is the whole gate, and CI runs exactly that — as four
+parallel jobs in `.github/workflows/web-ci.yaml`, one per `check:*` group.
+`package.json` is where the list lives; nothing else should copy it.
 
 ## What to run by hand
 
@@ -22,6 +22,7 @@ pnpm run check:layout:real           # after a board layout change
 pnpm run check:task-detail           # after touching the card overlay
 pnpm run check:a11y                  # after changing markup or a colour token
 pnpm run check:comments              # after moving a rule between a comment and a doc
+pnpm run check:static                # comments, svelte-check, lint, format; ~20s
 ```
 
 Then push and read the CI run.

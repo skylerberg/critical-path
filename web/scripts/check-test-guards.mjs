@@ -18,6 +18,7 @@
  *   node scripts/check-test-guards.mjs deleteColumn    # guards matching a substring
  *   node scripts/check-test-guards.mjs --verify-only   # anchors only, no test run
  *   node scripts/check-test-guards.mjs --selftest      # prove the runner still bites
+ *   GUARD_SHARD=1/2 node scripts/check-test-guards.mjs # one shard of the list
  *
  * The source tree is never written. Each guard is one spawned `vitest` child
  * carrying its edit in `GUARD_MUTATION`, which `guardMutation()` in
@@ -71,6 +72,29 @@ const concurrency = Number.parseInt(process.env.GUARD_CONCURRENCY ?? '', 10) || 
 const timeoutMs = Number.parseInt(process.env.GUARD_TIMEOUT_MS ?? '', 10) || 120_000;
 // How long a killed child gets to die politely before the group is shot.
 const graceMs = 5_000;
+// `i/n`, 1-based, splitting the list across that many runs. Read from the
+// environment rather than a flag for the same reason `GUARD_CONCURRENCY` is:
+// pnpm's argument forwarding is a documented trap here — `pnpm test --
+// --shard=1/4` runs the whole suite in every shard and passes — and nothing
+// about a sharded run would look wrong if the shard were silently dropped.
+const shard = parseShard(process.env.GUARD_SHARD);
+
+/** @param {string | undefined} raw */
+function parseShard(raw) {
+  if (raw === undefined || raw.trim() === '') {
+    return undefined;
+  }
+  const match = /^(\d+)\s*\/\s*(\d+)$/.exec(raw.trim());
+  if (match === null) {
+    throw new Error(`GUARD_SHARD must look like 1/2, got ${JSON.stringify(raw)}`);
+  }
+  const index = Number(match[1]);
+  const total = Number(match[2]);
+  if (total < 1 || index < 1 || index > total) {
+    throw new Error(`GUARD_SHARD is out of range: ${raw}`);
+  }
+  return { index, total };
+}
 
 /** @param {string} name */
 function guardNamed(name) {
@@ -163,7 +187,30 @@ if (!selftest && selected.length === 0) {
   process.exit(1);
 }
 
-const cases = selftest ? controls : selected.map((guard) => ({ guard, expect: 'CAUGHT' }));
+if (selftest && shard !== undefined) {
+  throw new Error(
+    'GUARD_SHARD cannot be combined with --selftest: the five controls are one argument about ' +
+      'this runner, and a shard of them proves nothing about the shards that did not run them.'
+  );
+}
+
+// Every nth, not a contiguous block. The list is grouped by the file each guard
+// mutates and the per-guard cost runs from ~3s to ~20s, so blocks put whole slow
+// neighbourhoods in one shard; strides interleave them. Deterministic either
+// way, which is what matters for the union of shards being the whole list.
+const sharded =
+  shard === undefined
+    ? selected
+    : selected.filter((_, index) => index % shard.total === shard.index - 1);
+
+// Only ever appended to the closing line: an empty shard is legitimate — there
+// are fewer guards than shards — but a run that says "0 guard(s) caught their
+// bug" with nothing else on the line is indistinguishable from a runner that
+// selected nothing by accident.
+const scope =
+  shard === undefined ? '' : ` (shard ${shard.index}/${shard.total} of ${selected.length})`;
+
+const cases = selftest ? controls : sharded.map((guard) => ({ guard, expect: 'CAUGHT' }));
 
 /** @type {Map<string, string>} */
 const sources = new Map();
@@ -473,9 +520,9 @@ if (failures.length > 0) {
 
 console.log(
   verifyOnly
-    ? `\ncheck-test-guards — ${cases.length} guard(s) still anchored. ` +
+    ? `\ncheck-test-guards — ${cases.length} guard(s)${scope} still anchored. ` +
         'Run without --verify-only to prove they still catch anything.'
     : selftest
       ? `\ncheck-test-guards --selftest — ${cases.length} control(s) reached the verdict they were built for.`
-      : `\ncheck-test-guards — ${cases.length} guard(s) caught their bug.`
+      : `\ncheck-test-guards — ${cases.length} guard(s)${scope} caught their bug.`
 );

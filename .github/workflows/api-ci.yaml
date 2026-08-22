@@ -27,11 +27,145 @@ on:
 permissions:
   contents: 'read'
 
+# Four test shards, two image builds and a checks job — the most expensive
+# workflow here, and until now the one that kept running after it had been
+# superseded.
+#
+# A literal group rather than '${{ github.workflow }}', for the reason
+# api-deploy.yaml records: that expression expands to the `name:` field, which
+# became a shared namespace when eleven workflows moved into one repository.
+# Keyed on the ref so two pull requests cannot cancel each other —
+# github.ref is refs/pull/<n>/merge on a pull request and refs/heads/main on a
+# push, so the two never collide either. Cancelling is right here and wrong for
+# the deploys: a killed shard leaves nothing behind, a killed deploy can leave a
+# migration mid-flight.
+concurrency:
+  group: 'api-ci-${{ github.ref }}'
+  cancel-in-progress: true
+
 jobs:
+  # The `paths:` filter above is the outer bound and stays exactly as wide as the
+  # packages this workflow covers; narrowing it is how coverage disappears with
+  # nothing to show for it. It is still much wider than what the jobs below read:
+  # `api/terraform/**`, `api/k8s/**` and `api/docs/**` all sit inside it and no
+  # step here checks anything about any of them, so a terraform edit used to run
+  # four Postgres+Redis shards and two Docker builds. This job refines within the
+  # bound the filter already set. It never widens it.
+  #
+  # The cost is one extra runner in front of everything — checkout plus the diff,
+  # around 20s of added latency on every run — against four service containers
+  # and two image builds skipped whenever a change is prose or infrastructure.
+  #
+  # Every job below is gated by an `if:` and so reports `skipped`, never
+  # `success`, when it does not apply. Anything aggregating this workflow has to
+  # treat `skipped` as fine and `failure`/`cancelled` as fatal, and has to have
+  # `changes` itself among its `needs` — a `changes` that fails skips everything
+  # downstream, which must not read as a clean run.
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      api_code: ${{ steps.classify.outputs.api_code }}
+      cli_code: ${{ steps.classify.outputs.cli_code }}
+      preview_edge: ${{ steps.classify.outputs.preview_edge }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          # The diff needs both ends of its range in the local clone, and the
+          # default depth-1 fetch has neither the pull request's base nor the
+          # commit main sat on before the push. The whole history is 13MB.
+          fetch-depth: 0
+      - id: classify
+        # Read through the environment rather than interpolated into the script:
+        # `${{ }}` inside `run:` is textual substitution, and a ref that is not
+        # what it looks like becomes shell.
+        env:
+          EVENT: ${{ github.event_name }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PUSH_BEFORE: ${{ github.event.before }}
+        run: |
+          set -euo pipefail
+
+          # Two events, two bases. A `pull_request` checkout is the merge commit,
+          # so diffing from the base tip is exactly the pull request's own files.
+          # A push to main carries `before`, the previous tip — which is the same
+          # range GitHub evaluated the `paths:` filter over, so refining with it
+          # cannot skip a file that filter reacted to.
+          base=''
+          if [ "$EVENT" = 'pull_request' ]; then
+            base="$PR_BASE"
+          else
+            base="$PUSH_BEFORE"
+          fi
+
+          # Anything unresolvable — a branch's first push (`before` is all zeros),
+          # a force push whose old tip is gone, a re-run after history moved —
+          # means the range is unknown, and unknown has to mean changed. Failing
+          # closed here is how main quietly stops being tested.
+          everything=0
+          changed=''
+          if [ -z "$base" ] || ! git cat-file -e "$base^{commit}" 2>/dev/null; then
+            echo "No usable base for $EVENT (base='$base') — treating every package as changed."
+            everything=1
+          else
+            changed="$(git diff --name-only "$base" HEAD)"
+            # shellcheck disable=SC2001 # the substitution is per-line, which
+            # ${var//search/replace} cannot express.
+            echo "$changed" | sed 's/^/  /'
+          fi
+
+          # An edited workflow re-verifies everything it runs: the classification
+          # below describes these jobs, and a job that just changed is not
+          # described by it any more.
+          if [ "$everything" = 0 ] && printf '%s\n' "$changed" | grep -Eq '^\.github/workflows/'; then
+            echo "A workflow file changed — treating every package as changed."
+            everything=1
+          fi
+
+          # Subtractive, one provable entry at a time, because the safe direction
+          # is to run too much: a path nobody has thought about yet falls through
+          # to its package and costs a job, where an allowlist would drop it and
+          # cost the coverage instead.
+          #
+          #   api/terraform/**  no step runs terraform
+          #   api/k8s/**        no step here reads a manifest. k8s-ci.yaml parses
+          #                     them and api-deploy.yaml applies them; both carry
+          #                     their own filter.
+          #   api/docs/**       two research notes. The Dockerfile copies only
+          #                     package.json, the lockfile, pnpm-workspace.yaml,
+          #                     scripts/ and src/, so they are not build input
+          #                     either.
+          #
+          # api/README.md and api/CLAUDE.md are deliberately absent from that
+          # list. tests/unit/documentedLimits.test.ts and
+          # tests/unit/eventCatalog.test.ts read both files and assert the
+          # numbers and the event table in them against the code, so an edit to
+          # either really can fail the suite.
+          inert='^api/(terraform|k8s|docs)/'
+          relevant="$(printf '%s\n' "$changed" | grep -Ev "$inert" || true)"
+
+          emit() {
+            value=false
+            if [ "$everything" = 1 ] || printf '%s\n' "$relevant" | grep -Eq "$2"; then
+              value=true
+            fi
+            echo "$1=$value" | tee -a "$GITHUB_OUTPUT"
+          }
+
+          emit api_code '^api/'
+          emit cli_code '^cli/'
+          emit preview_edge '^preview-edge/'
+
   # Fast, DB-free checks. Runs in parallel with the test shards below, so a
   # lint or type error doesn't wait on the suite — and the suite doesn't wait
   # on them either.
+  #
+  # `cli_code` as well as `api_code`: api/tsconfig.json includes ../cli/**/* and
+  # api/knip.json declares ../cli as a workspace, so a cli-only change is caught
+  # here and nowhere else.
   checks:
+    needs: changes
+    if: needs.changes.outputs.api_code == 'true' || needs.changes.outputs.cli_code == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -72,7 +206,12 @@ jobs:
   # Postgres + Redis, so files stay serial within a shard while the shards run
   # in parallel. Test files are independent (unique-id fixtures, per-file
   # afterAll cleanup, no shared seed), so any file split is safe.
+  #
+  # `cli_code` for the same reason as `checks`: api/vitest.config.ts includes
+  # ../cli/tests/**, so these shards are the only thing that runs them.
   test:
+    needs: changes
+    if: needs.changes.outputs.api_code == 'true' || needs.changes.outputs.cli_code == 'true'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -150,7 +289,11 @@ jobs:
       - working-directory: api
         run: pnpm test --shard=${{ matrix.shard }}/${{ strategy.job-total }}
 
+  # Nothing else reads this package: it is outside api/tsconfig.json's include,
+  # outside api/knip.json, and no test imports it.
   preview-edge:
+    needs: changes
+    if: needs.changes.outputs.preview_edge == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -175,7 +318,13 @@ jobs:
   # image fails on the pull request instead. Each context is the package
   # directory, which is also what makes docker read that package's
   # .dockerignore.
+  #
+  # The job runs if either image can have moved; each build is then gated on its
+  # own package, so a change to one of them does not re-enter the other. A
+  # cli-only change reaches neither build context and skips the job outright.
   images:
+    needs: changes
+    if: needs.changes.outputs.api_code == 'true' || needs.changes.outputs.preview_edge == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -185,6 +334,7 @@ jobs:
       # Distinct cache scopes. The gha exporter defaults both to `buildkit`, so one
       # image's export overwrites the other's on every run and neither ever hits.
       - name: 'Build API image'
+        if: needs.changes.outputs.api_code == 'true'
         uses: docker/build-push-action@v7
         with:
           context: api
@@ -192,6 +342,7 @@ jobs:
           cache-from: 'type=gha,scope=api'
           cache-to: 'type=gha,mode=max,scope=api'
       - name: 'Build preview-edge image'
+        if: needs.changes.outputs.preview_edge == 'true'
         uses: docker/build-push-action@v7
         with:
           context: preview-edge

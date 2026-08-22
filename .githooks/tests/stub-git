@@ -1,0 +1,53 @@
+#!/bin/sh
+# A fake `git` for format-touched.test.sh, put first on PATH so the hooks under
+# test never reach a real repository. It answers only the four things they ask
+# and records every call for the assertions.
+#
+# Stubbing rather than building a scratch repository is what makes the two
+# interesting cases expressible at all: `diff --quiet` has to say "unstaged" for
+# one named file and "clean" for its neighbour, and it has to change its answer
+# for the same file once the fixers have run — that second call is how
+# format-touched decides which files to amend in.
+#
+#   STUB_ROOT           what `rev-parse --show-toplevel` reports
+#   STUB_LOG            directory the call logs are written to
+#   STUB_DIRTY          paths `diff --quiet` calls dirty before the fixers run
+#   STUB_DIRTY_AFTER    and after; the pnpm stub flips the phase by writing
+#                       $STUB_LOG/fixers-ran
+#   STUB_COMMIT_FILES   what `diff-tree` lists, for post-commit and post-rewrite
+
+printf '%s\n' "$*" >>"$STUB_LOG/git.args"
+
+case $1 in
+  rev-parse)
+    case $2 in
+      --show-toplevel) printf '%s\n' "$STUB_ROOT" ;;
+      # post-commit asks for rebase-merge and rebase-apply; point at nothing, so
+      # its "not while a rebase is in flight" guard stays open.
+      --git-path) printf '%s\n' "$STUB_LOG/absent-$3" ;;
+    esac
+    ;;
+  diff)
+    # `git diff --quiet -- <path>`: exit 1 when <path> has unstaged changes.
+    stub_list=$STUB_DIRTY
+    [ -f "$STUB_LOG/fixers-ran" ] && stub_list=$STUB_DIRTY_AFTER
+    if grep -Fxq -- "$4" "$stub_list"; then
+      exit 1
+    fi
+    ;;
+  diff-tree)
+    cat "$STUB_COMMIT_FILES"
+    ;;
+  add)
+    shift
+    printf '%s\n' "$*" >>"$STUB_LOG/git.add"
+    ;;
+  commit)
+    shift
+    printf '%s\n' "$*" >>"$STUB_LOG/git.commit"
+    # The recursion guard has to be on the amend, or post-commit re-enters.
+    printf '%s\n' "${SKIP_POST_COMMIT:-unset}" >>"$STUB_LOG/git.commit.env"
+    ;;
+esac
+
+exit 0

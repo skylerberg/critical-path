@@ -1,0 +1,39 @@
+# Owners for the paths no CI check can read.
+#
+# Everything below reaches production — the terraform that defines the cluster
+# and the load balancer, the manifests the deploy applies, the workflows that do
+# the applying, and the hooks that format every commit. Some of it is now
+# checked: k8s-ci.yaml validates the manifests against the schema cow-cluster
+# runs, and repo-ci.yaml shellchecks the hooks and runs actionlint over every
+# workflow. None of that reads intent. A `paths:` filter narrowed by mistake is
+# valid YAML that lints clean and leaves no run behind to notice; terraform is
+# read by nothing here at all. A human reading the diff is the only check those
+# have, so this file makes GitHub ask for one and mark the files as owned in the
+# review view.
+#
+# `.github/` includes this file. Left unowned, the way to skip a review on
+# api/terraform is to edit CODEOWNERS in the same pull request.
+#
+# One caveat, because it will otherwise be discovered the hard way: @skylerberg
+# is the sole maintainer, and GitHub does not let anyone approve their own pull
+# request. Turning on "Require review from Code Owners" in branch protection
+# would therefore block every pull request he opens — which is all of them. Left
+# as it is, CODEOWNERS still requests his review automatically and labels the
+# owned files in the diff, which is the part that is useful today. Turn the
+# branch-protection setting on when there is a second maintainer, not before.
+#
+# Syntax is gitignore-style and the LAST matching line wins, so anything added
+# here has to go below a broader pattern it means to override. There is
+# deliberately no `*` default-owner line: it would claim every pull request and
+# make the signal on these four paths worthless. GitHub reports parse errors for
+# this file under Settings → Code owners errors — a pattern that matches nothing
+# is silently ignored, so check there after editing.
+
+/.github/         @skylerberg
+/.githooks/       @skylerberg
+/api/terraform/   @skylerberg
+/api/k8s/         @skylerberg
+
+# Not infrastructure, but the same problem: the two-commit deploy rule and the
+# no-root-workspace rule live here and nowhere else, and nothing enforces either.
+/CLAUDE.md        @skylerberg

@@ -13,15 +13,182 @@ on:
       - '.github/workflows/web-ci.yaml'
       - '.github/workflows/web-deploy.yaml'
 
-# `check:all` runs eleven scripts out of the PR's own web/scripts/, and `pnpm
+# These jobs run scripts out of the pull request's own web/scripts/, and `pnpm
 # install` runs its `prepare`. That is untrusted code, so it gets the narrowest
 # token and no persisted credential to find in .git/config. The deploy workflows
 # run main's tree and are a different case.
 permissions:
   contents: 'read'
 
+# Four parallel check jobs behind a change-detection job, one of them
+# downloading a chromium — with api-ci, the most expensive workflow here, and
+# until now one of the two that kept running after they had been superseded.
+#
+# A literal group rather than '${{ github.workflow }}', for the reason
+# web-deploy.yaml records: that expression expands to the `name:` field, which
+# became a shared namespace when eleven workflows moved into one repository.
+# Keyed on the ref so two pull requests cannot cancel each other — github.ref is
+# refs/pull/<n>/merge on a pull request and refs/heads/main on a push, so those
+# two never collide either. Cancelling is right here and wrong for the deploys:
+# a killed check leaves nothing behind, a killed deploy can leave a migration
+# mid-flight.
+concurrency:
+  group: 'web-ci-${{ github.ref }}'
+  cancel-in-progress: true
+
+# Four check jobs, because `check:all` was one serial 9m04s step and most of it
+# was waiting. The list still lives in exactly one place: this file names four
+# `check:*` group scripts, not the twelve checks inside them, and `check:all` is
+# those same four groups — so a developer keeps one command, the docs that point
+# at it stay true, and there is nothing here for the list to drift against.
+#
+# Separate runners are the whole point, not a detail. Measured on a 10-core
+# laptop, one group at a time: static 20.6s, suite 49.3s, browser 127.4s, guards
+# 140.0s — 5m37s end to end, and the slowest of them is 127.4s. Every one of the
+# four is CPU-bound — the browser probes each drive a vite dev server and a
+# chromium, the guards run four vitest children at a time — so running two of
+# them side by side on ONE runner would not add up to the sum, it would slow both
+# down, and the suite has series-cap tests that fail a 30s timeout under exactly
+# that contention rather than on any regression. Splitting by job buys real
+# parallelism; `check:all` locally stays strictly serial for the same reason.
+#
+# The split also stops three of the four jobs paying for a chromium download:
+# only `browser` needs one.
 jobs:
-  ci:
+  # The `paths:` filter above is the outer bound and stays exactly as wide as
+  # web/ plus the two workflow files; narrowing it is how coverage disappears
+  # with nothing to show for it. It is still wider than what the jobs below
+  # read — `web/public/**` and the prose both sit inside it and most of these
+  # jobs never open either — so editing an icon used to download a chromium and
+  # put back 136 bugs. This job refines within the bound the filter already set.
+  # It never widens it.
+  #
+  # The cost is one extra runner in front of everything — checkout plus the
+  # diff, around 20s of added latency on every run — against a browser download
+  # and two guard shards skipped whenever a change is prose or an asset.
+  #
+  # Every job below is gated by an `if:` and so reports `skipped`, never
+  # `success`, when it does not apply. Anything aggregating this workflow has to
+  # treat `skipped` as fine and `failure`/`cancelled` as fatal, and has to have
+  # `changes` itself among its `needs` — a `changes` that fails skips everything
+  # downstream, which must not read as a clean run.
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      web_code: ${{ steps.classify.outputs.web_code }}
+      web_prose: ${{ steps.classify.outputs.web_prose }}
+      web_assets: ${{ steps.classify.outputs.web_assets }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          # The diff needs both ends of its range in the local clone, and the
+          # default depth-1 fetch has neither the pull request's base nor the
+          # commit main sat on before the push. The whole history is 13MB.
+          fetch-depth: 0
+      - id: classify
+        # Read through the environment rather than interpolated into the script:
+        # `${{ }}` inside `run:` is textual substitution, and a ref that is not
+        # what it looks like becomes shell.
+        env:
+          EVENT: ${{ github.event_name }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PUSH_BEFORE: ${{ github.event.before }}
+        run: |
+          set -euo pipefail
+
+          # Two events, two bases. A `pull_request` checkout is the merge commit,
+          # so diffing from the base tip is exactly the pull request's own files.
+          # A push to main carries `before`, the previous tip — which is the same
+          # range GitHub evaluated the `paths:` filter over, so refining with it
+          # cannot skip a file that filter reacted to.
+          base=''
+          if [ "$EVENT" = 'pull_request' ]; then
+            base="$PR_BASE"
+          else
+            base="$PUSH_BEFORE"
+          fi
+
+          # Anything unresolvable — a branch's first push (`before` is all zeros),
+          # a force push whose old tip is gone, a re-run after history moved —
+          # means the range is unknown, and unknown has to mean changed. Failing
+          # closed here is how main quietly stops being tested.
+          everything=0
+          changed=''
+          if [ -z "$base" ] || ! git cat-file -e "$base^{commit}" 2>/dev/null; then
+            echo "No usable base for $EVENT (base='$base') — running every job."
+            everything=1
+          else
+            changed="$(git diff --name-only "$base" HEAD)"
+            # shellcheck disable=SC2001 # the substitution is per-line, which
+            # ${var//search/replace} cannot express.
+            echo "$changed" | sed 's/^/  /'
+          fi
+
+          # An edited workflow re-verifies everything it runs: the classification
+          # below describes these jobs, and a job that just changed is not
+          # described by it any more.
+          if [ "$everything" = 0 ] && printf '%s\n' "$changed" | grep -Eq '^\.github/workflows/'; then
+            echo "A workflow file changed — running every job."
+            everything=1
+          fi
+
+          # Subtractive, one provable entry at a time, because the safe direction
+          # is to run too much: a path nobody has classified falls through to
+          # `web_code` and costs all four jobs, where an allowlist would drop it
+          # and cost the coverage instead. Exactly two classes are carved out.
+          #
+          #   web/public/**   `vite build` copies these bytes into dist/ and
+          #                   nothing else opens them: check:comments walks src/
+          #                   and scripts/ only, no eslint rule matches a .png or
+          #                   an .svg, and `prettier --check src` does not reach
+          #                   here. The build is the only step an icon can break,
+          #                   and `suite` is the only job that builds.
+          #
+          #   web/CLAUDE.md   check:comments reads these as DOCS, holding the
+          #   web/README.md   prose to the symbols it names. It runs inside
+          #   web/.pi/**      check:static and nowhere else — the suite, the
+          #                   browser probes and the guards open no markdown.
+          #
+          # Nothing else in web/ is carved out, and the near-misses are why that
+          # is worth saying. web/index.html and web/vite.config.ts read as
+          # configuration, but src/lib/theme-color.test.ts readFileSync's both.
+          # web/scripts/** is not prose either: vitest's default include picks up
+          # web/scripts/generate-client.test.mjs, which reads the repository-root
+          # generator and every package's package.json — files this workflow's
+          # `paths:` filter cannot see at all, so a change to them runs codegen-ci
+          # and not this. That hole belongs to the filter, not to this job, and
+          # widening the filter to close it is a separate decision.
+          prose='^web/(CLAUDE\.md|README\.md|\.pi/)'
+          assets='^web/public/'
+
+          # `^web/` after the class filter, because the diff of a push to main
+          # carries the other packages' files too and none of them is this
+          # workflow's business.
+          emit() {
+            value=false
+            if [ "$everything" = 1 ] || printf '%s\n' "$2" | grep -Eq '^web/'; then
+              value=true
+            fi
+            echo "$1=$value" | tee -a "$GITHUB_OUTPUT"
+          }
+
+          emit web_code "$(printf '%s\n' "$changed" | grep -Ev "$prose|$assets" || true)"
+          emit web_prose "$(printf '%s\n' "$changed" | grep -E "$prose" || true)"
+          emit web_assets "$(printf '%s\n' "$changed" | grep -E "$assets" || true)"
+
+  # 20.6s, and the highest signal per second in the file: a type error or a lint
+  # error is a broken branch, and this job says so long before the browser probes
+  # have finished starting. Ordered cheapest
+  # first within the group, with `format:check` last because .githooks/post-commit
+  # already ran prettier over every file each commit touched, so it is the one
+  # least likely to fire.
+  #
+  # `web_prose` rides here because `check:comments` is in this group and in no
+  # other: web/CLAUDE.md, web/README.md and web/.pi/** reach exactly one check.
+  static:
+    needs: changes
+    if: needs.changes.outputs.web_code == 'true' || needs.changes.outputs.web_prose == 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -45,13 +212,111 @@ jobs:
           # workflows', which hash api/ and cli/ lockfiles instead.
           cache-dependency-path: web/pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile
+      - run: pnpm run check:static
+
+  # `build` first at 3.6s, then the suite at 40.7s: a production build that does
+  # not compile is worth knowing about before spending the suite on it, and
+  # nothing the suite reads comes out of `dist/` — eslint and vitest both ignore
+  # it.
+  #
+  # `web_assets` rides here because `pnpm run build` is the one step that copies
+  # web/public/ anywhere, so it is the one step an icon can break.
+  suite:
+    needs: changes
+    if: needs.changes.outputs.web_code == 'true' || needs.changes.outputs.web_assets == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: web/package.json
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run check:suite
+
+  # The only job that needs a browser, and the critical path of the four:
+  # `check:layout:real` is 102.1s of the group's 127.4s on its own, so the four
+  # cheap probes run ahead of it and a broken overlay or a contrast regression
+  # reports in about twenty seconds.
+  #
+  # Not sharded, unlike the guards below: the two board-layout checks select
+  # cases by *name* (`--only=`), so a shard would be a list of names, and a case
+  # added later would belong to no shard and silently never run. That is the
+  # coverage loss this whole change is meant not to have.
+  browser:
+    needs: changes
+    if: needs.changes.outputs.web_code == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: web/package.json
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
       - name: Cache Playwright browsers
         uses: actions/cache@v4
         with:
           path: ~/.cache/ms-playwright
           key: ${{ runner.os }}-web-playwright-${{ hashFiles('web/pnpm-lock.yaml') }}
       - run: pnpm exec playwright install --with-deps chromium
-      # One step, because the list of checks belongs in package.json where the
-      # docs can point at it instead of copying it. Splitting it back out buys a
-      # prettier failure summary and costs a fourth place for the list to drift.
-      - run: pnpm run check:all
+      - run: pnpm run check:browser
+
+  # 136 guards, each one a spawned vitest child that puts a bug back and requires
+  # the named tests to fail. 140.0s on a 10-core laptop and 4m24s of the old
+  # single step, which is the gap between `GUARD_CONCURRENCY: 4` and the two
+  # cores a standard hosted runner gives it. Two shards is two runners: measured
+  # locally the halves are 57.9s and 73.9s, so the slower one is 1.9x faster than
+  # the whole. It stops at two because `browser` above is the critical path from
+  # there on — a third shard would buy a runner and no wall time.
+  #
+  # `GUARD_SHARD`, not a flag, and deliberately: pnpm's argument forwarding is a
+  # documented trap in this repository (`pnpm test -- --shard=1/4` runs the whole
+  # suite in every shard and passes). The runner takes every other guard rather
+  # than a contiguous block, and the union of the shards is exactly the list —
+  # `--verify-only` across n shards names each of the 136 exactly once.
+  guards:
+    needs: changes
+    if: needs.changes.outputs.web_code == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2]
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: web/package.json
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - env:
+          GUARD_SHARD: ${{ matrix.shard }}/${{ strategy.job-total }}
+        run: pnpm run check:test-guards

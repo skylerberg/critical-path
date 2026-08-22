@@ -1,0 +1,267 @@
+name: CI Gate
+
+# ─── Mark `ci-gate` as the required status check on `main`. ───────────────────
+# Settings → Branches → main → Require status checks to pass → search `ci-gate`.
+# Nothing in this repository can do that step; it is a click in the GitHub UI,
+# and it is the entire point of this file. Require this check and nothing else:
+# it already stands in for every workflow that checks anything.
+#
+# Why it has to exist at all. Before the merge, each repository had exactly one
+# always-running workflow, so that workflow was requireable and CI was
+# enforceable. Now every workflow that checks something is path-filtered — API
+# CI on api/cli/preview-edge, Web CI on web/, Codegen CI on the generator
+# inputs — and a workflow whose filter excludes a pull request produces no check
+# run at all. GitHub holds a required check that never reports at "Expected —
+# waiting for status" indefinitely, so requiring API CI would permanently block
+# every web-only pull request and requiring Web CI would block every api one.
+# Between them, nothing could be required, and every check in the repository was
+# advisory.
+#
+# Why this is a separate workflow and not a last job in API CI. `needs:` reaches
+# only jobs in the same workflow file — GitHub has no cross-workflow join — and
+# a job inside a path-filtered workflow does not run when the filter excludes
+# the pull request, which is the failure being fixed. So the gate has to live in
+# a workflow carrying no `paths:` of its own, and read the other runs' results
+# from the API rather than from `needs`.
+#
+# Two shapes that look right and are not:
+#
+#   * `on: workflow_run`. The run it creates is attached to the default branch
+#     rather than to the pull request's head commit, so its check never appears
+#     on the pull request and branch protection never sees it.
+#   * A stub workflow reusing the same `name:` and job names under the inverse
+#     filter — GitHub's own documented workaround. `paths-ignore` is not the
+#     negation of `paths`: a pull request touching `api/x.ts` and `README.md`
+#     satisfies `paths: ['api/**']` *and* `paths-ignore: ['api/**']`, because
+#     each asks only whether *some* changed file matches. The real workflow and
+#     its stub would both run and report two check runs under one name.
+#
+# ─── skipped ≠ failed, and a skipped job is a *green* required check ──────────
+#
+# Verified semantics, written down because getting them wrong yields a gate that
+# is green while CI is red — worse than no gate — and because they are what to
+# reach for if this is ever rewritten as a `needs:` job:
+#
+#   * A job skipped by its own `if:` concludes `skipped`, and branch protection
+#     counts a skipped required check as passing.
+#   * A job skipped because a job in its `needs:` failed also concludes
+#     `skipped`, and therefore also counts as passing.
+#   * `if: success()`, the default, means a gate job does not run when an
+#     upstream job failed. It is skipped; the required check is green; the pull
+#     request merges over a red CI. This is the trap.
+#   * `if: always()` fixes only half of it. The job now runs — and a job that
+#     runs and does nothing succeeds. The verdict has to be a step's non-zero
+#     exit, driven by `needs.*.result`, and `contains(needs.*.result, 'failure')`
+#     on its own misses `cancelled`, which is not a pass either.
+#
+# The same rule binds the script below: it states its verdict by exiting
+# non-zero, never by declining to run. Every path out of it — an unclassified
+# workflow, a failed one, a timeout, an unreadable API — exits non-zero.
+#
+# ─── Why this judges whole runs and not jobs ─────────────────────────────────
+#
+# What it reads is each workflow's run-level conclusion, GitHub's own aggregate
+# over that workflow's jobs, which is what keeps the hazards above out of this
+# file. API CI gates every job behind an `if:` on its `changes` job, and a
+# `changes` that failed would leave its dependents *skipped* — the state that
+# reads as a pass. The run around them still concludes `failure`, and this job
+# still fails. A run whose jobs all skipped concludes `success`, a pass, which
+# is the right answer for a pull request that workflow had nothing to say about.
+#
+# Cost. The job idles while the runs it watches finish: about a minute when
+# there is nothing to wait for, as long as the api suite when there is. That is
+# the price of a cross-workflow join, and the part of it worth shedding is
+# already shed inside API CI, where per-job change detection ends a
+# terraform-only run in seconds instead of starting four Postgres shards.
+#
+# The hole this leaves. A workflow that *should* have run and did not — a
+# `paths:` filter narrowed by mistake — leaves no run behind, and is from here
+# indistinguishable from one correctly excluded. Nothing automated can close
+# that; `.github/` is owned in CODEOWNERS so a human reads the change instead.
+
+# No `paths:`, ever. That is the whole property being bought.
+#
+# Pull requests only. Branch protection evaluates the head commit of a pull
+# request, so that is the only place a required check has to appear; adding
+# `push: main` would make the gate wait on the two production deploys, which
+# gate nothing.
+on:
+  pull_request:
+
+permissions:
+  contents: 'read'
+  actions: 'read' # list this commit's other workflow runs
+
+# A literal group, not '${{ github.workflow }}' — that expands to the `name:`
+# above, a namespace shared by every workflow in this repository (see the two
+# production deploys, which were bitten by it). Superseding a push cancels the
+# stale gate instead of leaving it polling a commit nobody will merge.
+concurrency:
+  group: ci-gate-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  # The name branch protection is pointed at. Renaming this job silently drops
+  # the required check — GitHub matches it by string, and a required check that
+  # no longer exists is simply absent, not failed.
+  ci-gate:
+    runs-on: ubuntu-latest
+    # Backstop above the script's own 25-minute deadline, so a hung job dies as
+    # a failure rather than occupying a runner for the default six hours.
+    timeout-minutes: 30
+    steps:
+      # No checkout and no install: this job never runs pull request code, which
+      # is why it can hold a token at all.
+      - name: Wait for this commit's other workflow runs, and judge them
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # The head commit, not `github.sha`. A `pull_request` run reports its
+          # check against the pull request's head, not the ephemeral merge
+          # commit this job is itself running on, so the head is where every
+          # other workflow's result is to be found.
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          SELF_RUN_ID: ${{ github.run_id }}
+        run: |
+          set -euo pipefail
+
+          # Every workflow that checks something. A run of one of these has to
+          # end in `success` or `skipped` before this pull request may merge.
+          #
+          # Matched on the run's `.name`, which is the workflow's `name:` only
+          # while it has no `run-name:` — with one, the API reports the rendered
+          # run name here instead. api-deploy.yaml and web-deploy.yaml both set
+          # `run-name:` already; they are harmless because neither ever produces
+          # a `pull_request` run, but adding one to any workflow below would make
+          # every gate run fail as unclassified. The fix then is to drop the
+          # `run-name:`, not to add its rendering to this list.
+          is_blocking() {
+            case "$1" in
+              'API CI' | 'Web CI' | 'Codegen CI') return 0 ;;
+              # Repo CI lints the workflow files and the root shell and runs
+              # the format-touched tests; K8s CI validates the manifests
+              # api-deploy applies. Both check something and both are seconds
+              # long. Repo CI is also the one workflow that reads this file:
+              # it fails a pull request whose `pull_request` workflows are not
+              # all named in one of these two cases, so a rename that misses
+              # this list is caught on the commit that made it rather than on
+              # every pull request afterwards.
+              'Repo CI' | 'K8s CI') return 0 ;;
+              *) return 1 ;;
+            esac
+          }
+
+          # Observed and deliberately not blocking. preview-build compiles the
+          # web bundle, but Web CI's `suite` job runs `pnpm run build` before the
+          # suite, so it is the redundant copy of that signal — and it also
+          # fires on `closed`, where a failure must never stand between anyone
+          # and a merge. 'CI Gate' is here so the gate never waits on another
+          # run of itself.
+          is_advisory() {
+            case "$1" in
+              'preview-build' | 'CI Gate') return 0 ;;
+              *) return 1 ;;
+            esac
+          }
+
+          deadline=$((SECONDS + 25 * 60))
+          # GitHub creates every run for one event together, but not
+          # instantaneously. Without a floor, a gate that starts first sees an
+          # empty list, concludes that nothing is pending and passes a pull
+          # request whose CI has not begun. 45s is far past the observed gap and
+          # is paid only when there is nothing else to wait for anyway.
+          floor=$((SECONDS + 45))
+          previous=''
+
+          while :; do
+            if [ "$SECONDS" -ge "$deadline" ]; then
+              echo "::error::Timed out after 25 minutes waiting for this commit's workflow runs to finish."
+              exit 1
+            fi
+
+            query="repos/${GITHUB_REPOSITORY}/actions/runs?head_sha=${HEAD_SHA}&event=pull_request&per_page=100"
+            # `event=pull_request` drops the runs that share this head commit
+            # without belonging to it: preview-deploy is triggered by
+            # `workflow_run` and inherits the head SHA of the run that triggered
+            # it, and gating a merge on a privileged deploy would be wrong.
+            if ! raw=$(gh api --paginate "$query" \
+              --jq '.workflow_runs[] | [.id, .status, (.conclusion // "-"), .name] | @tsv' 2>&1); then
+              echo "Could not read workflow runs, retrying: ${raw}"
+              sleep 15
+              continue
+            fi
+
+            # One head commit can carry more than one run of the same workflow,
+            # and only the newest of them is that workflow's answer. Reopening a
+            # pull request re-triggers every workflow here at the *unchanged*
+            # head sha (`reopened` is in the default `pull_request` types, which
+            # all five blocking workflows take), and force-pushing back to a sha
+            # already pushed once does the same. The earlier run keeps whatever
+            # conclusion it ended with, so without this a single cancelled or
+            # failed attempt would hold the gate red for every later attempt on
+            # that commit, with no push able to clear it.
+            #
+            # Highest run id wins rather than list order: ids increase per
+            # repository, where the endpoint's ordering is not something to
+            # depend on. Sorted numerically descending, `!seen[$4]++` keeps the
+            # first line for each workflow name and drops its predecessors.
+            runs=$(printf '%s\n' "$raw" |
+              sort -t$'\t' -k1,1nr |
+              awk -F$'\t' 'NF && !seen[$4]++')
+
+            pending=0
+            failed=0
+            unclassified=''
+            report=''
+            while IFS=$'\t' read -r id status conclusion name; do
+              [ -n "${id:-}" ] || continue
+              [ "$id" != "$SELF_RUN_ID" ] || continue
+              is_advisory "$name" && continue
+              if ! is_blocking "$name"; then
+                unclassified="${unclassified}  ${name}"$'\n'
+                continue
+              fi
+              if [ "$status" != 'completed' ]; then
+                pending=$((pending + 1))
+                report="${report}  waiting  ${name} (${status})"$'\n'
+                continue
+              fi
+              case "$conclusion" in
+                # `skipped` is what a workflow concludes when every one of its
+                # jobs was skipped by an `if:` — a pass, and the shape this
+                # repository moves toward if the path filters leave `on:`.
+                success | skipped) report="${report}  ok       ${name} (${conclusion})"$'\n' ;;
+                *)
+                  failed=1
+                  report="${report}  FAILED   ${name} (${conclusion})"$'\n'
+                  ;;
+              esac
+            done <<<"$runs"
+
+            # Only when it moves. Reprinting an unchanged table every 15
+            # seconds buries the one line that matters in a run this long.
+            if [ "$report" != "$previous" ]; then
+              printf '%s' "$report"
+              previous="$report"
+            fi
+
+            # Fail loudly rather than quietly ignoring a workflow nobody
+            # classified: an unlisted name is how a new check would end up
+            # unenforced, and how a rename of an existing one would go unnoticed.
+            if [ -n "$unclassified" ]; then
+              printf 'Unclassified workflow(s):\n%s' "$unclassified"
+              echo "::error::A workflow ran on this commit that .github/workflows/ci-gate.yaml does not know about. Add its name to is_blocking (it must pass before a merge) or to is_advisory (it must not block one)."
+              exit 1
+            fi
+
+            if [ "$failed" = 1 ]; then
+              echo "::error::A required workflow did not pass on this commit. See the report above."
+              exit 1
+            fi
+
+            if [ "$pending" = 0 ] && [ "$SECONDS" -ge "$floor" ]; then
+              echo 'Every workflow that checks this commit passed or was correctly skipped.'
+              exit 0
+            fi
+
+            sleep 15
+          done

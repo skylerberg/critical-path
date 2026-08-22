@@ -1,0 +1,19 @@
+#!/bin/sh
+# A fake `pnpm` for format-touched.test.sh. Records one line per call with the
+# arguments separated by '|' rather than by spaces, so an assertion can see
+# where each argument ended — which is the entire point of the case that passes
+# a path containing a space.
+#
+#   STUB_LOG    directory the call log is written to
+#   STUB_EXIT   status to exit with, so a case can make a fixer fail the way a
+#               real eslint does when it cannot run at all (2) rather than when
+#               it merely leaves problems behind (1)
+
+: >"$STUB_LOG/fixers-ran"
+
+for stub_arg in "$@"; do
+  printf '%s|' "$stub_arg" >>"$STUB_LOG/pnpm.args"
+done
+printf '\n' >>"$STUB_LOG/pnpm.args"
+
+exit "${STUB_EXIT:-0}"

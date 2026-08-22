@@ -61,13 +61,15 @@ CLAUDE.md.
 ## Checks
 
 ```sh
-pnpm run check:all     # everything CI runs, in CI's order
+pnpm run check:all     # everything CI runs, cheapest group first
 pnpm test              # vitest (jsdom); takes a path to run one file
 pnpm run preview       # serve the production build
 ```
 
-`check:all` is the list; `package.json` is where to read it. Some of it runs in a
-headless browser, so run `pnpm run playwright:install` once first.
+`check:all` is the list; `package.json` is where to read it. It is four groups —
+`check:static`, `check:suite`, `check:browser`, `check:test-guards` — each
+runnable on its own, and each a separate CI job. Only `check:browser` needs a
+headless browser, so run `pnpm run playwright:install` once before that one.
 
 Do not run `prettier --write` or `eslint --fix` by hand — the repository root's
 `.githooks/post-commit` runs each package's own pair over that package's files

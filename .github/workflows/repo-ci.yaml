@@ -1,0 +1,224 @@
+name: Repo CI
+
+# The three things at the root that no package owns, and that every package's
+# CI filter therefore steps around: `.githooks/`, `scripts/`, and the workflow
+# files themselves. api-ci, web-ci and codegen-ci all filter on package
+# directories, so before this existed a commit touching only one of the three
+# matched no filter and ran no CI at all.
+#
+# `.githooks/` is ~200 lines of POSIX shell that every commit in every package
+# runs. The linting below is the cheap half; the half that earns the workflow is
+# `.githooks/tests/format-touched.test.sh`, because the failure this layout
+# invites — a hook wired to the wrong directory, or a bucket handed another
+# package's paths — exits 0 and looks like a working one.
+#
+# `scripts/` rides along for the shellcheck: it is the only other root-level
+# shell here, and codegen-ci runs `generate-clients.sh` on every api pull
+# request without ever linting it.
+#
+# `.github/workflows/**` is the one that used to be nowhere. Editing
+# ci-gate.yaml, preview-edge.yaml or web-preview-build.yaml triggered no
+# workflow at all — not even a YAML parse — which put the file that decides
+# whether every other check is enforced among the files nothing checks.
+#
+# Widening this workflow rather than adding a twelfth is deliberate. A new
+# workflow name needs a matching entry in ci-gate.yaml's classifier, so adding
+# one is two edits by design; folding the job in here buys the coverage without
+# spending that. It is also why the rename mattered: this file was `Hooks CI`
+# while it checked only hooks, and ci-gate.yaml's `is_blocking` list had to move
+# with the name in the same commit.
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.githooks/**'
+      - 'scripts/**'
+      # Every workflow, not just this one: that is the gap being closed.
+      - '.github/workflows/**'
+  pull_request:
+    paths:
+      - '.githooks/**'
+      - 'scripts/**'
+      - '.github/workflows/**'
+
+# The test suite and every script it lints are the pull request's own shell, run
+# on a runner. That is untrusted code, so it gets the narrowest token and no
+# persisted credential to find in .git/config.
+permissions:
+  contents: 'read'
+
+# A literal group, not '${{ github.workflow }}': that expression expands to the
+# `name:` field, which is a shared namespace now that eleven workflows live in
+# one repository. Keyed on the ref so two pull requests cannot cancel each
+# other, and unlike the deploys this one does cancel — a superseded lint run
+# leaves nothing half-finished.
+concurrency:
+  group: 'repo-ci-${{ github.ref }}'
+  cancel-in-progress: true
+
+jobs:
+  # One job, not one per subject. Both linters want the *same* pinned
+  # shellcheck — actionlint shells out to it for every `run:` block — and
+  # splitting them would mean either installing it twice or letting actionlint
+  # fall back to the runner image's floating copy, which is the exact failure
+  # the pin exists to prevent. The whole job is about 30 seconds.
+  repo-files:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      # Pinned, rather than the shellcheck the runner image already carries:
+      # that one floats with the image, so a release adding a check would turn
+      # main red on a commit that changed nothing. The checksum is because this
+      # is a binary fetched from the internet into a job any pull request can
+      # trigger.
+      - name: 'Install shellcheck'
+        env:
+          SHELLCHECK_VERSION: 'v0.11.0'
+          SHELLCHECK_SHA256: '8c3be12b05d5c177a04c29e3c78ce89ac86f1595681cab149b65b97c4e227198'
+        run: |
+          url=https://github.com/koalaman/shellcheck/releases/download
+          curl -fsSL -o "$RUNNER_TEMP/shellcheck.tar.xz" \
+            "$url/$SHELLCHECK_VERSION/shellcheck-$SHELLCHECK_VERSION.linux.x86_64.tar.xz"
+          echo "$SHELLCHECK_SHA256  $RUNNER_TEMP/shellcheck.tar.xz" | sha256sum -c -
+          tar -xJf "$RUNNER_TEMP/shellcheck.tar.xz" -C "$RUNNER_TEMP" \
+            "shellcheck-$SHELLCHECK_VERSION/shellcheck"
+          sudo install "$RUNNER_TEMP/shellcheck-$SHELLCHECK_VERSION/shellcheck" /usr/local/bin/
+          shellcheck --version
+
+      # Pinned and checksummed for the same two reasons as shellcheck above: the
+      # runner image does not ship actionlint at all, and a new release adding a
+      # rule would otherwise redden main on a commit that changed nothing.
+      - name: 'Install actionlint'
+        env:
+          ACTIONLINT_VERSION: '1.7.12'
+          ACTIONLINT_SHA256: '8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8'
+        run: |
+          url=https://github.com/rhysd/actionlint/releases/download
+          curl -fsSL -o "$RUNNER_TEMP/actionlint.tar.gz" \
+            "$url/v$ACTIONLINT_VERSION/actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
+          echo "$ACTIONLINT_SHA256  $RUNNER_TEMP/actionlint.tar.gz" | sha256sum -c -
+          tar -xzf "$RUNNER_TEMP/actionlint.tar.gz" -C "$RUNNER_TEMP" actionlint
+          sudo install "$RUNNER_TEMP/actionlint" /usr/local/bin/
+          actionlint --version
+
+      # Listed explicitly rather than left to actionlint's own discovery, for
+      # the reason the shell list below is: `test -s` is what stops the step
+      # after this passing on an empty list, which is how a check like this
+      # normally dies. It also means a file actionlint would have skipped is
+      # still handed to it — and a non-workflow YAML parked in here fails as a
+      # workflow missing `on:`, which is the right answer.
+      - name: 'Collect the workflow files'
+        run: |
+          find .github/workflows -maxdepth 1 -type f \
+            \( -name '*.yaml' -o -name '*.yml' \) | sort >"$RUNNER_TEMP/workflow-files"
+          test -s "$RUNNER_TEMP/workflow-files"
+          cat "$RUNNER_TEMP/workflow-files"
+
+      # actionlint parses each file before it lints it, so this is the YAML
+      # parse as well as the lint.
+      #
+      # `-shellcheck` by absolute path, not by name: actionlint runs shellcheck
+      # over every `run:` block, and resolving it through PATH would silently
+      # pick up whichever copy the runner image ships if the install above ever
+      # stopped landing in /usr/local/bin. `-pyflakes=` disables the python
+      # equivalent — there is no python `run:` block here, and an image that
+      # gained pyflakes would otherwise start reporting against a floating
+      # version.
+      - name: 'actionlint'
+        run: |
+          xargs -d '\n' actionlint -no-color \
+            -shellcheck=/usr/local/bin/shellcheck -pyflakes= \
+            <"$RUNNER_TEMP/workflow-files"
+
+      # ci-gate.yaml fails any run in which a workflow it cannot classify
+      # appears, which is deliberate — but it fails it on *every* pull request
+      # from then on, long after the commit that caused it. This is the same
+      # rule checked where it can still be cheap, and it is the same shape as
+      # k8s-ci's "manifest nobody applies" step: a grep for a literal string
+      # that has to appear in a second file.
+      #
+      # Only `pull_request` workflows are checked, because that is the only
+      # event ci-gate queries. The `run-name:` half encodes the trap ci-gate's
+      # own comment records: the API reports a rendered `run-name` in a run's
+      # `.name`, so a `run-name:` on a workflow the gate reads would make every
+      # gate run fail as unclassified. The two deploys carry one and are fine —
+      # neither produces a `pull_request` run.
+      - name: 'Fail if a pull_request workflow is unknown to the gate'
+        run: |
+          status=0
+          while read -r f; do
+            # One event per indented line is the form every workflow here is
+            # written in, and the only form the grep below can read. An inline
+            # `on: [push, pull_request]` would be missed silently, which is the
+            # one outcome worse than a false red, so it fails instead.
+            if ! grep -qE '^  (push|pull_request|workflow_dispatch|workflow_run|schedule):' "$f"; then
+              echo "::error file=$f::the on: block in $f is not one indented event key per line, so this check cannot tell whether it produces pull_request runs. Rewrite it in that form."
+              status=1
+              continue
+            fi
+            grep -qE '^  pull_request:' "$f" || continue
+            name=$(sed -n 's/^name: *//p' "$f" | head -n 1)
+            if [ -z "$name" ]; then
+              echo "::error file=$f::$f triggers on pull_request but has no name:, so ci-gate.yaml cannot classify it."
+              status=1
+              continue
+            fi
+            if grep -qE '^run-name:' "$f"; then
+              echo "::error file=$f::$f triggers on pull_request and sets run-name:, which replaces the name ci-gate.yaml matches on. Drop the run-name:."
+              status=1
+            fi
+            if ! grep -Fq "'$name'" .github/workflows/ci-gate.yaml; then
+              echo "::error file=$f::'$name' appears in no is_blocking or is_advisory case in .github/workflows/ci-gate.yaml. Add it to one of them."
+              status=1
+            fi
+          done <"$RUNNER_TEMP/workflow-files"
+          exit "$status"
+
+      # Found by shebang rather than listed by hand, so a hook added later is
+      # covered without anyone remembering to come back here. `test -s` is what
+      # stops the two steps below passing on an empty list, which is the way a
+      # check like this normally dies.
+      - name: 'Collect the shell scripts'
+        run: |
+          : >"$RUNNER_TEMP/shell-files"
+          find .githooks scripts -type f | sort | while read -r f; do
+            case $(head -n 1 "$f") in
+              '#!'*sh) printf '%s\n' "$f" >>"$RUNNER_TEMP/shell-files" ;;
+            esac
+          done
+          test -s "$RUNNER_TEMP/shell-files"
+          cat "$RUNNER_TEMP/shell-files"
+
+      # Default severity, which includes info. Everything shellcheck has to say
+      # about these files today is SC2086, and each of those is a path list that
+      # has to word-split, so each is disabled at its own site with the reason
+      # beside it. `-S warning` would have been one line instead of six, but it
+      # would switch off unquoted-expansion checking for every shell script
+      # this repository ever gains — and unquoted expansion of git-supplied
+      # paths is the single thing here most likely to be wrong.
+      - name: 'shellcheck'
+        run: xargs -d '\n' shellcheck <"$RUNNER_TEMP/shell-files"
+
+      # shellcheck has a parser of its own; this is the shells themselves, each
+      # script under the one its shebang names. generate-clients.sh is bash and
+      # uses `set -o pipefail`; the hooks are POSIX sh, and /bin/sh on this
+      # runner is dash — stricter than the bash-as-sh they are written against
+      # on macOS, which is the direction a bashism would slip in from.
+      - name: 'Syntax-check under the shell each script declares'
+        run: |
+          status=0
+          while read -r f; do
+            case $(head -n 1 "$f") in
+              *bash) bash -n "$f" || status=1 ;;
+              *) sh -n "$f" || status=1 ;;
+            esac
+          done <"$RUNNER_TEMP/shell-files"
+          exit "$status"
+
+      # git and pnpm are stubbed onto PATH, so this needs no repository, no
+      # node_modules, no network and about a second.
+      - name: 'format-touched tests'
+        run: sh .githooks/tests/format-touched.test.sh
