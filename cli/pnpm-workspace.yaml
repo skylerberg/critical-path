@@ -14,10 +14,19 @@ overrides:
   # version is stated. The api package has no such entry because nothing there depends on
   # openapi-typescript.
   #
-  # Spelled out rather than pulled from a catalog, which is what web/ does for
-  # the identical override: knip resolves catalog references against the workspace file
-  # beside knip.json, so a catalog defined down here reads as unresolved and fails
-  # `pnpm run knip`. Keep this in step with cli/package.json's typescript devDependency.
+  # Spelled out rather than pulled from a catalog, which is what web/ does for the
+  # identical override. The constraint is real but it binds one line lower than an
+  # earlier note here claimed. Measured both ways:
+  #
+  #   this line 'catalog:', with a catalog block added here  → pnpm run knip passes
+  #   cli/package.json's typescript as "catalog:"            → Unresolved catalog references (1)
+  #
+  # api/knip.json lists ../cli as one of its workspaces and resolves that package's
+  # dependency versions against the workspace file beside itself, which is api's and
+  # has no catalog. So a catalog here would work and buy nothing: the devDependency
+  # below it would still have to name a literal version, leaving the same two sites to
+  # keep in step that the catalog was meant to collapse. web/ can collapse them because
+  # no knip reads web/. Keep this in step with cli/package.json's typescript devDependency.
   openapi-typescript>typescript: 6.0.3
 
 # Off. api/pnpm-workspace.yaml carries the two measurements behind that; both

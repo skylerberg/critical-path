@@ -15,8 +15,8 @@ below run from this directory unless they name another package.
 ## Setup
 
 ```sh
-createdb game_dev
-createdb game_dev_test
+createdb critical_path
+createdb critical_path_test
 
 cd api
 cp .env.example .env        # defaults expect role `skylerberg`, no password
@@ -31,14 +31,45 @@ not at the top of the checkout:
 
 ```
 DB_USER=skylerberg
-DB_DATABASE=game_dev_test
+DB_DATABASE=critical_path_test
 STORAGE_DISK_ROOT=./data/test-uploads
 ENVIRONMENT=test
 ```
 
 `DB_DATABASE` here is the _base_ name: each checkout derives and creates its
-own `game_dev_test_api_<hash>` from it, so parallel worktrees never
+own `critical_path_test_api_<hash>` from it, so parallel worktrees never
 share a test database. See [Testing](#testing).
+
+### An existing checkout, set up before the rename
+
+These two databases were named for the project Critical Path grew out of. Only
+the defaults in `src/config/env.ts` and `tests/setup/testDatabaseName.ts` and
+the examples above changed, and both env files are untracked — so a checkout
+that already names the old databases keeps working and can be left as it is.
+
+To move one over, with nothing connected to either database. `-d postgres` on
+every line below: a rename cannot run from inside the database being renamed,
+and bare `psql` connects to one named after the OS user, which on a machine set
+up from this README does not exist.
+
+```sh
+psql -d postgres -c 'alter database game_dev rename to critical_path'
+psql -d postgres -c 'alter database game_dev_test rename to critical_path_test'
+```
+
+Then point `DB_DATABASE` in `api/.env` and `api/.env.test` at the new names and
+run `pnpm run migrate:test`, which creates this checkout's derived database
+under the new base.
+
+That leaves the old per-checkout test databases, one for every checkout that has
+ever run the suite. `pnpm run test:db:prune` finds those by the base name in
+`.env.test`, so once that file says `critical_path_test` it cannot see them
+again — drop them by hand, or run the prune before editing the file:
+
+```sh
+psql -d postgres -Atc "select datname from pg_database where datname like 'game_dev_test%'"
+psql -d postgres -c 'drop database <name>'
+```
 
 For a worktree rather than a fresh clone, `scripts/new-worktree.sh <branch>` at
 the **repository root** — not this package's `scripts/` — does the install half
@@ -2556,9 +2587,9 @@ pnpm run kysely-codegen
 No argument, and in particular no `DATABASE_URL`: `scripts/codegen-types.ts`
 loads `.env.test` for the `DB_*` connection settings, builds a scratch database
 of its own from `src/db/migrations`, introspects that one and drops it again.
-Aiming it at `game_dev` instead — which is what the flag it does not take used
-to do — commits whatever an abandoned branch left in that database as though a
-migration had created it.
+Aiming it at `critical_path` instead — which is what the flag it does not take
+used to do — commits whatever an abandoned branch left in that database as
+though a migration had created it.
 
 The file it writes is `src/db/types.generated.ts`. `src/db/types.ts` is
 hand-written, imports that one and is what the rest of the app imports; both are
@@ -2582,15 +2613,15 @@ you care about.
 The test database name is **derived, not configured**. `vitest.config.ts`
 takes `DB_DATABASE` from `.env.test` as a base — it must end in `_test` — and
 appends this package directory's name and a sha256 of its absolute path, giving
-e.g. `game_dev_test_api_3f2a1b9c`. `globalSetup` creates the database
-on first use (`CREATE DATABASE`, so the role needs `CREATEDB`) and stamps it
-with `COMMENT ON DATABASE` naming the checkout it belongs to.
+e.g. `critical_path_test_api_3f2a1b9c`. `globalSetup` creates the database on
+first use (`CREATE DATABASE`, so the role needs `CREATEDB`) and stamps it with
+`COMMENT ON DATABASE` naming the checkout it belongs to.
 
 The directory it names is this package's, and that is `api` in every worktree, so
 the readable half of the name no longer identifies the branch — two worktrees
-give `game_dev_test_api_<hash>` twice over with different hashes. Isolation is
-unaffected, since the hash is taken over the absolute path; telling two of them
-apart by eye means reading the `COMMENT ON DATABASE` stamp.
+give `critical_path_test_api_<hash>` twice over with different hashes.
+Isolation is unaffected, since the hash is taken over the absolute path; telling
+two of them apart by eye means reading the `COMMENT ON DATABASE` stamp.
 
 This exists because the opening `TRUNCATE` is fatal to a suite running beside
 it: two worktrees sharing one database meant one run wiped the other's rows
@@ -2657,11 +2688,12 @@ budget and the run would collapse into 429s.
 ## Checks
 
 ```sh
+pnpm run check:all          # the four below, then `pnpm test`
 pnpm run type-check
 pnpm run lint
 pnpm run format:check
 pnpm run knip
-pnpm -C ../cli run check
+pnpm -C ../cli run check:all
 ```
 
 `format:check`, not `format`: the latter is `prettier --write`, and the fixers

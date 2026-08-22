@@ -98,6 +98,7 @@ targets=''
 api_targets=''
 web_targets=''
 cli_targets=''
+preview_edge_targets=''
 
 for f in "$@"; do
   [ -f "$f" ] || continue
@@ -105,31 +106,38 @@ for f in "$@"; do
   git diff --quiet -- "$f" || continue
   rel=${f#*/}
   case $f in
-    # api: eslint covers src tests bench, prettier the .ts under them. No .svelte
-    # can exist here and api has no prettier-plugin-svelte to parse one.
+    # One extension list per bucket, and .svelte is the only entry that differs
+    # — for the dispatch reason in the header. The rest is the set every
+    # package's own lint and format:check cover, and it has to stay that set:
+    # a file this rewrites that no check reads is a file whose formatting
+    # nothing states. .js sat in that gap until now, and it is every
+    # eslint.config.js in the tree plus api's custom rule.
     api/*)
       case $rel in
-        *.ts | *.mjs) api_targets="$api_targets $rel" ;;
+        *.ts | *.mjs | *.js) api_targets="$api_targets $rel" ;;
         *) continue ;;
       esac
       ;;
-    # web: eslint runs over the whole package and prettier over src, and both
-    # know .svelte through eslint-plugin-svelte and prettier-plugin-svelte.
     web/*)
       case $rel in
-        *.ts | *.svelte | *.mjs) web_targets="$web_targets $rel" ;;
+        *.ts | *.svelte | *.mjs | *.js) web_targets="$web_targets $rel" ;;
         *) continue ;;
       esac
       ;;
-    # cli: eslint covers src tests, prettier those plus bin/*.mjs scripts/*.mjs.
     cli/*)
       case $rel in
-        *.ts | *.mjs) cli_targets="$cli_targets $rel" ;;
+        *.ts | *.mjs | *.js) cli_targets="$cli_targets $rel" ;;
         *) continue ;;
       esac
       ;;
-    # preview-edge holds neither fixer, and a path outside every package
-    # (workflows, root docs) has none that owns it.
+    preview-edge/*)
+      case $rel in
+        *.ts | *.js) preview_edge_targets="$preview_edge_targets $rel" ;;
+        *) continue ;;
+      esac
+      ;;
+    # A path outside every package — the workflows, the root docs, scripts/ —
+    # has no package that owns a fixer for it.
     *) continue ;;
   esac
   targets="$targets $f"
@@ -140,6 +148,7 @@ done
 fix_package api $api_targets
 fix_package web $web_targets
 fix_package cli $cli_targets
+fix_package preview-edge $preview_edge_targets
 
 changed=''
 for f in $targets; do

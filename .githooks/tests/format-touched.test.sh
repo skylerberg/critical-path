@@ -69,8 +69,8 @@ setup() {
   PATH=$sandbox/bin:$orig_path
   export PATH
 
-  for setup_pkg in api web cli; do
-    mkdir -p "$STUB_ROOT/$setup_pkg/node_modules/.bin" "$STUB_ROOT/$setup_pkg/src"
+  for setup_pkg in api web cli preview-edge; do
+    mkdir -p "$STUB_ROOT/$setup_pkg/node_modules/.bin"
     for setup_tool in eslint prettier; do
       printf '#!/bin/sh\nexit 0\n' >"$STUB_ROOT/$setup_pkg/node_modules/.bin/$setup_tool"
       chmod +x "$STUB_ROOT/$setup_pkg/node_modules/.bin/$setup_tool"
@@ -78,9 +78,6 @@ setup() {
     printf 'export default [];\n' >"$STUB_ROOT/$setup_pkg/eslint.config.js"
     printf '{}\n' >"$STUB_ROOT/$setup_pkg/.prettierrc.json"
   done
-  # preview-edge gets neither a fixer nor a config on purpose: that is the state
-  # the real package is in, and one case below is about it.
-  mkdir -p "$STUB_ROOT/preview-edge/src"
 }
 
 finish() {
@@ -211,22 +208,15 @@ assert_no_fixers
 assert_no_amend
 finish
 
-setup 'preview-edge owns neither fixer, so its files are skipped'
-make_file preview-edge/src/index.ts
-run_format_touched preview-edge/src/index.ts
-assert_status 0
-assert_no_fixers
-assert_no_amend
-finish
-
-setup 'a commit spanning three packages runs each package on its own paths'
+setup 'a commit spanning all four packages runs each package on its own paths'
 # The bucketing this whole script exists for, and the trap its header names:
 # every path goes in with the package prefix stripped, because `pnpm -C <pkg>`
 # runs with cwd=<pkg> and api/src/a.ts there means api/api/src/a.ts.
 make_file api/src/a.ts
 make_file web/src/App.svelte
 make_file cli/src/b.ts
-run_format_touched api/src/a.ts web/src/App.svelte cli/src/b.ts
+make_file preview-edge/index.ts
+run_format_touched api/src/a.ts web/src/App.svelte cli/src/b.ts preview-edge/index.ts
 assert_status 0
 assert_fixer_ran '-C|api|exec|eslint|--fix|src/a.ts|'
 assert_fixer_ran '-C|api|exec|prettier|--write|--log-level|warn|src/a.ts|'
@@ -234,8 +224,10 @@ assert_fixer_ran '-C|web|exec|eslint|--fix|src/App.svelte|'
 assert_fixer_ran '-C|web|exec|prettier|--write|--log-level|warn|src/App.svelte|'
 assert_fixer_ran '-C|cli|exec|eslint|--fix|src/b.ts|'
 assert_fixer_ran '-C|cli|exec|prettier|--write|--log-level|warn|src/b.ts|'
-# Six exact calls and no seventh: no package was handed another's paths.
-assert_fixer_count 6
+assert_fixer_ran '-C|preview-edge|exec|eslint|--fix|index.ts|'
+assert_fixer_ran '-C|preview-edge|exec|prettier|--write|--log-level|warn|index.ts|'
+# Eight exact calls and no ninth: no package was handed another's paths.
+assert_fixer_count 8
 finish
 
 setup "each package sees only the extensions its own fixers can parse"
@@ -251,6 +243,26 @@ assert_fixer_ran '-C|web|exec|eslint|--fix|src/y.svelte|'
 assert_never_seen 'x.svelte'
 assert_never_seen 'x.json'
 assert_fixer_count 4
+finish
+
+setup 'a .js file is dispatched, because every package now lints and formats one'
+# Each package's eslint.config.js is itself .js, and api has a .js rule module
+# beside it. They were the one source extension this bucketed away while both
+# `lint` and `format:check` were narrower than the tree; all three cover it now,
+# and a file a check reads has to be a file this can fix.
+make_file api/eslint.config.js
+make_file api/eslint-rules/r.js
+make_file web/svelte.config.js
+make_file cli/eslint.config.js
+make_file preview-edge/eslint.config.js
+run_format_touched api/eslint.config.js api/eslint-rules/r.js web/svelte.config.js \
+  cli/eslint.config.js preview-edge/eslint.config.js
+assert_status 0
+assert_fixer_ran '-C|api|exec|eslint|--fix|eslint.config.js|eslint-rules/r.js|'
+assert_fixer_ran '-C|web|exec|prettier|--write|--log-level|warn|svelte.config.js|'
+assert_fixer_ran '-C|cli|exec|eslint|--fix|eslint.config.js|'
+assert_fixer_ran '-C|preview-edge|exec|prettier|--write|--log-level|warn|eslint.config.js|'
+assert_fixer_count 8
 finish
 
 # --- the files that must not be touched -------------------------------------

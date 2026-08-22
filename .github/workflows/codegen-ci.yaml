@@ -93,7 +93,7 @@ jobs:
   drift:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
       - uses: pnpm/action-setup@v4
@@ -104,7 +104,7 @@ jobs:
           # All four packages pin the same pnpm, so api's answers for the three
           # installed below.
           package_json_file: api/package.json
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: '24'
           cache: 'pnpm'

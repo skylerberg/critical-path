@@ -4,10 +4,10 @@ import { fileURLToPath } from 'node:url';
 
 const MAX_DATABASE_NAME_LENGTH = 63;
 const CHECKOUT_HASH_LENGTH = 8;
-const DEFAULT_BASE_DATABASE = 'game_dev_test';
+const DEFAULT_BASE_DATABASE = 'critical_path_test';
 
 // Nothing outside this shape is ever created, truncated or dropped, so a
-// mis-set DB_DATABASE cannot reach `game_dev` and the owner's real projects.
+// mis-set DB_DATABASE cannot reach `critical_path` and the owner's real projects.
 const RESETTABLE_DATABASE = /^[a-z][a-z0-9_]*_test(_[a-z0-9_]+)?$/;
 
 export const CHECKOUT_COMMENT_PREFIX = 'critical-path-api test checkout: ';

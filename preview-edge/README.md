@@ -88,7 +88,7 @@ and the commands that read both — fix it there, not here.
 
 ```sh
 pnpm -C preview-edge install
-pnpm -C preview-edge run type-check
+pnpm -C preview-edge run check:all   # type-check, lint, format:check, test
 pnpm -C preview-edge run test        # node --test over auth.test.ts
 ```
 
@@ -98,7 +98,7 @@ token is matched case-insensitively as RFC 7235 requires, and that a malformed
 base64 payload decodes to a mismatch rather than throwing. There is no test
 harness for the bucket half — it is exercised by opening a real preview.
 
-`api-ci.yaml` type-checks and tests this package on a pull request that touches
+`api-ci.yaml` runs `check:all` over this package on a pull request that touches
 it, and builds its image alongside api's. `.github/workflows/preview-edge.yaml`
 is the deploy: on a push to `main` it builds, pushes and rolls out a new
 revision, and it re-runs the gate's tests first because that gate is the only

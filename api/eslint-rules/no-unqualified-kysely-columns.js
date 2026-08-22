@@ -1,33 +1,24 @@
-const JOIN_METHODS = new Set(["innerJoin", "leftJoin", "rightJoin", "fullJoin"]);
+const JOIN_METHODS = new Set(['innerJoin', 'leftJoin', 'rightJoin', 'fullJoin']);
 
-const ARRAY_COLUMN_METHODS = new Set([
-  "select",
-  "returning",
-  "groupBy",
-  "distinctOn",
-]);
+const ARRAY_COLUMN_METHODS = new Set(['select', 'returning', 'groupBy', 'distinctOn']);
 
-const SCALAR_COLUMN_METHODS = new Set([
-  "where",
-  "whereRef",
-  "orderBy",
-]);
+const SCALAR_COLUMN_METHODS = new Set(['where', 'whereRef', 'orderBy']);
 
 function isQualifiedColumn(value) {
-  if (typeof value !== "string") return true;
-  return value.includes(".");
+  if (typeof value !== 'string') return true;
+  return value.includes('.');
 }
 
 function chainHasJoin(node) {
   let cur = node;
   while (cur) {
-    if (cur.type === "CallExpression") {
+    if (cur.type === 'CallExpression') {
       const callee = cur.callee;
       if (
         callee &&
-        callee.type === "MemberExpression" &&
+        callee.type === 'MemberExpression' &&
         callee.property &&
-        callee.property.type === "Identifier"
+        callee.property.type === 'Identifier'
       ) {
         if (JOIN_METHODS.has(callee.property.name)) return true;
         cur = callee.object;
@@ -35,7 +26,7 @@ function chainHasJoin(node) {
       }
       return false;
     }
-    if (cur.type === "MemberExpression") {
+    if (cur.type === 'MemberExpression') {
       cur = cur.object;
       continue;
     }
@@ -46,15 +37,15 @@ function chainHasJoin(node) {
 
 function unwrapArrayLike(node) {
   if (!node) return null;
-  if (node.type === "ArrayExpression") return node;
-  if (node.type === "ArrowFunctionExpression") {
-    if (node.body.type === "ArrayExpression") return node.body;
-    if (node.body.type === "BlockStatement") {
+  if (node.type === 'ArrayExpression') return node;
+  if (node.type === 'ArrowFunctionExpression') {
+    if (node.body.type === 'ArrayExpression') return node.body;
+    if (node.body.type === 'BlockStatement') {
       for (const stmt of node.body.body) {
         if (
-          stmt.type === "ReturnStatement" &&
+          stmt.type === 'ReturnStatement' &&
           stmt.argument &&
-          stmt.argument.type === "ArrayExpression"
+          stmt.argument.type === 'ArrayExpression'
         ) {
           return stmt.argument;
         }
@@ -67,13 +58,13 @@ function unwrapArrayLike(node) {
 function reportLiteral(context, node) {
   if (
     node &&
-    node.type === "Literal" &&
-    typeof node.value === "string" &&
+    node.type === 'Literal' &&
+    typeof node.value === 'string' &&
     !isQualifiedColumn(node.value)
   ) {
     context.report({
       node,
-      messageId: "unqualified",
+      messageId: 'unqualified',
       data: { column: node.value },
     });
   }
@@ -81,7 +72,7 @@ function reportLiteral(context, node) {
 
 const rule = {
   meta: {
-    type: "problem",
+    type: 'problem',
     docs: {
       description:
         "Require fully-qualified column names (table.column) in Kysely queries that join multiple tables, to prevent runtime 'column reference is ambiguous' SQL errors when joined tables share a column name.",
@@ -98,9 +89,9 @@ const rule = {
         const callee = node.callee;
         if (
           !callee ||
-          callee.type !== "MemberExpression" ||
+          callee.type !== 'MemberExpression' ||
           !callee.property ||
-          callee.property.type !== "Identifier"
+          callee.property.type !== 'Identifier'
         ) {
           return;
         }
@@ -127,7 +118,7 @@ const rule = {
         }
 
         reportLiteral(context, firstArg);
-        if (methodName === "whereRef" && node.arguments[2]) {
+        if (methodName === 'whereRef' && node.arguments[2]) {
           reportLiteral(context, node.arguments[2]);
         }
       },

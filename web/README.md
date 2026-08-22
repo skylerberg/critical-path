@@ -15,7 +15,8 @@ Requires Node >= 22. From the repository root:
 pnpm -C web install
 ```
 
-That also activates the repository's git hooks (the root `.githooks/`) via the `prepare` script.
+That also activates the repository's git hooks (the root `.githooks/`) via the `prepare`
+script, which runs the one `scripts/setup-hooks.mjs` all four packages share.
 If your pnpm config disables lifecycle scripts, run `pnpm run prepare` once manually.
 That setting is unrelated to `allowBuilds` in `pnpm-workspace.yaml`, which governs
 whether *dependencies* may run install scripts, not whether this project runs its own.

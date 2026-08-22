@@ -221,7 +221,7 @@ app and the API need not share an origin.
 ## Working on the CLI
 
 ```sh
-pnpm -C cli run check      # type-check, lint, format:check
+pnpm -C cli run check:all  # type-check, lint, format:check
 pnpm -C api test           # the CLI's own tests run in api's vitest, not here
 ```
 

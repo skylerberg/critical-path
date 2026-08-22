@@ -9,7 +9,14 @@ coverage
 scripts/tmp-*
 # The same escape hatch for a throwaway *config*, which cannot use the prefix
 # above: a flat eslint config resolves its `files:` patterns relative to its own
-# directory, so one under scripts/ matches nothing in src/, and it needs
-# node_modules beside it to resolve plugins. That pins it to the repo root,
-# where no other ignore reaches it.
+# directory, so one under scripts/ matches nothing in src/, and it needs a
+# node_modules beside it to resolve plugins. Both pin it to this package's own
+# root — web/, which is what "the root" meant while web/ was its own repository
+# and no longer means the top of the checkout, where there is no node_modules to
+# resolve against and where this file's patterns do not reach.
 *.tmp.config.js
+# Vite loads .env, .env.local and .env.<mode> from here, and scripts/new-worktree.sh
+# copies every untracked .env* into each package of a new worktree.
+.env
+.env.*
+!.env.example

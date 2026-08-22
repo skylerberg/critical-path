@@ -95,7 +95,7 @@ jobs:
       cli_code: ${{ steps.classify.outputs.cli_code }}
       preview_edge: ${{ steps.classify.outputs.preview_edge }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
           # The diff needs both ends of its range in the local clone, and the
@@ -211,7 +211,7 @@ jobs:
     if: needs.changes.outputs.api_code == 'true' || needs.changes.outputs.cli_code == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
       - uses: pnpm/action-setup@v4
@@ -219,8 +219,10 @@ jobs:
           # No root package.json: the action reads `packageManager` from the
           # package it is setting pnpm up for. Left to its default it looks at
           # the repository root and fails with "No pnpm version is specified".
+          # Stated once for this file. The two jobs below pass the same input
+          # bare, one of them naming preview-edge's manifest.
           package_json_file: api/package.json
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: '24'
           cache: 'pnpm'
@@ -240,7 +242,7 @@ jobs:
       # from cli/node_modules, and pnpm test runs the CLI suites through tsx,
       # which strips types without checking them. It gets its own install above
       # for the same reason it has its own lockfile.
-      - run: pnpm -C cli run check
+      - run: pnpm -C cli run check:all
 
   # The suite runs with vitest fileParallelism:false: files within a run share
   # one database, so running them concurrently would collide. That leaves the
@@ -266,7 +268,7 @@ jobs:
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: game_dev_test
+          POSTGRES_DB: critical_path_test
         ports:
           - 5432:5432
         options: >-
@@ -286,16 +288,13 @@ jobs:
           --health-timeout 5s
           --health-retries 5
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
       - uses: pnpm/action-setup@v4
         with:
-          # No root package.json: the action reads `packageManager` from the
-          # package it is setting pnpm up for. Left to its default it looks at
-          # the repository root and fails with "No pnpm version is specified".
           package_json_file: api/package.json
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: '24'
           cache: 'pnpm'
@@ -315,7 +314,7 @@ jobs:
           DB_PORT=5432
           DB_USER=postgres
           DB_PASSWORD=postgres
-          DB_DATABASE=game_dev_test
+          DB_DATABASE=critical_path_test
           STORAGE_DISK_ROOT=./data/test-uploads
           ENVIRONMENT=test
           REDIS_TEST_URL=redis://127.0.0.1:6379/15
@@ -339,22 +338,25 @@ jobs:
     if: needs.changes.outputs.preview_edge == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
       - uses: pnpm/action-setup@v4
         with:
-          # No root package.json: the action reads `packageManager` from the
-          # package it is setting pnpm up for. Left to its default it looks at
-          # the repository root and fails with "No pnpm version is specified".
           package_json_file: preview-edge/package.json
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: '24'
           cache: 'pnpm'
           cache-dependency-path: 'preview-edge/pnpm-lock.yaml'
       - run: pnpm -C preview-edge install --frozen-lockfile
       - run: pnpm -C preview-edge run type-check
+      # This package had no linter and no formatter of its own until now, so
+      # these two are the first thing that has ever read its source other than
+      # tsc. Run as separate steps rather than as `check:all` so a red run names
+      # which one it was.
+      - run: pnpm -C preview-edge run lint
+      - run: pnpm -C preview-edge run format:check
       # `node --test` over the .ts file directly — node 22.18+ strips the types,
       # so the package needs no test runner and no dependency for this. It
       # covers auth.ts, the fail-closed preview gate, which is the one piece
@@ -375,7 +377,7 @@ jobs:
     if: needs.changes.outputs.api_code == 'true' || needs.changes.outputs.preview_edge == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
       - uses: docker/setup-buildx-action@v4

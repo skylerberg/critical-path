@@ -338,7 +338,7 @@ api-package facts and so belong here:
   `api-deploy.yaml`'s path filter unable to see a CLI dependency bump. Never add
   a CLI dependency to `package.json` here.
 
-Everything else about it — its own checks (`pnpm -C cli run check`), its
+Everything else about it — its own checks (`pnpm -C cli run check:all`), its
 self-contained tsconfig, and the two api ceilings it mirrors as hand-typed
 literals — is documented beside the code. Changing a request/response shape or a
 realtime payload regenerates its committed client along with web's; "The two
@@ -458,11 +458,11 @@ against directly:
   `TRUNCATE` would otherwise wipe or block a suite running beside it.
   **Isolation survived the merge; the readable half of the name did not.** The
   directory it names is this package's, which is now called `api` in every
-  worktree, so two parallel worktrees read `game_dev_test_api_<hash>` and
-  `game_dev_test_api_<other hash>` instead of being named for their branches. The
-  hash still separates them — it is taken over the absolute path — but telling
-  two of them apart in `psql` means matching the hash, and `COMMENT ON DATABASE`
-  still records the checkout each one belongs to. Never set
+  worktree, so two parallel worktrees read `critical_path_test_api_<hash>` and
+  `critical_path_test_api_<other hash>` instead of being named for their
+  branches. The hash still separates them — it is taken over the absolute path —
+  but telling two of them apart in `psql` means matching the hash, and
+  `COMMENT ON DATABASE` still records the checkout each belongs to. Never set
   `DB_DATABASE` to reach a specific database; both the config and the workers
   assert the derived name and fail loudly. Two suites in the *same* checkout
   would still share one database, so `globalSetup` takes a Postgres advisory
@@ -480,9 +480,9 @@ against directly:
   is only meaningful on a *committed* tree — failing it on uncommitted edits means
   nothing has fixed them yet, which is why it stays in CI, since that is the
   assertion the hook actually ran — and a lint error about import order mid-edit
-  is the unfixed state rather than a decision waiting on you. `preview-edge/` is
-  the one package the hook does not touch: it has a `.prettierrc.json` but no
-  prettier binary of its own, so its single source file is left to editors.
+  is the unfixed state rather than a decision waiting on you. All four packages are dispatched, `preview-edge/`
+  included — it held a `.prettierrc.json` and no prettier to read it until it
+  was given the same eslint and prettier the other three run.
 - Two files check the shared Redis path against a real server and skip without
   `REDIS_TEST_URL` in `.env.test` (`redis://127.0.0.1:6379/15`, `brew install
   redis`); CI has one and fails there rather than skipping. Never put
@@ -490,7 +490,8 @@ against directly:
   budget and it collapses into 429s.
 - `pnpm run type-check`, `pnpm run lint`, `pnpm run format:check`, `pnpm run knip`
   — the four api-ci's `checks` job runs before it hands off to `pnpm -C cli run
-  check`. Not `pnpm run format`: that is the fixer, and the bullet about the
+  check:all`, and `pnpm run check:all` here is those four plus `pnpm test`. Not
+  `pnpm run format`: that is the fixer, and the bullet about the
   hooks says who owns it.
   `type-check` covers
   `src/`, `tests/`, `scripts/`, `vitest.config.ts` and `../cli/` — `api/tsconfig.json`
@@ -554,8 +555,8 @@ while something new is going out, over a window whose length you do not control.
    `DATABASE_URL` and never reads a database you develop against — it migrates
    a scratch database from `src/db/migrations`, introspects that, formats the
    output, and drops it, so what lands in the commit is a function of the
-   migrations rather than of your machine. Introspecting `game_dev` instead is
-   how a column left behind by an abandoned branch gets committed looking
+   migrations rather than of your machine. Introspecting `critical_path` instead
+   is how a column left behind by an abandoned branch gets committed looking
    exactly like a real one. The scratch database is named per checkout, so
    parallel worktrees can regenerate at once, and it carries the same checkout
    stamp the test databases do, so `pnpm run test:db:prune` reclaims one an

@@ -48,7 +48,7 @@ jobs:
       # one fails a manifest that is fine.
       K8S_VERSION: '1.35.0'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
 

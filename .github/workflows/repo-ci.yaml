@@ -87,7 +87,7 @@ jobs:
     outputs:
       repo_files: ${{ steps.classify.outputs.repo_files }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
           # The diff needs both ends of its range in the local clone, and the
@@ -151,7 +151,7 @@ jobs:
     if: needs.changes.outputs.repo_files == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
 
@@ -324,10 +324,10 @@ jobs:
   comments:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 24
 
@@ -339,3 +339,99 @@ jobs:
       - run: node scripts/check-comments.mjs --selftest
 
       - run: node scripts/check-comments.mjs
+
+  # The same shape as `comments` above and separate for the same reasons — a
+  # checkout, a node, one script, nothing to gate it on — but a different
+  # subject: `scripts/check-all.sh`, the command a contributor is told to run
+  # before pushing.
+  #
+  # The only thing in that file that can rot is a name, and nothing else here
+  # would notice. shellcheck and the syntax check in `repo-files` already prove
+  # it parses; a package script renamed out from under it parses perfectly and
+  # fails on whoever runs it next, who is the person least placed to tell whose
+  # change did it. `cli`'s `check` became `check:all` while this was being
+  # written, which is the whole argument.
+  #
+  # Coverage rather than mere existence, and that half is the one that matters.
+  # check-all.sh expands api's and web's `check:all` into the scripts those
+  # compose, so that it can order everything by cost — an expansion that quietly
+  # stops covering one of them leaves a check that CI runs and no laptop does.
+  # So every package has to be reached either by its own `check:all` or by every
+  # script `check:all` names.
+  #
+  # Ungated, like `comments`: what it reads is `scripts/check-all.sh` and every
+  # package.json, and a gate spanning both would be most of the tree.
+  commands:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+
+      - name: 'Fail if check-all.sh no longer names what the packages call things'
+        run: |
+          set -euo pipefail
+          status=0
+
+          # One `step` line is one thing check-all.sh runs, which is why they are
+          # written as `step <command>` and not as bare commands.
+          sed -n 's/^step //p' scripts/check-all.sh >"$RUNNER_TEMP/steps"
+          test -s "$RUNNER_TEMP/steps"
+          cat "$RUNNER_TEMP/steps"
+
+          # The files it invokes directly, as opposed to through pnpm.
+          while read -r cmd rest; do
+            case "$cmd" in
+              pnpm) continue ;;
+              node | sh) cmd=${rest%% *} ;;
+            esac
+            if [ ! -e "$cmd" ]; then
+              echo "::error file=scripts/check-all.sh::check-all.sh runs $cmd, which does not exist"
+              status=1
+            fi
+          done <"$RUNNER_TEMP/steps"
+
+          for manifest in */package.json; do
+            pkg=${manifest%/package.json}
+            node -p "Object.entries(require('./$manifest').scripts||{}).map(([k,v])=>k+'\t'+v).join('\n')" \
+              >"$RUNNER_TEMP/scripts"
+            names="$RUNNER_TEMP/names"
+            cut -f1 "$RUNNER_TEMP/scripts" >"$names"
+            # Space-padded on both sides so a `case` can ask about whole words.
+            ran=" $(sed -n "s|^pnpm -C $pkg run ||p" "$RUNNER_TEMP/steps" | tr '\n' ' ')"
+
+            # shellcheck disable=SC2086 # $ran is a word list and has to split.
+            for name in $ran; do
+              if ! grep -qxF "$name" "$names"; then
+                echo "::error file=scripts/check-all.sh::$manifest has no \"$name\" script, and check-all.sh runs it"
+                status=1
+              fi
+            done
+
+            if ! grep -qxF 'check:all' "$names"; then
+              echo "::error file=$manifest::$manifest has no \"check:all\", which is the name check-all.sh is measured against"
+              status=1
+              continue
+            fi
+            case "$ran" in
+              *' check:all '*) continue ;;
+            esac
+
+            composed=$(awk -F'\t' '$1 == "check:all" { print $2 }' "$RUNNER_TEMP/scripts" |
+              grep -oE 'pnpm (run )?[A-Za-z][A-Za-z0-9:._-]*' | sed -E 's/^pnpm (run )?//')
+            # shellcheck disable=SC2086 # $composed is a word list and has to split.
+            for name in $composed; do
+              case "$ran" in
+                *" $name "*) ;;
+                *)
+                  echo "::error file=scripts/check-all.sh::check-all.sh runs neither $pkg's check:all nor its \"$name\", which check:all composes"
+                  status=1
+                  ;;
+              esac
+            done
+          done
+
+          exit "$status"

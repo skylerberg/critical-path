@@ -95,12 +95,17 @@ try {
 // file of ours.
 const IGNORED_DIRS = new Set(['node_modules', 'dist', 'coverage', '.git']);
 
-// `.svelte` earns its place here for the skip report below rather than for this
-// suite: web is the only package that has any, and filtering them out before the
-// partition is what turned a web-only branch into "nothing to run" — the exact
-// silence the partition exists to remove — instead of a line naming
-// `pnpm -C web test`. Anything reaching this list is either run or reported.
-const SOURCE_EXTENSIONS = ['.ts', '.svelte'];
+// `.svelte` and `.mjs` earn their place here for the skip report below rather
+// than for this suite. web is the only package with any `.svelte`, and filtering
+// them out before the partition is what turned a web-only branch into "nothing
+// to run" — the exact silence the partition exists to remove — instead of a line
+// naming `pnpm -C web test`. `.mjs` is the same omission one directory further
+// out: the whole of the repository-root `scripts/` is written in it, and
+// `web/scripts/generate-client.test.mjs` is what tests `scripts/lib/`, so a
+// branch that only touches the shared client generator has tests and used to
+// read as having nothing at all. Anything reaching this list is either run or
+// reported.
+const SOURCE_EXTENSIONS = ['.ts', '.svelte', '.mjs'];
 
 const sources = [...new Set(changed)]
   .filter(

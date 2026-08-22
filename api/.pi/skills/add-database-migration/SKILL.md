@@ -61,13 +61,14 @@ Conventions:
 ## 4. Run the migrations
 
 ```sh
-pnpm run migrate             # dev DB (game_dev)
-pnpm run migrate:test        # this checkout's test DB (game_dev_test_api_<hash>)
+pnpm run migrate       # dev DB (critical_path)
+pnpm run migrate:test  # this checkout's test DB (critical_path_test_api_<hash>)
 ```
 
-**Never** run `migrate:down` against a data-bearing column on `game_dev`, and
-never `DROP DATABASE`/`TRUNCATE`/bulk-`DELETE` on it — it holds the owner's
-real projects. Only `game_dev_test` and `game_dev_test_*` may be reset.
+**Never** run `migrate:down` against a data-bearing column on `critical_path`,
+and never `DROP DATABASE`/`TRUNCATE`/bulk-`DELETE` on it — it holds the owner's
+real projects. Only `critical_path_test` and `critical_path_test_*` may be
+reset.
 
 ## 5. Regenerate the committed types
 
@@ -80,7 +81,7 @@ nothing. `scripts/codegen-types.ts` gets its connection settings from
 `.env.test`, then migrates a scratch database of its own from
 `src/db/migrations`, introspects that, and drops it, so the output follows from
 the migration you just wrote rather than from the state of any database you
-develop against. Handing it `game_dev` is the failure `CLAUDE.md` describes
+develop against. Handing it `critical_path` is the failure `CLAUDE.md` describes
 under "Deploys and migrations".
 
 It rewrites `src/db/types.generated.ts`, which is the file to commit alongside

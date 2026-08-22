@@ -171,6 +171,11 @@ git -C "$main_checkout" worktree add "$worktree" "$branch"
 # Examples are tracked already. Copied for every package regardless of --only:
 # they cost nothing, and the package you skipped installing is the one whose
 # missing .env is hardest to explain later.
+#
+# The glob below is `.env*`, so all four .gitignore files cover `.env*` too. Two
+# of them did not until this was noticed: a `web/.env` — which vite reads — would
+# have been copied into every worktree and sat there untracked, uncommitted and
+# not ignored, one `git add .` from being published.
 env_dirs=$(printf '.\n%s\n' "$package_dirs" | sed '/^$/d' | sort -u)
 copied=0
 copied_list=""

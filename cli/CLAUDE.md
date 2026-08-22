@@ -51,7 +51,7 @@ gitignored and nothing writes it. Point a working copy at a local API with
 # Checks and tests
 
 ```sh
-pnpm -C cli run check     # type-check, lint, format:check
+pnpm -C cli run check:all  # type-check, lint, format:check
 pnpm -C api test          # the CLI's tests, and api's, in one suite
 ```
 

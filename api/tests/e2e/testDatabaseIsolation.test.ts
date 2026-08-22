@@ -24,9 +24,9 @@ describe('the database this suite runs against', () => {
   });
 
   it('refuses a name outside the resettable shape', () => {
-    expect(() => assertResettableDatabaseName('game_dev')).toThrow(/Refusing/);
+    expect(() => assertResettableDatabaseName('critical_path')).toThrow(/Refusing/);
     expect(() => assertResettableDatabaseName('postgres')).toThrow(/Refusing/);
-    expect(() => assertResettableDatabaseName('game_dev_test')).not.toThrow();
-    expect(() => assertResettableDatabaseName('game_dev_test_worktree_abc123')).not.toThrow();
+    expect(() => assertResettableDatabaseName('critical_path_test')).not.toThrow();
+    expect(() => assertResettableDatabaseName('critical_path_test_worktree_abc123')).not.toThrow();
   });
 });

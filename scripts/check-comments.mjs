@@ -79,22 +79,25 @@ const OPAQUE = (path) => path.includes('.generated.') || basename(path) === 'pnp
 // reference rather than a claim resting on somebody's uncommitted scratch file.
 const SKIP = (path) => /(^|\/)tmp-/.test(path);
 
-// One pair of files that are deliberate copies of each other, kept in step by
-// hand because the packaging forbids sharing one: four packages, four
-// node_modules, no workspace, and api's Dockerfile copies `api/scripts` into the
-// image before the install so that `prepare` can run — a root path would not be
-// in the build context at all. Listing the pair here is not an exemption. It is
-// a stronger claim than the duplicate check makes anywhere else: the files must
-// be byte for byte identical, and this fails if either drifts or disappears.
-// That is what replaces the old "another repository's, so not ours to check"
-// hatch — the boundary that excused it is gone, and what is left is a copy
-// someone has to keep honest.
+// Files that are deliberate copies of each other, kept in step by hand because
+// the packaging forbids sharing one. Listing a group here is not an exemption:
+// it is a stronger claim than the duplicate check makes anywhere else — the
+// files must be byte for byte identical, and this fails if either drifts or
+// disappears.
+//
+// Empty on purpose. The one pair this was built for was `setup-hooks.mjs` in
+// api/ and web/, forced apart because api's Dockerfile copied `api/scripts` into
+// the image so `prepare` could run and a repository-root path was not in its
+// build context. It is now one script at `scripts/setup-hooks.mjs` that all four
+// packages call, so there is no copy left to police. Deleting one is always
+// better than declaring it here; the check stays so that declaring one means
+// something.
 //
 // Only a copy the packaging forces belongs here. A pair that is merely the same
 // document filed twice — as the cli-tasks skill was, in two packages, neither of
 // which builds the tool it describes — has an owner and wants a pointer at the
 // other end instead.
-const MIRRORS = [['api/scripts/setup-hooks.mjs', 'web/scripts/setup-hooks.mjs']];
+const MIRRORS = [];
 
 // A sentence shorter than this is a fragment ("Test seam.", "Best effort:") that
 // two files can share without either being a copy of the other.
@@ -277,7 +280,7 @@ const EXTERNAL = new Set([
   'psql',
   'max_connections',
   'pg_trgm',
-  'game_dev_test_api_3f2a1b9c',
+  'critical_path_test_api_3f2a1b9c',
   // kysely-codegen's own environment variable. This server reads DB_HOSTNAME and
   // its siblings and never this, which is exactly what the prose naming it says.
   'DATABASE_URL',
@@ -407,7 +410,15 @@ function buildIndex(loaded, tree) {
     // `#` opens one in YAML, in shell and in the hooks, and opens a private
     // field in TypeScript, so a single shared pattern would either index that
     // prose as symbols or stop indexing every `#name` in the stores.
-    const hash = /\.(ya?ml|sh|tf|hcl|toml|txt|env|example|gitignore|dockerignore)$/.test(path);
+    //
+    // `.env.test` is matched on the `.env` rather than on a final extension.
+    // scripts/bootstrap.sh seeds it and its siblings from tracked examples, so
+    // their comments are prose someone wrote — and read as code every word of it
+    // becomes a name this tree declares, which is how a comment there quietly
+    // satisfied a reference the checker exists to disprove.
+    const hash =
+      /\.(ya?ml|sh|tf|hcl|toml|txt|env|example|gitignore|dockerignore)$/.test(path) ||
+      /(^|\/)\.env(\.|$)/.test(path);
     const comment = hash || !/\.[a-z]+$/.test(path) ? /^#/ : /^(\/\/|\/\*|\*|<!--)/;
     for (const line of source.split('\n')) {
       const trimmed = line.trim();
@@ -713,7 +724,7 @@ if (SELFTEST) {
     [
       'a throwaway probe is out of the tree entirely, its own name included',
       SKIP('web/scripts/tmp-probe.mjs') &&
-        !SKIP('web/scripts/setup-hooks.mjs') &&
+        !SKIP('web/scripts/generate-api-types.mjs') &&
         !tree.paths.some((path) => /(^|\/)tmp-/.test(path)),
     ],
   ];

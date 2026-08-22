@@ -11,6 +11,10 @@ coverage
 tests
 k8s
 eslint-rules
+# Developer tooling only — codegen, the test-database helpers, the changed-file
+# runner. Nothing in the image reads any of it, and keeping it out of the context
+# is what lets api-deploy.yaml's paths filter leave api/scripts/** off the list.
+scripts
 .env
 .env.*
 *.md
