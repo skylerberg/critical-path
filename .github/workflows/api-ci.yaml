@@ -29,6 +29,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
+        with:
+          # No root package.json: the action reads `packageManager` from the
+          # package it is setting pnpm up for. Left to its default it looks at
+          # the repository root and fails with "No pnpm version is specified".
+          package_json_file: api/package.json
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
@@ -92,6 +97,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
+        with:
+          # No root package.json: the action reads `packageManager` from the
+          # package it is setting pnpm up for. Left to its default it looks at
+          # the repository root and fails with "No pnpm version is specified".
+          package_json_file: api/package.json
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
@@ -134,6 +144,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
+        with:
+          # No root package.json: the action reads `packageManager` from the
+          # package it is setting pnpm up for. Left to its default it looks at
+          # the repository root and fails with "No pnpm version is specified".
+          package_json_file: preview-edge/package.json
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
