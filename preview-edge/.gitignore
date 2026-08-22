@@ -1,2 +1,7 @@
 node_modules/
 dist/
+# scripts/new-worktree.sh copies every untracked .env* into each package of a new
+# worktree; without this one landing here would be untracked and committable.
+.env
+.env.*
+!.env.example

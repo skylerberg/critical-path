@@ -52,12 +52,12 @@ tracked anywhere in the tree.
 ## 4. Check
 
 ```sh
-pnpm -C api run type-check && pnpm -C cli run check
-pnpm -C web run check          # svelte-check: the only thing that catches a stale client
+pnpm -C api run type-check && pnpm -C cli run check:all
+pnpm -C web run type-check     # svelte-check: the only thing that catches a stale client
 ```
 
 A stale `web/src/api/api.generated.ts` fails **only** under `pnpm -C web run
-check`, never under `pnpm -C web test`, which strips types. A green web suite is
+type-check`, never under `pnpm -C web test`, which strips types. A green web suite is
 not evidence after a schema change.
 
 ## 5. Deploying it

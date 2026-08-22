@@ -11,11 +11,11 @@ Run these from `api/` before declaring done.
 
 ```sh
 pnpm run type-check        # tsc over src/, tests/, scripts/, vitest.config.ts and ../cli/
-pnpm run lint              # eslint src tests bench
+pnpm run lint              # eslint over the whole package
 pnpm run format:check      # prettier --check
 pnpm run knip              # unreferenced files, exports and dependencies
 pnpm test                  # vitest: this package's suite plus ../cli/tests/**
-pnpm -C ../cli run check   # CLI: type-check + lint + format:check
+pnpm -C ../cli run check:all   # CLI: type-check + lint + format:check
 ```
 
 Every one of them only reads. The fixers are `pnpm run format` and
@@ -26,9 +26,8 @@ carries the rule and its consequences.
 
 `preview-edge/` is the one package none of the above reaches: it is outside
 `api/tsconfig.json`'s include and outside `api/knip.json`, and no test here
-imports it. `pnpm -C ../preview-edge run type-check` and
-`pnpm -C ../preview-edge run test` are its whole check set, worth running when
-you have touched it.
+imports it. `pnpm -C ../preview-edge run check:all` is its whole check set, worth running
+when you have touched it.
 
 ## What CI makes of this
 
@@ -46,20 +45,20 @@ section is the single description of what the repository runs and of why
 ## Test suite safety
 
 `pnpm test` loads `.env.test` and runs against a database derived from this
-checkout's path (`game_dev_test_api_<hash>`), which the global setup creates,
-migrates and **truncates** at suite start. That derivation is what makes it safe
+checkout's path (`critical_path_test_api_<hash>`), which the global setup
+creates, migrates and **truncates** at suite start. That derivation is what makes it safe
 for several worktrees to run the suite at once, so never set `DB_DATABASE` to
 pin a specific database — the run will refuse it.
 
 The guard also refuses to run unless `ENVIRONMENT=test`, but never point any of
-this at `game_dev` — that database holds the owner's real projects and tasks and
-must never be wiped, truncated, or bulk-deleted. Only `game_dev_test` /
-`game_dev_test_*` may be reset.
+this at `critical_path` — that database holds the owner's real projects and
+tasks and must never be wiped, truncated, or bulk-deleted. Only
+`critical_path_test` / `critical_path_test_*` may be reset.
 
 ## If you changed the API surface
 
 A changed request/response shape requires regenerating the web and CLI clients
-— run the `change-api-schema` skill, then re-run `pnpm -C ../cli run check`.
+— run the `change-api-schema` skill, then re-run `pnpm -C ../cli run check:all`.
 
 ## CLI worktree note
 

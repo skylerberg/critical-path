@@ -200,7 +200,8 @@ seconds each. The one that no longer belongs to this package is the prose check:
 after moving a rule between a comment and this file, run
 `node scripts/check-comments.mjs` from the repository root.
 
-`pnpm run check` covers `src/` (tests included — they are colocated as
+`pnpm run type-check` — `svelte-check`, named the way the other three packages
+name theirs — covers `src/` (tests included — they are colocated as
 `src/**/*.test.ts`), `scripts/**/*.ts` and `vite.config.ts`. Nothing about the
 test files is exempt from `strict`.
 

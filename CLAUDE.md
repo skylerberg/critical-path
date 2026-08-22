@@ -44,6 +44,38 @@ cannot-find-module in a package whose install reported success. The four
 lockfiles are also what keep each deploy workflow's path filter exact: a shared
 one would make a CLI dependency bump redeploy the production API.
 
+## Four packages, one toolchain, one set of command names
+
+Four lockfiles buy exact deploy filters. They do not license four different
+answers to the same question, and twice they had already produced one.
+
+**The shared toolchain is pinned to one exact version in every `package.json`.**
+`typescript`, `typescript-eslint`, `eslint`, `@eslint/js`, `prettier` and
+`@types/node` each carry a bare version, no `^` and no `~`. Every one of them
+decides whether a check is green — two `typescript-eslint` versions disagree
+about identical code and two `prettier` versions disagree about identical bytes
+— so a range means the answer depends on the day a package's lockfile was last
+written. That is not hypothetical: cli sat on `typescript-eslint` 8.67.0 and
+eslint 10.8.1 while api and web sat on 8.63.0 and 10.6.0, from nothing but
+install dates. It binds harder here than in most repositories, because
+`api/tsconfig.json` includes `../cli/**/*`: the CLI's sources are type-checked
+twice, once under each package's `@types/node`, and only a pin makes those two
+runs the same run.
+
+Libraries are not pinned, and the asymmetry is the point rather than an
+oversight. `openapi-fetch` reads `~0.17.0` in web and `0.17.0` in cli; the two
+packages ship separately and nothing compares them, so each keeps its own house
+style. `openapi-typescript` looks like the same case and is not: it writes four
+committed files that `codegen-ci.yaml` re-derives and diffs, so two packages
+floating apart on it surfaces as a drift failure nobody can read. It is pinned.
+
+**A command name means one thing in every package.** `type-check`, `lint`,
+`lint:fix`, `format`, `format:check` and `check:all` exist in all four; web's
+`type-check` runs `svelte-check` where the others run `tsc`, and that is the
+whole of the variation. A bare `check` exists nowhere any more — it used to be
+the entire check list in cli and the type checker alone in web, which is the
+collision this replaces.
+
 ## The two-commit deploy rule
 
 **An API endpoint and the web code that calls it must reach `main` in two
@@ -181,12 +213,13 @@ it names — the same thing that is now true of the root prose files.
 ## Git hooks and workflows
 
 `.githooks/` at the root is the only hook directory git uses (`core.hooksPath`,
-written by either package's `prepare`). `post-commit` and `post-rewrite` hand
-the paths a commit touched to `format-touched`, which buckets each by its first
-segment and runs **that package's own** eslint and prettier; a package with no
-config or no installed binary is named in a warning and skipped, rather than
-quietly reformatted to prettier's defaults. Never run `prettier --write` or
-`eslint --fix` by hand.
+written by `scripts/setup-hooks.mjs`, which all four packages' `prepare` runs —
+so installing any one of them wires the hooks for the whole checkout).
+`post-commit` and `post-rewrite` hand the paths a commit touched to
+`format-touched`, which buckets each by its first segment and runs **that
+package's own** eslint and prettier; a package with no config or no installed
+binary is named in a warning and skipped, rather than quietly reformatted to
+prettier's defaults. Never run `prettier --write` or `eslint --fix` by hand.
 
 That script has tests — `.githooks/tests/format-touched.test.sh`, nineteen cases
 run by `repo-ci.yaml` and by nothing else. They stub `git` and `pnpm` onto the

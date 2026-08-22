@@ -1,7 +1,9 @@
 node_modules
 dist
 .env
-.env.test
+.env.*
+# Every example is tracked; the real files they seed are what line 4 hides.
+!.env*.example
 data
 coverage
 openapi.json

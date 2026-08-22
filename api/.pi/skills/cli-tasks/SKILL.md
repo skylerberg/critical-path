@@ -9,7 +9,7 @@ description: Track this repository's own work on the Critical Path board with th
 `tsconfig.json` already reach into, and its entry point registers tsx and
 imports `cli/src` directly. So it is not an outside tool and there is no build
 step between the two: an edit there changes the binary in your hand, and
-`pnpm -C ../cli run check` is what says whether it still compiles.
+`pnpm -C ../cli run check:all` is what says whether it still compiles.
 
 **It writes to production by default** (`https://criticalpath.skylerberg.com`),
 never the server `pnpm run dev` starts here and never the test database the

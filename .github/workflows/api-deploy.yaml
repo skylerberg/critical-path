@@ -5,13 +5,21 @@ on:
   push:
     branches:
       - main
+    # Everything the image is built from, and nothing else. `api/scripts/**` is
+    # deliberately absent: api/.dockerignore keeps that directory out of the
+    # build context entirely, so codegen, the test-database helpers and the
+    # changed-file runner cannot change the image — and editing one of them used
+    # to push a production release, image build and migration job included.
+    # scripts/new-worktree.sh moved to the repository root for exactly that,
+    # before the .dockerignore entry made the rest of the directory safe to drop
+    # from here too.
     paths:
       - 'api/src/**'
-      - 'api/scripts/**'
       - 'api/package.json'
       - 'api/pnpm-lock.yaml'
       - 'api/pnpm-workspace.yaml'
       - 'api/Dockerfile'
+      - 'api/.dockerignore'
       - 'api/k8s/**'
       - '.github/workflows/api-deploy.yaml'
 # No cancel-in-progress: a killed run could leave a migration mid-flight.

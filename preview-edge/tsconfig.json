@@ -10,6 +10,11 @@
     "esModuleInterop": true,
     "skipLibCheck": true,
     "noEmit": true,
+    // Without this, `target: ES2022` pulls in lib.es2022.full, whose `full`
+    // half is the DOM — so `HTMLElement` type-checked clean in a Cloud Run
+    // worker that has no document. `types: ["node"]` below does not exclude it:
+    // that limits which @types packages are auto-included, not which lib files.
+    "lib": ["ESNext"],
     // Node runs these files by stripping types, and its resolver does not
     // rewrite a ./x.js specifier onto x.ts the way a bundler would, so the
     // imports name the real file. esbuild resolves the same specifier.

@@ -38,28 +38,28 @@ importers:
         version: 4.23.1
     devDependencies:
       '@eslint/js':
-        specifier: ^10.0.1
+        specifier: 10.0.1
         version: 10.0.1(eslint@10.8.1(supports-color@10.2.2))
       '@types/mdast':
         specifier: 4.0.4
         version: 4.0.4
       '@types/node':
-        specifier: ^26.2.0
+        specifier: 26.2.0
         version: 26.2.0
       eslint:
-        specifier: ^10.6.0
+        specifier: 10.8.1
         version: 10.8.1(supports-color@10.2.2)
       openapi-typescript:
         specifier: 7.13.0
         version: 7.13.0(typescript@6.0.3)
       prettier:
-        specifier: ~3.8.5
+        specifier: 3.8.5
         version: 3.8.5
       typescript:
         specifier: 6.0.3
         version: 6.0.3
       typescript-eslint:
-        specifier: ~8.67.0
+        specifier: 8.67.0
         version: 8.67.0(eslint@10.8.1(supports-color@10.2.2))(supports-color@10.2.2)(typescript@6.0.3)
 
 packages:

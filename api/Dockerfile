@@ -3,11 +3,11 @@ WORKDIR /app
 RUN apk add --no-cache python3 make g++
 RUN npm install -g pnpm@11.21.0
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
-# Before the install, not after: pnpm runs this project's own `prepare` during
-# `pnpm install` — including under --frozen-lockfile and --prod — and prepare is
-# `node scripts/setup-hooks.mjs`. Without scripts/ already here the install dies on
-# MODULE_NOT_FOUND rather than on anything to do with dependencies.
-COPY scripts ./scripts
+# No scripts/ copied in, and none needed: pnpm runs this project's own `prepare`
+# during every `pnpm install` here — --frozen-lockfile and --prod included — and
+# that script tests for ../scripts/setup-hooks.mjs before running it. The build
+# context is api/, so a repository-root path is not in it at all; the test is
+# what turns that into a no-op instead of a MODULE_NOT_FOUND that fails the image.
 RUN pnpm install --frozen-lockfile
 COPY src ./src
 RUN pnpm run build:prod

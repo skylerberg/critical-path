@@ -6,6 +6,76 @@ may import node builtins and its own siblings and nothing else. Bare specifiers
 resolve by walking up from the importing file, and the root has no
 `node_modules` and never will. See the root `CLAUDE.md`.
 
+## `bootstrap.sh`
+
+A clone that has never been built here, to one that can run the tests, in one
+command.
+
+```sh
+scripts/bootstrap.sh
+```
+
+In order: it seeds each untracked `.env` from the tracked example beside it,
+never overwriting one that is already there; it checks node, pnpm, and that
+something is listening where `api/.env.test` points Postgres and Redis,
+reporting every missing one together rather than one per run; it installs each
+package and asserts a `node_modules` appeared, since an exit status is not
+proof of one; it migrates the test database; and it fetches Playwright's
+browsers. Packages come from `git ls-files` the way they do below, so a fifth
+one needs no edit here either.
+
+The seeding is why it exists. `api/.env.test` is untracked, every api test
+script is run with `--env-file=.env.test`, and node exits rather than continue
+without it — and until this there was no example of that file to copy, so the
+one people lost was the one with nothing to lose it from. `REDIS_TEST_URL` is
+in that example, which is also why an unreachable Redis stops this script
+instead of being mentioned in passing: the two files that drive a real server
+skip politely when the variable is absent and fail outright when it names a
+port nobody is listening on.
+
+Migrating the test database is not strictly required — the suite creates and
+migrates its own in `globalSetup`. It is the cheapest honest proof that the
+Postgres half works: a role that cannot create databases fails here in a second
+with the migrator's own message, rather than three minutes into a run. The
+*dev* database is deliberately not created for you, since that is a change
+outside the checkout; the closing message names the two commands.
+
+## `check-all.sh`
+
+Every check CI runs that a laptop can, cheapest first. Run it before pushing.
+
+```sh
+scripts/check-all.sh          # ~9m30s
+scripts/check-all.sh --fast   # ~1m
+```
+
+It sequences the four packages' `check:all` and the three root checks no package
+owns — the prose gate, its selftest and the `.githooks` test suite — and
+regenerates the API clients so that the drift `codegen-ci.yaml` looks for fails
+here first. api's and web's are expanded into the scripts they compose, purely
+so the order can be by measured time: nothing in the first tier needs a
+database, a browser or a bundler, which is what holds it to a minute, and
+`--fast` stops at the end of it. Nothing is reimplemented, and nothing is
+forwarded to a package either — `pnpm test -- --shard=1/4` runs everything and
+passes, so this takes no arguments on their behalf at all.
+
+The `commands` job in `repo-ci.yaml` keeps that expansion honest: each package
+has to be reached either by its own `check:all` or by every script `check:all`
+names, and every file the script invokes has to exist. Renaming a package
+script leaves this file parsing perfectly and failing on whoever runs it next,
+and nothing else in the tree would notice.
+
+Regenerating the clients is the one step that writes; everything else only
+reads.
+
+The script's header lists what a green run does not cover, all of it wanting a
+tool nothing here installs: the two image builds, the manifest validation, the
+terraform, and the shellcheck and actionlint that `repo-ci.yaml` fetches by
+checksum. One gap is quieter than those and worth repeating — the browser
+probes exit 0 with a warning when Playwright's browsers are missing, so
+`check:browser` can be green on a laptop and red on a runner, which is what
+`bootstrap.sh` fetching them is for.
+
 ## `check-comments.mjs`
 
 The prose gate for the whole repository: every package's code comments, plus the
@@ -71,6 +141,31 @@ opening comments, and `web/scripts/generate-client.test.mjs` fails if they stop
 being; it is also where this directory's behaviour is tested, since neither
 package's own checks reach outside itself.
 
+## `setup-hooks.mjs`
+
+Points `core.hooksPath` at the root `.githooks/`. All four packages run it from
+their `prepare`, so `pnpm -C <pkg> install` wires the hooks for the whole
+checkout whichever package you installed — which is what installing only `cli/`
+or only `preview-edge/` used to leave undone.
+
+One copy here rather than four beside the packages, on the same terms as
+`check-comments.mjs`: node builtins only, so it resolves from a root with no
+`node_modules`. Until this moved it was two byte-identical files in `api/` and
+`web/`, held in step by a declared mirror in `check-comments.mjs`.
+
+Each `prepare` tests for the file before running it:
+
+```sh
+if [ -f ../scripts/setup-hooks.mjs ]; then node ../scripts/setup-hooks.mjs; fi
+```
+
+The test is what keeps the Docker builds working. `api/Dockerfile` and
+`preview-edge/Dockerfile` each take their own package directory as the build
+context, so `../scripts` is not in it, and `pnpm install` runs `prepare`
+regardless — `--frozen-lockfile` and `--prod` included. Unguarded, the image
+build dies on MODULE_NOT_FOUND during dependency installation. The guard belongs
+in the caller because a script cannot test for its own absence.
+
 ## `new-worktree.sh`
 
 Creates a worktree that can actually run the checks — the thing a bare
@@ -103,10 +198,10 @@ production API release.
 
 Nothing formats or lints `scripts/`: the `post-commit` hook buckets a path by
 its first segment and no package owns this one. Match the surrounding style by
-hand — both packages' prettier config agrees (100 columns, single quotes,
+hand — all four packages' prettier config agrees (100 columns, single quotes,
 semicolons, two-space indent).
 
-The two `.sh` here are the exception, and only for lint: `repo-ci.yaml`
+The `.sh` files here are the exception, and only for lint: `repo-ci.yaml`
 shellchecks every file under `.githooks/` and `scripts/` whose shebang names a
 shell, and syntax-checks each under the shell it declares — bash here, POSIX sh
 for the hooks. The `.mjs` under `lib/` have their prose read by

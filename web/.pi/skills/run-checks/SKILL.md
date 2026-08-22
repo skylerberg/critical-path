@@ -23,7 +23,7 @@ change:
 
 ```sh
 pnpm test src/lib/board.test.ts    # a file or a directory; seconds
-pnpm run check                       # svelte-check, after a type or API change
+pnpm run type-check                  # svelte-check, after a type or API change
 pnpm run check:layout:real           # after a board layout change
 pnpm run check:task-detail           # after touching the card overlay
 pnpm run check:a11y                  # after changing markup or a colour token
@@ -53,7 +53,7 @@ Then push and read the CI run.
   this skill — and `repo-ci.yaml` runs it on every pull request.
 - Tests are colocated (`src/**/*.test.ts`) and mount components because
   `svelteTesting()` is wired in `vite.config.ts` — do not remove it.
-- A stale `src/api/api.generated.ts` fails only under `pnpm run check`, never
+- A stale `src/api/api.generated.ts` fails only under `pnpm run type-check`, never
   under `pnpm test`, so a green suite is not evidence after an API schema change.
   CLAUDE.md covers regenerating; the command is `scripts/generate-clients.sh`.
 - `vite.config.ts` and `eslint.config.js` keep linked worktrees out of scans

@@ -76,7 +76,7 @@ export const env = {
   db: {
     hostname: process.env.DB_HOSTNAME || '127.0.0.1',
     port: parseIntOrDefault(process.env.DB_PORT, 5432),
-    database: process.env.DB_DATABASE || 'game_dev',
+    database: process.env.DB_DATABASE || 'critical_path',
     user: process.env.DB_USER || 'postgres',
     password: process.env.DB_PASSWORD,
     caCertPath: process.env.DB_CA_CERT_PATH,

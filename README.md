@@ -27,6 +27,20 @@ and PostgreSQL 18 on `127.0.0.1:5432`. No Docker, no Supabase.
 
 ## Install
 
+A fresh clone reaches a state that can run the tests in one command:
+
+```sh
+scripts/bootstrap.sh
+```
+
+It seeds the untracked `.env` files from their tracked examples without
+overwriting one that is already there, reports whatever prerequisite this
+machine is missing before spending anything on installs, installs all four
+packages, migrates the test database and fetches Playwright's browsers. Running
+it a second time is safe. `scripts/README.md` covers each of those steps.
+
+Underneath it, and worth knowing before the first one goes wrong:
+
 **This is not a pnpm workspace.** There is no root `package.json`, no root
 `node_modules` and no root `pnpm-workspace.yaml` — install each package where it
 lives, and never add a workspace file at the top. `CLAUDE.md` explains what
@@ -85,6 +99,8 @@ request whose committed clients do not match.
 It belongs to no package and is not one itself.
 
 ```sh
+scripts/bootstrap.sh                          # a clone that can run the tests
+scripts/check-all.sh [--fast]                 # every check, cheapest first
 scripts/new-worktree.sh <branch> [base-ref]   # or --only api,web
 node scripts/check-comments.mjs               # the prose gate; about a second
 ```
@@ -95,6 +111,12 @@ copies the untracked `.env` files, which live in `api/` rather than at the
 checkout root, and installs every package. Make every worktree with it; a
 hand-made one fails the checks for reasons unrelated to the change in it.
 
+`bootstrap.sh` and `check-all.sh` are the two ends of a working session: the
+first is step one on a machine that has never built this, the last is what to
+run before pushing. Neither knows anything a package does not — both sequence
+the packages' own scripts, and `scripts/README.md` says what each covers and,
+for `check-all.sh`, what it deliberately leaves to CI.
+
 `check-comments.mjs` reads every package's comments and markdown and fails on
 two things a reviewer cannot check by eye: one rationale living in two files,
 and a file or symbol that prose names but that does not resolve.
@@ -102,9 +124,23 @@ and a file or symbol that prose names but that does not resolve.
 
 ## Checks
 
-Each package runs its own, from its own directory — `pnpm -C api test`,
-`pnpm -C web run check:all`, `pnpm -C cli run check`,
-`pnpm -C preview-edge run test`.
+Before pushing, one command runs every check CI runs that a laptop can:
+
+```sh
+scripts/check-all.sh          # ~9m30s
+scripts/check-all.sh --fast   # ~1m, stopping short of the suites and the probes
+```
+
+Its header names what a green run there still does not promise — the two image
+builds, the manifest validation, the terraform and the two pinned linters, each
+wanting a tool the Requirements above do not ask for.
+
+Each package runs its own, from its own directory. One name each, and the
+same name in all four: `pnpm -C api run check:all`, `pnpm -C web run check:all`,
+`pnpm -C cli run check:all`, `pnpm -C preview-edge run check:all`. Under them
+`type-check`, `lint` and `format:check` also mean the same thing everywhere —
+web's type checker is `svelte-check` rather than `tsc`, and that is the whole of
+the difference.
 
 CI mirrors that split across twelve workflows, each filtered to the paths it
 covers: `api-ci.yaml` and `web-ci.yaml` for the two large packages, plus
