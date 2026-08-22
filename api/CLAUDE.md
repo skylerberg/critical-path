@@ -322,34 +322,27 @@ committed file.
 # CLI
 
 `cli/` is a **sibling package** of this one (`critical-path-cli`, command
-`cpath`) — a full CLI client for this API. It was nested at `api/cli/` until the
-monorepo merge, and most of what used to work by directory ancestry now has to
-be written down: it carries its own `eslint.config.js`, `.prettierrc.json`,
-`.gitignore` and a self-contained `tsconfig.json`, because a config search that
-walks up out of `cli/` reaches the repository root, where there is deliberately
-nothing for it to find. It deliberately keeps its own
-pnpm-lock.yaml and node_modules (`pnpm -C cli install --frozen-lockfile`) so the deployed image
-and the deploy workflow's path filters are untouched by CLI changes; never
-add CLI dependencies to `api/package.json`. CLI tests are part of the api
-package's `pnpm test` — `api/vitest.config.ts` includes
-`../cli/tests/**/*.test.ts`, and they drive the Hono app in-process via
-`cli/tests/e2e/helpers.ts`, which imports it as `../../../api/src/index`. That
-climbing glob is load-bearing and silent when wrong: vitest exits 0 on an
-include that matches nothing, so assert the collected file count rather than the
-exit status after touching it.
-CLI checks run from `cli/`: `pnpm run type-check && pnpm run lint &&
-pnpm run format:check`, or `pnpm -C cli run check` for all three. Knip is the
-exception that covers both packages from `api/`, because `../cli` is a knip
-workspace in `api/knip.json` — that is what resolves CLI imports against
-`cli/package.json` instead of api's, and it is unrelated to pnpm workspaces,
-which this repo still must not use. Four lockfiles is what keeps
-`api-deploy.yaml`'s path filter exact: one shared lockfile would make a CLI
-dependency bump redeploy the production API. After changing the API surface or a
-realtime payload, run `scripts/generate-clients.sh` and commit the regenerated
-`cli/src/api/api.generated.ts` and `cli/src/api/realtime.generated.ts` — in the
-same commit as the schema change, together with web's, which the same script
-writes. Every generator re-dumps first, so `openapi:dump` and `realtime:dump` are
-only needed to refresh the dumps for something else.
+`cpath`), and `cli/CLAUDE.md` is its operating manual. Three of its facts are
+api-package facts and so belong here:
+
+- **Its tests run in this package's suite.** `vitest.config.ts` includes
+  `../cli/tests/**/*.test.ts`, and those tests drive the Hono app in-process, so
+  a broken CLI fails `pnpm test` here — with api's `.env.test` and api's
+  database underneath it.
+- **Knip crosses the same boundary.** `../cli` is a workspace in `knip.json`,
+  which is what resolves that package's imports against `cli/package.json`
+  instead of this one's. It is unrelated to pnpm workspaces, which this repo
+  still must not use.
+- **Its dependencies are not yours.** It installs from its own lockfile
+  (`pnpm -C cli install --frozen-lockfile`), and that separation is what leaves
+  `api-deploy.yaml`'s path filter unable to see a CLI dependency bump. Never add
+  a CLI dependency to `package.json` here.
+
+Everything else about it — its own checks (`pnpm -C cli run check`), its
+self-contained tsconfig, and the two api ceilings it mirrors as hand-typed
+literals — is documented beside the code. Changing a request/response shape or a
+realtime payload regenerates its committed client along with web's; "The two
+clients" above is the whole of that.
 
 # Staying current with main
 
@@ -495,7 +488,11 @@ against directly:
   redis`); CI has one and fails there rather than skipping. Never put
   `REDIS_URL` in `.env.test` — that puts the whole suite on one shared signup
   budget and it collapses into 429s.
-- `pnpm run type-check`, `pnpm run lint`, `pnpm run format`. `type-check` covers
+- `pnpm run type-check`, `pnpm run lint`, `pnpm run format:check`, `pnpm run knip`
+  — the four api-ci's `checks` job runs before it hands off to `pnpm -C cli run
+  check`. Not `pnpm run format`: that is the fixer, and the bullet about the
+  hooks says who owns it.
+  `type-check` covers
   `src/`, `tests/`, `scripts/`, `vitest.config.ts` and `../cli/` — `api/tsconfig.json`
   is the check-everything project and emits nothing;
   `pnpm run build` uses `tsconfig.build.json`, which is `src/` only. `../cli/` is in that

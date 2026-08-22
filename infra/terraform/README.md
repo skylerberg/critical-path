@@ -79,8 +79,9 @@ Each pull request deploys to `pr-<n>.criticalpath.skylerberg.com` so it can be
 tried out live before merging. A preview is a full **same-origin virtual
 host**: `/api` and `/ws` reach the real production backend (the `previews`
 matcher routes them to the API just like prod), so there is no CORS and no
-backend change. The frontend repo's workflow uploads each PR's build to a
-`pr/<n>/` prefix in the web bucket and a Cloud Run "preview edge" serves it.
+backend change. `web-preview-build.yaml` builds each pull request and
+`web-preview-deploy.yaml` uploads the result to a `pr/<n>/` prefix in the web
+bucket, where a Cloud Run "preview edge" serves it.
 
 **Prerequisites (one-time):**
 
@@ -123,10 +124,10 @@ backend change. The frontend repo's workflow uploads each PR's build to a
    below. **Every preview host answers 401 to everyone until this is done**,
    which is deliberate.
 
-After that, every push under `preview-edge/` redeploys the edge, and every PR
-in the frontend repo publishes a preview with no further infra work. **A
-preview reads and writes the real production database** — it is for trying out
-UI/flow changes, not for destructive experiments.
+After that, every push under `preview-edge/` redeploys the edge, and every pull
+request publishes a preview with no further infra work. **A preview reads and
+writes the real production database** — it is for trying out UI/flow changes,
+not for destructive experiments.
 
 ### Preview auth
 
@@ -209,7 +210,7 @@ the API's runtime identity, which is unrelated.
 
 So **renaming the repository breaks every deploy** until a matching binding is
 added: the rename changes `assertion.repository`, the old principalSet stops
-matching, and all four workflows fail at their `auth` step. Add the new one
+matching, and every one of them fails at its `auth` step. Add the new one
 first:
 
 ```sh

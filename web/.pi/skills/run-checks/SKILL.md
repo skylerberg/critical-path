@@ -1,13 +1,19 @@
 ---
 name: run-checks
-description: Run the checks for the Critical Path web repo (Svelte 5 + Vite). Use before opening a PR — which mostly means running the few checks that cover what you changed and letting CI run the rest.
+description: Run the checks for the Critical Path web package (Svelte 5 + Vite). Use before opening a PR — which mostly means running the few checks that cover what you changed and letting CI run the rest.
 ---
 
 # Run checks (web package)
 
-`pnpm run check:all` is the whole gate, and CI runs exactly that — as four
-parallel jobs in `.github/workflows/web-ci.yaml`, one per `check:*` group.
-`package.json` is where the list lives; nothing else should copy it.
+`pnpm run check:all` is this package's whole check list, and
+`.github/workflows/web-ci.yaml` runs exactly it — as four parallel jobs, one per
+`check:*` group, behind a `changes` job that decides which of them a given pull
+request has earned. `package.json` is where the list lives; nothing else should
+copy it.
+
+That workflow is not what branch protection requires. The root `CLAUDE.md`'s
+"Git hooks and workflows" section describes the set once, for every package;
+read it there rather than trusting a per-package summary.
 
 ## What to run by hand
 
@@ -49,6 +55,6 @@ Then push and read the CI run.
   `svelteTesting()` is wired in `vite.config.ts` — do not remove it.
 - A stale `src/api/api.generated.ts` fails only under `pnpm run check`, never
   under `pnpm test`, so a green suite is not evidence after an API schema change.
-  CLAUDE.md covers regenerating, including the cross-repo case.
+  CLAUDE.md covers regenerating; the command is `scripts/generate-clients.sh`.
 - `vite.config.ts` and `eslint.config.js` keep linked worktrees out of scans
   launched from the main checkout. Don't remove those entries.

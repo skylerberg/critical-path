@@ -314,8 +314,8 @@ if (SELFTEST) {
         '<section\n          data-column-id={column.id}',
       ],
       [
-        '          {/if}\n        </div>\n      {/each}',
-        '          {/if}\n        </section>\n      {/each}',
+        '          </div>\n        </div>\n      {/each}',
+        '          </div>\n        </section>\n      {/each}',
       ],
     ]),
     {

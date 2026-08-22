@@ -31,9 +31,8 @@ permissions:
   contents: 'read'
 
 # A literal group, not '${{ github.workflow }}': that expression expands to the
-# `name:` field, which is a shared namespace now that twelve workflows live in
-# one repository. Keyed on the ref so two pull requests cannot cancel each
-# other.
+# `name:` field, which every workflow in this repository shares. Keyed on the
+# ref so two pull requests cannot cancel each other.
 concurrency:
   group: 'k8s-ci-${{ github.ref }}'
   cancel-in-progress: true

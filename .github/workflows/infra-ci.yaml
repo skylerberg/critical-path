@@ -33,9 +33,9 @@ permissions:
   contents: 'read'
 
 # A literal group, not '${{ github.workflow }}': that expression expands to the
-# `name:` field, which is a shared namespace now that twelve workflows live in
-# one repository. Keyed on the ref so two pull requests cannot cancel each
-# other, and this one does cancel — a superseded validate leaves nothing behind.
+# `name:` field, which every workflow in this repository shares. Keyed on the
+# ref so two pull requests cannot cancel each other, and this one does cancel —
+# a superseded validate leaves nothing behind.
 concurrency:
   group: 'infra-ci-${{ github.ref }}'
   cancel-in-progress: true

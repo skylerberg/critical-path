@@ -6,11 +6,11 @@ One repository, four packages, **no root package and no root `node_modules`**.
 | --------------- | ------------------------------------------------ | ------------------------------------- |
 | `api/`          | Hono + Kysely + Postgres backend                 | `api/CLAUDE.md`, `api/README.md`       |
 | `web/`          | Svelte 5 (runes) + Vite SPA/PWA frontend         | `web/CLAUDE.md`, `web/README.md`       |
-| `cli/`          | `cpath`, a command-line client for the API       | the CLI section of `api/CLAUDE.md`     |
-| `preview-edge/` | the Cloud Run worker that serves PR previews     | `.github/workflows/preview-edge.yaml`  |
+| `cli/`          | `cpath`, a command-line client for the API       | `cli/CLAUDE.md`, `cli/README.md`       |
+| `preview-edge/` | the Cloud Run worker that serves PR previews     | `preview-edge/README.md`               |
 
-The two package CLAUDE.md files are the operating manuals; this one holds only
-what is true at the root.
+Each package's own docs are the operating manuals; this one holds only what is
+true at the root.
 
 `infra/terraform/` is not a fifth package and has no `package.json`. It is the
 terraform for the whole repository — the global load balancer and its URL map,
@@ -86,7 +86,9 @@ and web 245, and on one day it was api 6 and web 34. Ask about your own side:
 git fetch origin && git rev-list --count HEAD..origin/main -- api/   # or -- web/
 ```
 
-Both package files carry the longer version under "Staying current with main".
+`api/CLAUDE.md`'s "Staying current with main" is the full version — three points
+to check, and two ways a stale base has already produced a wrong conclusion.
+`web/CLAUDE.md`'s section of that name is the frontend's half and defers to it.
 
 ## The root `scripts/` directory
 
@@ -203,7 +205,7 @@ two, is reported, and is left unformatted. Fixing it means NUL-delimited
 plumbing through `post-commit` and `post-rewrite` too, since both split their
 file lists on whitespace before `format-touched` sees them.
 
-Twelve workflows under `.github/workflows/`, each filtered to the packages it
+Every workflow under `.github/workflows/` is filtered to the packages it
 checks. No pnpm command in CI runs at the root: every one carries `-C <package>`
 or a `working-directory`, and every `setup-node` that caches names an explicit
 `cache-dependency-path`, because there is no root lockfile — the one node job

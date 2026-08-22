@@ -108,7 +108,7 @@ export type TaskUpdateOutcome =
 // an append.
 //
 // `moveColumn` and `moveChecklistItem` still take only the placement half, so a
-// reorder made offline still replays a stale key (issue #203).
+// reorder made offline still replays a stale key.
 //
 // Null for a drop that landed nowhere — the moved id is not among `items` — so a
 // nonsensical finalize writes nothing rather than moving a card the user never

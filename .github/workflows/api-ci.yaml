@@ -61,12 +61,11 @@ permissions:
 #
 # A literal group rather than '${{ github.workflow }}', for the reason
 # api-deploy.yaml records: that expression expands to the `name:` field, which
-# became a shared namespace when eleven workflows moved into one repository.
-# Keyed on the ref so two pull requests cannot cancel each other —
-# github.ref is refs/pull/<n>/merge on a pull request and refs/heads/main on a
-# push, so the two never collide either. Cancelling is right here and wrong for
-# the deploys: a killed shard leaves nothing behind, a killed deploy can leave a
-# migration mid-flight.
+# every workflow in this repository shares. Keyed on the ref so two pull
+# requests cannot cancel each other — github.ref is refs/pull/<n>/merge on a
+# pull request and refs/heads/main on a push, so the two never collide either.
+# Cancelling is right here and wrong for the deploys: a killed shard leaves
+# nothing behind, a killed deploy can leave a migration mid-flight.
 concurrency:
   group: 'api-ci-${{ github.ref }}'
   cancel-in-progress: true

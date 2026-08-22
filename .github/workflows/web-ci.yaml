@@ -26,21 +26,20 @@ permissions:
 #
 # A literal group rather than '${{ github.workflow }}', for the reason
 # web-deploy.yaml records: that expression expands to the `name:` field, which
-# became a shared namespace when eleven workflows moved into one repository.
-# Keyed on the ref so two pull requests cannot cancel each other — github.ref is
-# refs/pull/<n>/merge on a pull request and refs/heads/main on a push, so those
-# two never collide either. Cancelling is right here and wrong for the deploys:
-# a killed check leaves nothing behind, a killed deploy can leave a migration
-# mid-flight.
+# every workflow in this repository shares. Keyed on the ref so two pull
+# requests cannot cancel each other — github.ref is refs/pull/<n>/merge on a
+# pull request and refs/heads/main on a push, so those two never collide either.
+# Cancelling is right here and wrong for the deploys: a killed check leaves
+# nothing behind, a killed deploy can leave a migration mid-flight.
 concurrency:
   group: 'web-ci-${{ github.ref }}'
   cancel-in-progress: true
 
 # Four check jobs, because `check:all` was one serial 9m04s step and most of it
 # was waiting. The list still lives in exactly one place: this file names four
-# `check:*` group scripts, not the twelve checks inside them, and `check:all` is
-# those same four groups — so a developer keeps one command, the docs that point
-# at it stay true, and there is nothing here for the list to drift against.
+# `check:*` group scripts, not the individual checks inside them, and
+# `check:all` is those same four groups — so a developer keeps one command, the
+# docs that point at it stay true, and there is nothing here to drift against.
 #
 # Separate runners are the whole point, not a detail. Measured on a 10-core
 # laptop, one group at a time: static 20.6s, suite 49.3s, browser 127.4s, guards
