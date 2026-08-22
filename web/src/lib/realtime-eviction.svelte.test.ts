@@ -5,54 +5,13 @@ import { board } from './board.svelte';
 import { connectivity } from './connectivity.svelte';
 import { realtime } from './realtime.svelte';
 import { session } from './session.svelte';
+import { FakeWebSocket } from './fake-websocket';
 
 // The account holds more sockets than it is allowed and this was the oldest, as
 // against an ordinary drop, which every case below pairs itself with: "it did
 // not reconnect" says nothing until the same harness is shown reconnecting.
 const EVICTED = 4429;
 const DROPPED = 1006;
-
-class FakeWebSocket {
-  static instances: FakeWebSocket[] = [];
-  readyState = 0;
-  sent: string[] = [];
-  onopen: (() => void) | null = null;
-  onmessage: ((event: { data: string }) => void) | null = null;
-  onclose: ((event: { code: number }) => void) | null = null;
-  onerror: (() => void) | null = null;
-
-  constructor() {
-    FakeWebSocket.instances.push(this);
-  }
-
-  send(data: string): void {
-    this.sent.push(data);
-  }
-
-  close(code = 1000): void {
-    if (this.readyState === 3) {
-      return;
-    }
-    this.readyState = 3;
-    this.onclose?.({ code });
-  }
-
-  open(): void {
-    this.readyState = 1;
-    this.onopen?.();
-  }
-
-  receive(message: unknown): void {
-    this.onmessage?.({ data: JSON.stringify(message) });
-  }
-
-  serverClose(code: number): void {
-    this.readyState = 3;
-    this.onclose?.({ code });
-  }
-}
-
-vi.stubGlobal('WebSocket', FakeWebSocket);
 
 function sockets(): number {
   return FakeWebSocket.instances.length;

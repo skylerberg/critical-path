@@ -18,63 +18,7 @@ import { testUuid } from './test-ids';
 import { users } from './users.svelte';
 import { realtimeEvent } from './realtime-test-events';
 import type { RealtimeEventType } from './realtime-types';
-
-class FakeWebSocket {
-  static instances: FakeWebSocket[] = [];
-  url: string;
-  readyState = 0;
-  sent: string[] = [];
-  onopen: (() => void) | null = null;
-  // `data` is unknown rather than string so `receiveRaw` can deliver the frames
-  // a real socket can and `JSON.stringify` cannot.
-  onmessage: ((event: { data: unknown }) => void) | null = null;
-  onclose: ((event: { code: number }) => void) | null = null;
-  onerror: (() => void) | null = null;
-
-  constructor(url: string) {
-    this.url = url;
-    FakeWebSocket.instances.push(this);
-  }
-
-  send(data: string): void {
-    this.sent.push(data);
-  }
-
-  close(code = 1000): void {
-    if (this.readyState === 3) {
-      return;
-    }
-    this.readyState = 3;
-    this.onclose?.({ code });
-  }
-
-  open(): void {
-    this.readyState = 1;
-    this.onopen?.();
-  }
-
-  receive(message: unknown): void {
-    this.onmessage?.({ data: JSON.stringify(message) });
-  }
-
-  // Delivers the frame verbatim, which is the only way to reach the guards
-  // #onMessage opens with: a binary frame, one that is not JSON at all, one whose
-  // type is not a string.
-  receiveRaw(data: unknown): void {
-    this.onmessage?.({ data });
-  }
-
-  serverClose(code = 1006): void {
-    this.readyState = 3;
-    this.onclose?.({ code });
-  }
-
-  messages(): { type: string; [key: string]: unknown }[] {
-    return this.sent.map((raw) => JSON.parse(raw));
-  }
-}
-
-vi.stubGlobal('WebSocket', FakeWebSocket);
+import { FakeWebSocket } from './fake-websocket';
 
 // Annotated, not inferred: an inferred literal reaches `realtimeEvent()` as a
 // function return, where excess-property checking no longer applies and a field
