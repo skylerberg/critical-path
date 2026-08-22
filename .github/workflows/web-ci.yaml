@@ -13,6 +13,13 @@ on:
       - '.github/workflows/web-ci.yaml'
       - '.github/workflows/web-deploy.yaml'
 
+# `check:all` runs eleven scripts out of the PR's own web/scripts/, and `pnpm
+# install` runs its `prepare`. That is untrusted code, so it gets the narrowest
+# token and no persisted credential to find in .git/config. The deploy workflows
+# run main's tree and are a different case.
+permissions:
+  contents: 'read'
+
 jobs:
   ci:
     runs-on: ubuntu-latest
@@ -21,6 +28,8 @@ jobs:
         working-directory: web
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: pnpm/action-setup@v4
         with:
           # No root package.json: the action reads `packageManager` from the

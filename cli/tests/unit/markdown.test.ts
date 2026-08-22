@@ -246,6 +246,35 @@ describe('tiptapToMarkdown', () => {
     expect(md).toContain('[go](https://x.dev)');
   });
 
+  it('keeps a rule inside a list item from underlining the paragraph above it', () => {
+    const item = {
+      type: 'listItem',
+      content: [
+        { type: 'paragraph', content: [{ type: 'text', text: 'first' }] },
+        { type: 'horizontalRule' },
+        { type: 'paragraph', content: [{ type: 'text', text: 'second' }] },
+      ],
+    };
+    const cases = [
+      {
+        doc: { type: 'doc', content: [{ type: 'bulletList', content: [item] }] },
+        md: '- first\n  ***\n  second',
+      },
+      {
+        doc: {
+          type: 'doc',
+          content: [{ type: 'orderedList', attrs: { start: 1 }, content: [item] }],
+        },
+        md: '1. first\n   ***\n   second',
+      },
+    ];
+    for (const { doc, md } of cases) {
+      expect(findTiptapDocProblem(doc)).toBeNull();
+      expect(tiptapToMarkdown(doc)).toBe(md);
+      expect(markdownToTiptap(md)).toEqual(doc);
+    }
+  });
+
   it('renders a mention as @label, in a paragraph and in a list item', () => {
     const mention = { type: 'mention', attrs: { id: MENTION_UUID, label: 'Alice' } };
     const doc = {

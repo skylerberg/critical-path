@@ -256,7 +256,10 @@ export function tiptapToMarkdown(doc: unknown): string {
   const root: Root = { type: 'root', children: blocksFrom(content) };
   return toMarkdown(root, {
     bullet: '-',
-    rule: '-',
+    // Not dashes: a tight list item joins its blocks with no blank line, so a
+    // rule lands on the line directly under the item's paragraph, where dashes
+    // are read as that paragraph's setext underline and both are lost.
+    rule: '*',
     extensions: [gfmStrikethroughToMarkdown()],
   }).trimEnd();
 }

@@ -26,7 +26,11 @@ jobs:
       run:
         working-directory: web
     steps:
+      # Builds the PR's own tree — `pnpm install` runs its `prepare` script — so
+      # the checkout must not leave a token in .git/config for that to reach.
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - uses: pnpm/action-setup@v4
         with:
           # No root package.json: the action reads `packageManager` from the
