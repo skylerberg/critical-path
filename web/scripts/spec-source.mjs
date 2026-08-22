@@ -46,9 +46,9 @@ const DUMP_SCRIPTS = {
 // producing one on the spot is cheaper than being wrong about it, and it is the
 // only answer that cannot be a false alarm in either direction.
 //
-// Best-effort: a checkout without node_modules or without .env cannot run it,
-// and that is not a reason to fail. The freshness check still runs on whatever
-// dump is already there.
+// Best-effort: a checkout without node_modules cannot run it, and that is not a
+// reason to fail. The freshness check still runs on whatever dump is already
+// there.
 function redump(apiRoot, filename) {
   const script = DUMP_SCRIPTS[filename];
   if (script === undefined) return false;
@@ -156,8 +156,8 @@ export async function loadDocument({ filename, urlPath, path, url }) {
   if (!redumped && !existsSync(dumped)) {
     throw new Error(
       `${dumped} does not exist and \`pnpm run ${DUMP_SCRIPTS[filename]}\` in ${API_DIR} failed.\n` +
-        `Install the api package's dependencies and give it a .env, then retry — the dump ` +
-        `needs neither a database nor a running server.`
+        `Install the api package's dependencies, then retry — the dump needs no .env, ` +
+        `no database and no running server.`
     );
   }
   announce(dumped, redumped);

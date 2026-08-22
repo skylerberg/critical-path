@@ -20,6 +20,13 @@ on:
       - '.github/workflows/api-ci.yaml'
       - '.github/workflows/api-deploy.yaml'
 
+# `pnpm install` runs the PR's own prepare script, and the suite runs its tests.
+# That is untrusted code, so it gets the narrowest token and no persisted
+# credential to find in .git/config. The deploy workflows run main's tree and are
+# a different case.
+permissions:
+  contents: 'read'
+
 jobs:
   # Fast, DB-free checks. Runs in parallel with the test shards below, so a
   # lint or type error doesn't wait on the suite — and the suite doesn't wait
@@ -28,6 +35,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: pnpm/action-setup@v4
         with:
           # No root package.json: the action reads `packageManager` from the
@@ -96,6 +105,8 @@ jobs:
           --health-retries 5
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: pnpm/action-setup@v4
         with:
           # No root package.json: the action reads `packageManager` from the
@@ -143,6 +154,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: pnpm/action-setup@v4
         with:
           # No root package.json: the action reads `packageManager` from the
@@ -166,6 +179,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: docker/setup-buildx-action@v4
       # Distinct cache scopes. The gha exporter defaults both to `buildkit`, so one
       # image's export overwrites the other's on every run and neither ever hits.
