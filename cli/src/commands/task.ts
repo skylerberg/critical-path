@@ -353,7 +353,8 @@ async function resolveUserIds(
 }
 
 // Mirrors the batch endpoint's own limit, so an oversized file fails before a
-// request rather than coming back as a raw schema error.
+// request rather than coming back as a raw schema error. Held to that limit by
+// api/tests/unit/clientLimits.test.ts, since nothing here can import it.
 const MAX_BATCH_TASKS = 100;
 
 function targetColumn(board: BoardPayload, opts: Opts): BoardColumn {

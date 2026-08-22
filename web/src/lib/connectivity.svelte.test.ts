@@ -88,8 +88,8 @@ describe('connectivity', () => {
       connectivity.noteReached();
       expect(onReachable).toHaveBeenCalledOnce();
 
-      // The socket heartbeats, so this arrives every 30s for as long as it is
-      // up. Draining the queue on each one would be a request storm.
+      // The socket heartbeats, so this arrives on an interval for as long as it
+      // is up. Draining the queue on each one would be a request storm.
       connectivity.noteReached();
       connectivity.noteReached();
       expect(onReachable).toHaveBeenCalledOnce();

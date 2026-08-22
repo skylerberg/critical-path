@@ -76,7 +76,6 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       web_code: ${{ steps.classify.outputs.web_code }}
-      web_prose: ${{ steps.classify.outputs.web_prose }}
       web_assets: ${{ steps.classify.outputs.web_assets }}
     steps:
       - uses: actions/checkout@v4
@@ -139,16 +138,17 @@ jobs:
           # and cost the coverage instead. Exactly two classes are carved out.
           #
           #   web/public/**   `vite build` copies these bytes into dist/ and
-          #                   nothing else opens them: check:comments walks src/
-          #                   and scripts/ only, no eslint rule matches a .png or
-          #                   an .svg, and `prettier --check src` does not reach
-          #                   here. The build is the only step an icon can break,
-          #                   and `suite` is the only job that builds.
+          #                   nothing else opens them: no eslint rule matches a
+          #                   .png or an .svg, and `prettier --check src` does
+          #                   not reach here. The build is the only step an icon
+          #                   can break, and `suite` is the only job that builds.
           #
-          #   web/CLAUDE.md   check:comments reads these as DOCS, holding the
-          #   web/README.md   prose to the symbols it names. It runs inside
-          #   web/.pi/**      check:static and nowhere else — the suite, the
-          #                   browser probes and the guards open no markdown.
+          #   web/CLAUDE.md   no job in this workflow opens a markdown file any
+          #   web/README.md   more. The prose check that did was this package's
+          #   web/.pi/**      `check:comments`, which became a repository-root
+          #                   tool covering all four packages and now runs in
+          #                   Repo CI, so a doc-only edit here correctly starts
+          #                   nothing at all in this file.
           #
           # Nothing else in web/ is carved out, and the near-misses are why that
           # is worth saying. web/index.html and web/vite.config.ts read as
@@ -174,7 +174,6 @@ jobs:
           }
 
           emit web_code "$(printf '%s\n' "$changed" | grep -Ev "$prose|$assets" || true)"
-          emit web_prose "$(printf '%s\n' "$changed" | grep -E "$prose" || true)"
           emit web_assets "$(printf '%s\n' "$changed" | grep -E "$assets" || true)"
 
   # 20.6s, and the highest signal per second in the file: a type error or a lint
@@ -183,12 +182,9 @@ jobs:
   # first within the group, with `format:check` last because .githooks/post-commit
   # already ran prettier over every file each commit touched, so it is the one
   # least likely to fire.
-  #
-  # `web_prose` rides here because `check:comments` is in this group and in no
-  # other: web/CLAUDE.md, web/README.md and web/.pi/** reach exactly one check.
   static:
     needs: changes
-    if: needs.changes.outputs.web_code == 'true' || needs.changes.outputs.web_prose == 'true'
+    if: needs.changes.outputs.web_code == 'true'
     runs-on: ubuntu-latest
     defaults:
       run:

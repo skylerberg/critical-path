@@ -1,21 +1,11 @@
 import { isCalendarDate } from './dates';
+import type { components } from '../api/api.generated';
 
-export type RecurrencePreset =
-  | 'daily'
-  | 'weekdays'
-  | 'weekly'
-  | 'monthly_date'
-  | 'monthly_weekday'
-  | 'yearly';
-
-export const RECURRENCE_PRESETS: readonly RecurrencePreset[] = [
-  'daily',
-  'weekdays',
-  'weekly',
-  'monthly_date',
-  'monthly_weekday',
-  'yearly',
-];
+// The server's own set, not a copy of it. Which presets exist is a server rule:
+// each one names a different rrule the API builds, so a preset added there has
+// to reach this menu and one retired there must stop being offerable. Restating
+// the union here instead left both of those changes silent.
+export type RecurrencePreset = NonNullable<components['schemas']['SeriesPreset']>;
 
 const WEEKDAY_NAMES = [
   'Sunday',
@@ -41,7 +31,8 @@ const MONTH_NAMES = [
   'December',
 ];
 
-// What each preset can say with no day to quote. `utcDate('')` is not an Invalid
+// Record, so a preset the API gains fails the build until it has wording. What
+// each preset can say with no day to quote. `utcDate('')` is not an Invalid
 // Date — Number('') is 0, so it is 30 November 1899 — and a date input reports ''
 // for any empty or half-typed value, so without these the menu relabels itself
 // after that 1899 day while the caller is still retyping the start date.
@@ -53,6 +44,9 @@ const UNANCHORED_LABELS: Record<RecurrencePreset, string> = {
   monthly_weekday: 'Monthly on the same weekday',
   yearly: 'Every year',
 };
+
+// Menu order, and exhaustive by construction: the record above is the one list.
+export const RECURRENCE_PRESETS = Object.keys(UNANCHORED_LABELS) as RecurrencePreset[];
 
 // Built from the string's own fields, never a local Date: toISOString() on one
 // names the previous day for most of the evening west of Greenwich.

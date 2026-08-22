@@ -123,6 +123,25 @@ theoretical — one pruned the schemas a deprecated operation orphaned and the
 other did not, and one swallowed a failed dump and generated from whatever stale
 file was lying around.
 
+`scripts/check-comments.mjs` is the prose gate, and the only thing here that is
+run rather than imported by something else:
+
+```sh
+node scripts/check-comments.mjs             # the whole tree; about a second
+node scripts/check-comments.mjs --selftest  # after changing what it asserts
+```
+
+It walks all four packages, `docs/` and the root prose, and reports two things a
+reader has no way to check for themselves: one sentence living in two files,
+where the copy not sitting beside the code is the one that quietly rots, and a
+file or symbol that prose names but that does not resolve where the prose puts
+it. `scripts/comment-allowlist.txt` suppresses the narrow case where a fact
+really is needed at two sites — and an entry there that has stopped suppressing
+anything is itself reported, so the allowlist cannot grow into a graveyard. It
+was `web/`'s own check until it grew to read every package; it belongs to no
+package now, and `repo-ci.yaml` runs it, with its `--selftest`, on every pull
+request.
+
 **It is not a package and must never become one.** No `package.json`, no
 `node_modules`, no lockfile. That is also the constraint on what may live here:
 **a file under `scripts/` may import node builtins and its own siblings, nothing
@@ -135,8 +154,9 @@ Nothing formats or lints this directory: `format-touched` buckets a path by its
 first segment and no package owns `scripts/`, and neither eslint config reaches
 outside its own package. Match the surrounding style by hand — both packages'
 prettier agrees (100 columns, single quotes, semicolons, two-space indent).
-`repo-ci.yaml` does shellcheck the `.sh` here, which is lint of a sort, but
-nothing formats anything under `scripts/`.
+`repo-ci.yaml` does shellcheck the `.sh` here, and the comment check reads the
+`.mjs` here for prose exactly as it reads any other file in the tree — but
+neither of those is a formatter, and nothing formats anything under `scripts/`.
 
 ## The root `docs/` directory
 
@@ -151,9 +171,10 @@ implemented: `api/docs/scaling.md` stays in `api/` because it is the api's own
 measured behaviour, keyed to `api/bench/` and `pnpm -C api run bench`, and
 nothing in it means anything to `web/`.
 
-Nothing checks a commit that touches only this directory — it matches no
-package's `paths:` filter, so the run is `ci-gate.yaml` and `preview-build`,
-which is the same thing that is already true of the root prose files.
+A commit touching only this directory matches no package's `paths:` filter, so
+none of their checks run on it. It is not unchecked, though: `repo-ci.yaml`
+carries no filter, and its comment job holds this prose to the files and symbols
+it names — the same thing that is now true of the root prose files.
 
 ## Git hooks and workflows
 
@@ -184,16 +205,19 @@ file lists on whitespace before `format-touched` sees them.
 
 Twelve workflows under `.github/workflows/`, each filtered to the packages it
 checks. No pnpm command in CI runs at the root: every one carries `-C <package>`
-or a `working-directory`, and every `setup-node` names an explicit
-`cache-dependency-path`, because there is no root lockfile. Root-level files no
-longer fall through the gaps between the package filters: `codegen-ci.yaml`
-triggers on `scripts/**` because both clients are generated from what lives
-there, `repo-ci.yaml` on `.githooks/**`, `scripts/**` and
-`.github/workflows/**` — the three root-level things no package owns, the last
-of them including the gate itself — and `ci-gate.yaml` is filtered to nothing on
-purpose. Nothing *checks* a commit of only root prose,
-but two workflows still run on it: `ci-gate.yaml` and `preview-build`, both
-deliberately unfiltered, so a pull request always reports at least those two.
+or a `working-directory`, and every `setup-node` that caches names an explicit
+`cache-dependency-path`, because there is no root lockfile — the one node job
+that caches nothing is repo-ci's comment job, which installs nothing to cache.
+Root-level files no longer fall through the gaps between the package filters:
+`codegen-ci.yaml` triggers on `scripts/**` because both clients are generated
+from what lives there, and `repo-ci.yaml` carries no `paths:` at all. Its
+`repo-files` job covers `.githooks/**`, `scripts/**` and `.github/workflows/**`,
+the three root-level things no package owns and the last of them including the
+gate itself; its `comments` job reads every package at once and so has no
+narrower bound to be filtered to. `ci-gate.yaml` is filtered to nothing on
+purpose. A commit of only root prose therefore reports three runs —
+`repo-ci.yaml`, `ci-gate.yaml` and `preview-build` — and unlike the other two,
+the first actually checks it.
 `k8s-ci.yaml` is the same shape one level down — `api/k8s/**` sits
 inside api-ci's filter but no job there reads a manifest, so it is the one thing
 that validates what `api-deploy.yaml` applies to production. `infra-ci.yaml`
@@ -212,16 +236,19 @@ edits.
 Filtering happens in two layers, and they are not interchangeable. A workflow's
 `paths:` is the outer bound — the packages it could have something to say about
 — and narrowing it drops coverage leaving no run behind to notice. Refining
-happens **inside**: `api-ci.yaml` and `web-ci.yaml` each have a `changes` job
-that diffs the event's own range and gates every other job on an `if:`. An
-`api/k8s/**` edit still starts api-ci and still reports, but skips four
-Postgres shards and two image builds; a `web/README.md` edit skips everything in
-web-ci but the static group, and a `web/public/**` edit everything but the
-build. Both lists are subtractive on purpose — a path nobody has classified
-falls through to its package and costs a job, where an allowlist would drop it
-and cost the coverage instead. Both fail open, loudly, when the event's base ref
-cannot be resolved: running too much is always correct, skipping silently never
-is.
+happens **inside**: `api-ci.yaml`, `web-ci.yaml` and `repo-ci.yaml` each have a
+`changes` job that diffs the event's own range and gates the expensive jobs on
+an `if:`. An `api/k8s/**` edit still starts api-ci and still reports, but skips
+four Postgres shards and two image builds; a `web/public/**` edit skips
+everything in web-ci but the build, and a `web/README.md` edit now skips every
+job that workflow has, because the one check that opened it is the root comment
+check and that runs elsewhere. The first two lists are subtractive on purpose — a
+path nobody has classified falls through to its package and costs a job, where
+an allowlist would drop it and cost the coverage instead. repo-ci's is additive,
+and only because the job it gates reads two `find` roots and one glob rather
+than a package directory: that list is the job's input set rather than a guess
+at it. All three fail open, loudly, when the event's base ref cannot be
+resolved: running too much is always correct, skipping silently never is.
 
 ## What makes CI enforceable
 

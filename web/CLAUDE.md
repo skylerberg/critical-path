@@ -142,9 +142,9 @@ carries the longer version, including two ways a stale base has produced wrong
 conclusions.
 
 **Mind the pathspec.** One `main` now serves both projects, so the count without
-one is red nearly always and tells you nothing about your own base: over 60 days
-api landed 189 first-parent commits and web 245, and on one day it was api 6 and
-web 34. `-- web/` asks what the bare count used to ask. Ask `-- api/` as well
+one is red nearly always and tells you nothing about your own base; the root
+`CLAUDE.md` measures how lopsided a single day can be. `-- web/` asks what the
+bare count used to ask. Ask `-- api/` as well
 when the change consumes a new endpoint, because that is the half that has to
 have landed first.
 
@@ -178,8 +178,9 @@ is about to tell you anyway. Push, and read the run.
 `check:all` is composed of four groups — `check:static`, `check:suite`,
 `check:browser`, then `check:test-guards` — and `web-ci.yaml` runs each as a
 **separate job**, guards across two shards, each gated on a `changes` job that
-skips the groups a change cannot reach (prose runs the static group alone; an
-icon under `public/` runs only the build). Measured on a 10-core laptop, one
+skips the groups a change cannot reach (an icon under `public/` runs only the
+build; a doc-only edit now runs no job here at all, since the check that read
+this file moved to the repository root). Measured on a 10-core laptop, one
 group at a time: 20.6s, 49.3s, 127.4s, 140.0s. Serially that is 5m37s, and it
 was 9m04s as the single CI step it replaces; as four jobs the slowest one is
 `check:browser`. Locally `check:all` still runs them one after another, and has
@@ -194,9 +195,10 @@ What is worth doing by hand is whatever your change actually touches: the test
 files near it, and the one check that covers the thing you changed if there is
 one — `check:layout:real` after a board layout change, `check:task-detail` after
 touching the card overlay, `check:column-menu` after touching the column kebab or
-`sortColumn`, `check:a11y` after changing markup or a colour token,
-`check:comments` after moving a rule between a comment and this file. Those are
-seconds each.
+`sortColumn`, `check:a11y` after changing markup or a colour token. Those are
+seconds each. The one that no longer belongs to this package is the prose check:
+after moving a rule between a comment and this file, run
+`node scripts/check-comments.mjs` from the repository root.
 
 `pnpm run check` covers `src/` (tests included — they are colocated as
 `src/**/*.test.ts`), `scripts/**/*.ts` and `vite.config.ts`. Nothing about the
@@ -300,21 +302,13 @@ meaning anything, since a slower press would drift past the window into the
 second read's territory, so `board-probe-net.ts` counts reorders it has
 **answered** and the arm requires that count to still be zero.
 
-`check:comments` is not a browser check and needs nothing installed. It reads the
-prose — comments, plus this file, the README and the skills under `.pi/` — and
-fails on two things a reader takes on trust: the same sentence in two files,
-where whichever copy is not next to the code goes stale silently; and a file or
-symbol it names that no longer resolves, or that resolves somewhere other than
-where the prose places it. When it fires, give the rule one owner — the module
-that implements it — and cut the other copy down to what is local to its own
-site. `scripts/comment-allowlist.txt` is for the narrow case where a fact is
-needed *at* two sites and there is no module to hang it on; reaching for it
-instead is how the duplication gets re-admitted.
-
-It reads the docs because they had drifted worse than the code: the run-checks
-skill was telling people to run the formatter that the post-commit hook already
-runs, and the README described a generator flag that had changed meaning. Neither
-was anyone's compile error.
+This package's own prose — this file, the README, the skills under `.pi/` and
+every comment in `src/` — is checked as well, by something that is deliberately
+not one of the checks above and no longer lives in this package.
+`scripts/check-comments.mjs` at the repository root reads all four packages in
+one pass, and `repo-ci.yaml` runs it on every pull request; the root `CLAUDE.md`
+says what it looks for and how to answer it. Run it here as
+`node scripts/check-comments.mjs` from the checkout root, not from `web/`.
 
 `check:a11y` runs axe-core over the real board and the real card overlay, in
 **both colour schemes** — the palette is defined twice and half the tokens exist
@@ -326,7 +320,7 @@ resort, so a title-only avatar passes every rule while a bare `<span>` carrying
 one is named nothing at all; and anything behind a hover or a keypress, since it
 audits the resting page.
 
-**All seven also take `--selftest`, and a change to what they assert should run
+**All six also take `--selftest`, and a change to what they assert should run
 it:**
 
 ```sh
@@ -334,15 +328,14 @@ node scripts/check-board-layout.mjs --selftest
 node scripts/check-board-layout-real.mjs --selftest
 node scripts/check-task-detail.mjs --selftest
 node scripts/check-column-menu.mjs --selftest
-node scripts/check-comments.mjs --selftest
 node scripts/check-a11y.mjs --selftest
 node scripts/check-test-guards.mjs --selftest
 ```
 
 Each re-runs its cases against something deliberately put back on the bug —
 legacy markup in the fixture, the pre-fix `dndzone` option in the real board, the
-write queue disabled in the card overlay, a planted duplicate and a planted dead
-reference, the pre-fix dark accent and a column back on `<section>`, the "Sort by"
+write queue disabled in the card overlay, the pre-fix dark accent and a column
+back on `<section>`, the "Sort by"
 row rewritten to dismiss the menu, a sort option rewritten to sort nothing and a
 `sortColumn` stripped of its optimistic order,
 guards whose edit changes nothing, one aimed at a module its tests never load and
@@ -351,7 +344,7 @@ one handed a deadline no real run could meet — and fails if any of them still
 because with a dirty baseline any violation would otherwise read as the planted
 one being caught; the column-menu selftest goes further and names the arms each
 planted bug must leave **green**, which is what stops "something went red" from
-passing for "the right thing went red". All seven share a failure mode a unit test mostly does not:
+passing for "the right thing went red". All six share a failure mode a unit test mostly does not:
 measuring nothing and reporting green, because the gesture never armed, the
 selector matched nothing, the option it turns on was renamed out from under it,
 or the pattern it greps for stopped matching the codebase. CI runs the checks
@@ -476,9 +469,8 @@ straight back as `--only=<that line>`. Patterns are substrings, comma-separated
 or repeated. `scripts/lib/case-filter.mjs` is shared by both, and is meant to be
 what any other check with a case matrix adopts — `check:a11y` has one
 (screens × schemes) and its own ad-hoc `only` predicate, and would be the next
-one to move over. `check:comments` scans the whole codebase, and
-`check:task-detail` and `check:column-menu` are scripted linear page loads, so
-none of them has cases to select.
+one to move over. `check:task-detail` and `check:column-menu` are scripted
+linear page loads, so neither has cases to select.
 
 Because a filter narrows what a gate covers, all three ways of getting one wrong
 are loud: a pattern matching nothing exits 2 listing the names rather than
@@ -609,10 +601,10 @@ A probe has to sit inside the repo to resolve `vite`, `playwright` and the
 helper itself; one written to `/tmp` fails at the import, not at the assertion.
 **Name it `scripts/tmp-<what>.mjs`** — that prefix is the one thing that makes a
 scratch file safe to forget. It is ignored by git, by eslint, by vitest's test
-discovery and by `check:comments`, which is every gate that walks the tree. Each
-of those has been red because of a leftover probe: eslint on an import order,
-`pnpm test` on a `tmp-*.test.ts` that failed on purpose to print a value,
-`check:comments` on a probe copied wholesale from a real module. Delete it when
+discovery and by `scripts/check-comments.mjs`, which is every gate that walks the
+tree. Each of those has been red because of a leftover probe: eslint on an
+import order, `pnpm test` on a `tmp-*.test.ts` that failed on purpose to print a
+value, the comment check on a probe copied wholesale from a real module. Delete it when
 you are done anyway — the prefix is what keeps the gate honest in the meantime,
 on a tree `git status` calls clean.
 

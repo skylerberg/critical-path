@@ -267,10 +267,9 @@ committed file.
   count — they bound what one process can be made to hold, not what one person
   may have.
   Credential revocation publishes `sessions_revoked` on the realtime bus, which
-  closes sockets with code 4401: a payload of `{ user_id }` closes that user's
-  session sockets; one that also carries `personal_access_token_id` closes only
-  the sockets authenticated with that token; and one that carries `session_id`
-  closes only that session's. Any new publisher must keep sending `user_id` —
+  closes sockets with code 4401: `{ user_id }` reaches that user's session
+  sockets, and adding `personal_access_token_id` or `session_id` narrows it to
+  the sockets holding that one credential. Any new publisher must keep sending `user_id` —
   it is the dispatch fallback in `handleBusEntry`.
   Both application close codes are one table,
   `src/services/realtime/closeCodes.ts`, which `src/spec/realtime-events.ts`
@@ -279,7 +278,11 @@ committed file.
   all. `tests/unit/realtimeEventsDocument.test.ts` holds the table to the codes
   every module in `src/services/realtime` can actually send, and changing it
   carries the same `scripts/generate-clients.sh` obligation a payload change
-  does.
+  does. The ping interval crosses the same way, from
+  `src/services/realtime/heartbeat.ts` as `RealtimeHeartbeatMs` — a literal type,
+  never a runtime value, that a client annotates its own copy of the number with.
+  Raise it and `cli/src/watch.ts` stops compiling, which is the point: its stale
+  timeout is three of these, and nothing else would have told it.
 - The realtime bus is in-process by default; when `REDIS_URL` is set (as in
   production, which runs 2+ replicas) publishes fan out via Redis pub/sub so
   every replica delivers to its own sockets. Rate limits also share Redis
@@ -362,9 +365,8 @@ git fetch origin && git rev-list --count HEAD..origin/main -- api/   # 0 means c
 
 **The pathspec is what makes that number mean anything now.** One `main` serves
 both projects, so the bare count is red almost always and says nothing about
-whether your base has moved: over 60 days api landed 189 first-parent commits
-and web 245, and on one day it was api 6 and web 34. `-- api/` asks the question
-the old bare count used to ask. Drop the pathspec deliberately when the change
+whether your base has moved; the root `CLAUDE.md` has the measured split.
+`-- api/` asks the question the old bare count used to ask. Drop the pathspec deliberately when the change
 spans both packages, and read the answer as two numbers rather than one. Being
 behind on the *other* package is not a reason to rebase mid-change; it is a
 reason to rebase before you push, because a branch that no longer applies is a
@@ -568,7 +570,7 @@ adds must reach `main` in an earlier merge than the web code that calls it. The
 constraint is the one above in a different costume: something old is serving
 while something new is going out, over a window whose length you do not control.
 
-1. Add `src/db/migrations/NNNN_name.ts` exporting `up`/`down`.
+1. Add `src/db/migrations/<NNNN>_<name>.ts` exporting `up`/`down`.
 2. `pnpm run migrate` and `pnpm run migrate:test`.
 3. Regenerate committed types: `pnpm run kysely-codegen`. It takes no
    `DATABASE_URL` and never reads a database you develop against — it migrates

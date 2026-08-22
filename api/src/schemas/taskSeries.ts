@@ -13,7 +13,7 @@ export const SERIES_RRULE_MAX_LENGTH = 500;
 
 const seriesTitle = stringWithLength(1, SERIES_TITLE_MAX_LENGTH);
 
-// Module-local so it never enters the OpenAPI schema-name registry.
+// Module-local; it never enters the OpenAPI schema-name registry.
 const checklistItemInputs = (max: number) =>
   type({
     text: stringWithLength(1, SERIES_TITLE_MAX_LENGTH),

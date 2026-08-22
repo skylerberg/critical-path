@@ -242,8 +242,9 @@ export function cycleNodeIds(
   return new Set(nodes.filter((node) => !placed.has(node.id)).map((node) => node.id));
 }
 
-// blockedTaskId is repeated as the last element: that final hop is the edge the
-// caller is about to create, so the result reads as a closed loop.
+// blockedTaskId is repeated as the last element, so the result reads as a closed
+// loop. The server builds the same path in api/src/services/dependencies.ts, and
+// the two have to agree: the cycle the API rejects is the cycle the graph draws.
 export function cyclePathIds(
   edges: readonly GraphEdge[],
   blockedTaskId: string,

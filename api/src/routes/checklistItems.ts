@@ -212,8 +212,8 @@ router.patch(
       ...(contentChanged ? { updated_at: sql<Date>`now()` } : {}),
     };
 
-    // Every field is optional and an empty body validates, so without this a `{}`
-    // patch would compile to an UPDATE with an empty SET list.
+    // An empty body validates; without this a `{}` patch would compile to an
+    // UPDATE with an empty SET list.
     if (Object.keys(changes).length > 0) {
       try {
         await db

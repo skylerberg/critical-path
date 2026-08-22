@@ -3,6 +3,22 @@ name: API CI
 # Scoped to the packages this workflow actually checks. The api suite runs
 # cli/tests/** too, and the images job builds the preview-edge image, so a
 # change to either of those packages has to land here as well.
+#
+# One file from a fourth package rides along: `web/src/lib/tiptap.ts`. Nothing
+# here builds web, but tests/unit/documentEmptiness.test.ts reads that file and
+# runs its emptiness rule against the same corpus as the api's, because the two
+# cannot import each other and a shared runtime module is not available across
+# packages. Without this entry a web-only edit to it would not run the suite
+# holding the two together, and the drift would surface on whatever api change
+# happened to come next.
+#
+# The five below it are there for the same reason and are named one by one for
+# the same reason: tests/unit/clientLimits.test.ts reads each out of the tree and
+# checks the ceiling it hard-codes against the api constant that enforces it.
+# `web/**` would buy identical coverage and spend four Postgres shards on every
+# frontend change, which is most of the traffic on this repository. Keeping the
+# list honest is not left to memory — that test fails when a file it reads is
+# absent from here, which is the only state in which it would be decoration.
 on:
   push:
     branches: [main]
@@ -10,6 +26,12 @@ on:
       - 'api/**'
       - 'cli/**'
       - 'preview-edge/**'
+      - 'web/src/lib/tiptap.ts'
+      - 'web/src/lib/titles.ts'
+      - 'web/src/lib/search-query.ts'
+      - 'web/src/lib/userSearch.svelte.ts'
+      - 'web/src/lib/selection.svelte.ts'
+      - 'web/src/lib/realtime.svelte.ts'
       - '.github/workflows/api-ci.yaml'
       - '.github/workflows/api-deploy.yaml'
   pull_request:
@@ -17,6 +39,12 @@ on:
       - 'api/**'
       - 'cli/**'
       - 'preview-edge/**'
+      - 'web/src/lib/tiptap.ts'
+      - 'web/src/lib/titles.ts'
+      - 'web/src/lib/search-query.ts'
+      - 'web/src/lib/userSearch.svelte.ts'
+      - 'web/src/lib/selection.svelte.ts'
+      - 'web/src/lib/realtime.svelte.ts'
       - '.github/workflows/api-ci.yaml'
       - '.github/workflows/api-deploy.yaml'
 
@@ -148,6 +176,15 @@ jobs:
           # tests/unit/eventCatalog.test.ts read both files and assert the
           # numbers and the event table in them against the code, so an edit to
           # either really can fail the suite.
+          #
+          # web/src/lib/tiptap.ts is read the same way, by
+          # tests/unit/documentEmptiness.test.ts, which is why `api_code` claims
+          # it below: the `paths:` filter lets that one file in, and the shards
+          # are the only thing that runs the test. The five that follow it are
+          # read by tests/unit/clientLimits.test.ts and claimed for the same
+          # reason. Every one of the six is listed in `paths:` above as well —
+          # this pattern only decides which jobs run once a run has started, so a
+          # file named in one place and not the other is covered by neither.
           inert='^api/(k8s|docs)/'
           relevant="$(printf '%s\n' "$changed" | grep -Ev "$inert" || true)"
 
@@ -159,7 +196,7 @@ jobs:
             echo "$1=$value" | tee -a "$GITHUB_OUTPUT"
           }
 
-          emit api_code '^api/'
+          emit api_code '^api/|^web/src/lib/(tiptap|titles|search-query|userSearch\.svelte|selection\.svelte|realtime\.svelte)\.ts$'
           emit cli_code '^cli/'
           emit preview_edge '^preview-edge/'
 

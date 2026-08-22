@@ -3,7 +3,7 @@ import '@testing-library/jest-dom/vitest';
 // live in. Imported for its side effect of installing a real implementation, so
 // those tests exercise the same code paths a browser would.
 import 'fake-indexeddb/auto';
-// Must precede every import below that reaches api/client.ts: openapi-fetch
+// Must precede every import below that reaches `src/api/client.ts`: openapi-fetch
 // captures globalThis.fetch and globalThis.Request when the client module is
 // evaluated, and the stubs live here. See the note in that file.
 import './api/testUtils';

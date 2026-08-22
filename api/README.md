@@ -4,7 +4,7 @@ TypeScript API for **Critical Path**, a project-management suite (Hono + Kysely 
 
 This is the `api/` package of the Critical Path monorepo. `web/` is the frontend,
 `cli/` is the `cpath` command-line client, and `preview-edge/` serves PR
-previews. Each installs separately — this is not a pnpm workspace. Commands
+previews. Each package installs on its own; there is no pnpm workspace. Commands
 below run from this directory unless they name another package.
 
 ## Requirements
@@ -717,8 +717,8 @@ occurrence does not immediately fire a stale one. A _duplicated card_, by
 contrast, is an ordinary card with no series link.
 
 **A card names the schedule it came from.** `GET /api/tasks/:id` carries
-`series_summary`, the same English rendering of the rule the series list shows,
-so an open card can say it repeats. It is null for an ordinary card and for one
+`series`, whose `summary` is the same English rendering of the rule the series
+list shows, so an open card can say it repeats. It is null for an ordinary card and for one
 whose series has since been deleted. Board payloads deliberately do not carry
 it: a join and a rule render per card, for a line one open card at a time shows.
 
@@ -819,7 +819,7 @@ clears it; the image must belong to the task, and a task has at most one cover
 enforced per task). It is
 opt-in and off by default, so a board that never uses it is unchanged.
 The choice lives on the image row itself, so deleting the image takes the
-cover with it; every `image_deleted` event carries whatever cover the task has
+cover with it; every `attachment_deleted` event carries whatever cover the task has
 left. Covers are copied when a project, a column or a card is duplicated, and
 they are published on public boards.
 
@@ -835,8 +835,8 @@ the same `/api/images/:id` a description's embedded `src` uses, so one URL
 serves the list thumbnail and the inline picture. `PATCH /api/attachments/:id`
 renames an image like any other, and `DELETE` removes one.
 
-There is no separate image surface left. `images[]`, `image_count`, the
-`image_created` and `image_deleted` events and `POST /api/tasks/:id/images` are
+There is no separate image surface left. `images[]`, `image_count`, the two
+image-created and image-deleted events and `POST /api/tasks/:id/images` are
 all gone; a picture is uploaded, listed, renamed and deleted exactly like a
 document. `GET /api/images/:id` is the one image-shaped thing that survives,
 because `/api/images/<uuid>` is embedded in every description and comment body
@@ -1190,8 +1190,8 @@ partial fill would advance the schedule past the rest and drop cards with no
 trace — and the throw goes through the machinery the series already has. The
 reason lands in `last_error`, `consecutive_failures` climbs, and after
 `MAX_CONSECUTIVE_FAILURES` sweeps of a board that stayed full the series parks
-in `paused` with `next_occurrence_at` cleared. Until then it keeps retrying, so
-a board pruned back under the cap resumes on its own.
+in `paused` with `next_occurrence_at` cleared. Until then it keeps retrying, and
+a board pruned back under the cap resumes.
 
 ### Bulk task create
 
@@ -1443,8 +1443,8 @@ that qualify.
 With no marker the comparison is against null, so a board the caller has never
 opened reports no unseen changes and highlights nothing, rather than everything
 since the beginning of time. `has_unseen_changes` is additionally false for an
-archived project: a dot asks to be looked at, and an archived board is one the
-user has put away. `changed_task_ids` is not, so opening an archived board
+archived project, which is a board the user has put away rather than one to
+look at. `changed_task_ids` is not, so opening an archived board
 still shows what moved in it.
 
 Both silences below are deliberate, and both lose a highlight rather than
@@ -1472,6 +1472,15 @@ Every close code above the standard RFC 6455 ones is declared in
 `src/services/realtime/closeCodes.ts` and published in `realtime-events.json` as
 `RealtimeCloseCode`, so a client generates the set it has to route on instead of
 hard-coding it.
+
+The ping interval is published the same way, from
+`src/services/realtime/heartbeat.ts` as `RealtimeHeartbeatMs`. It is a literal
+type rather than a value — the generated clients carry no runtime values at all,
+which is what lets a regenerated client ship without waiting for the api deploy —
+so a client that gives up on silence annotates its own copy of the number with
+that type and stops compiling when this interval moves. `cpath watch` does
+exactly that; without it, raising the interval would leave every watcher tearing
+down healthy sockets on a timer nothing here could see.
 
 Three ceilings bound what one caller can hold open, because a socket is reachable
 before any request is made and costs a `credentialIsLive` query every heartbeat:
@@ -2530,7 +2539,7 @@ is the fix if anyone hits it.
 ## Database workflow
 
 Migrations live in `src/db/migrations/` (Kysely `Migrator`, numbered
-`0001_name.ts` files exporting `up`/`down`).
+`<NNNN>_<name>.ts` files exporting `up`/`down`).
 
 ```sh
 pnpm run migrate             # dev DB to latest

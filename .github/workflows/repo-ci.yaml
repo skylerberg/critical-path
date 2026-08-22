@@ -21,25 +21,34 @@ name: Repo CI
 # workflow at all — not even a YAML parse — which put the file that decides
 # whether every other check is enforced among the files nothing checks.
 #
-# Widening this workflow rather than adding a twelfth is deliberate. A new
+# `scripts/check-comments.mjs` is the fourth subject and the one that fits none
+# of that shape. The other three are root-level files no package owns; this one
+# is a root-level *tool* that reads every package — it was web's own
+# `check:comments` until it grew to walk all four, and moving it to `scripts/`
+# left it running nowhere in CI. It is here because it belongs to no package
+# either, and because it needs exactly what this workflow already is: a runner
+# with a checkout and no install.
+#
+# Widening this workflow rather than adding a thirteenth is deliberate. A new
 # workflow name needs a matching entry in ci-gate.yaml's classifier, so adding
 # one is two edits by design; folding the job in here buys the coverage without
 # spending that. It is also why the rename mattered: this file was `Hooks CI`
 # while it checked only hooks, and ci-gate.yaml's `is_blocking` list had to move
 # with the name in the same commit.
+
+# No `paths:` on either event, where there were three globs. The comment check
+# reads the whole working tree, and it does not only read text: every file is
+# indexed by name so that prose naming one can be resolved, so renaming an icon
+# or deleting a fixture is enough to change its answer. A filter honest about
+# that is one that matches everything, and a filter that matches everything is
+# better written as no filter than as `'**'`, which reads like it excludes
+# something. What the filter used to buy — not paying for `repo-files` on an
+# api-only change — the `changes` job below buys instead, per job rather than
+# per workflow.
 on:
   push:
     branches: [main]
-    paths:
-      - '.githooks/**'
-      - 'scripts/**'
-      # Every workflow, not just this one: that is the gap being closed.
-      - '.github/workflows/**'
   pull_request:
-    paths:
-      - '.githooks/**'
-      - 'scripts/**'
-      - '.github/workflows/**'
 
 # The test suite and every script it lints are the pull request's own shell, run
 # on a runner. That is untrusted code, so it gets the narrowest token and no
@@ -57,12 +66,90 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # This workflow now starts on every pull request, so the ~30 seconds of pinned
+  # binary downloads below cannot be spent on one that touched only api/src.
+  # api-ci and web-ci put a change-detection job in front of their expensive
+  # jobs for the same reason; this is that pattern, one output wide.
+  #
+  # Additive, where those two are subtractive, and the difference is not a
+  # matter of taste. They classify package directories whose future contents
+  # nobody can enumerate, so a path nobody has thought about has to fall through
+  # to running everything. The globs below are not a guess at what `repo-files`
+  # reads: they are what its two collection steps open — `find .githooks
+  # scripts` and `find .github/workflows` — and they were this workflow's
+  # `paths:` filter verbatim until the comment check moved in. A path outside
+  # them reaches no step in that job, so treating it as no-change is provable
+  # rather than hopeful.
+  #
+  # `comments` below is deliberately not gated on this. Nothing narrower than
+  # the whole tree bounds what it reads, so a gate could only ever say `true`.
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      repo_files: ${{ steps.classify.outputs.repo_files }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          # The diff needs both ends of its range in the local clone, and the
+          # default depth-1 fetch has neither the pull request's base nor the
+          # commit main sat on before the push. The whole history is 13MB.
+          fetch-depth: 0
+      - id: classify
+        # Read through the environment rather than interpolated into the script:
+        # `${{ }}` inside `run:` is textual substitution, and a ref that is not
+        # what it looks like becomes shell.
+        env:
+          EVENT: ${{ github.event_name }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PUSH_BEFORE: ${{ github.event.before }}
+        run: |
+          set -euo pipefail
+
+          # Two events, two bases. A `pull_request` checkout is the merge commit,
+          # so diffing from the base tip is exactly the pull request's own files.
+          # A push to main carries `before`, the previous tip.
+          base=''
+          if [ "$EVENT" = 'pull_request' ]; then
+            base="$PR_BASE"
+          else
+            base="$PUSH_BEFORE"
+          fi
+
+          # Anything unresolvable — a branch's first push (`before` is all zeros),
+          # a force push whose old tip is gone, a re-run after history moved —
+          # means the range is unknown, and unknown has to mean changed. Loudly,
+          # as an annotation on the run rather than a line a thousand lines up in
+          # a log: a base that stops resolving for a *systematic* reason would
+          # otherwise just look like a job that always runs, which is the state
+          # this refinement is indistinguishable from when it is broken.
+          value=true
+          if [ -z "$base" ] || ! git cat-file -e "$base^{commit}" 2>/dev/null; then
+            echo "::warning::Repo CI change detection found no usable base for $EVENT (base='$base'); running repo-files."
+          else
+            changed="$(git diff --name-only "$base" HEAD)"
+            # shellcheck disable=SC2001 # the substitution is per-line, which
+            # ${var//search/replace} cannot express.
+            echo "$changed" | sed 's/^/  /'
+            # `.github/workflows/` is in the list for the ordinary reason — the
+            # job lints those files — and for the one every change-detection job
+            # here shares: a job that just changed is not described by whatever
+            # classified it a moment ago.
+            value=false
+            if printf '%s\n' "$changed" | grep -Eq '^(\.githooks/|scripts/|\.github/workflows/)'; then
+              value=true
+            fi
+          fi
+          echo "repo_files=$value" | tee -a "$GITHUB_OUTPUT"
+
   # One job, not one per subject. Both linters want the *same* pinned
   # shellcheck — actionlint shells out to it for every `run:` block — and
   # splitting them would mean either installing it twice or letting actionlint
   # fall back to the runner image's floating copy, which is the exact failure
   # the pin exists to prevent. The whole job is about 30 seconds.
   repo-files:
+    needs: changes
+    if: needs.changes.outputs.repo_files == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -222,3 +309,34 @@ jobs:
       # node_modules, no network and about a second.
       - name: 'format-touched tests'
         run: sh .githooks/tests/format-touched.test.sh
+
+  # Separate from `repo-files`, because it shares nothing with it: no pinned
+  # binary, no download, no checksum, and nothing to gate it on. It is a
+  # checkout, a node, and a script that finishes in about a second — cheap
+  # enough that starting it on every pull request costs less than deciding
+  # whether to.
+  #
+  # No `pnpm/action-setup`, no `cache:` and no `cache-dependency-path`, unlike
+  # every other node job here. `scripts/check-comments.mjs` imports node
+  # builtins and nothing else, which is what lets it run from a repository root
+  # that has no package.json, no lockfile and no node_modules — and there is
+  # therefore no lockfile for setup-node to hash a cache key from. A dependency
+  # added to that script would have to move it into a package first.
+  comments:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      # The sensitivity arm first, and it is not ceremony: a checker that has
+      # stopped matching anything reports exactly the green a clean tree does,
+      # so without this step a rule broken by an edit to the checker would pass
+      # here forever. It plants a duplicate and a dead reference and requires
+      # both to be reported.
+      - run: node scripts/check-comments.mjs --selftest
+
+      - run: node scripts/check-comments.mjs

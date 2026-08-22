@@ -137,8 +137,9 @@ jobs:
           is_blocking() {
             case "$1" in
               'API CI' | 'Web CI' | 'Codegen CI') return 0 ;;
-              # Repo CI lints the workflow files and the root shell and runs
-              # the format-touched tests; K8s CI validates the manifests
+              # Repo CI lints the workflow files and the root shell, runs the
+              # format-touched tests, and is the only workflow holding every
+              # package's prose to the names it uses; K8s CI validates the manifests
               # api-deploy applies; Infra CI validates the terraform that
               # defines the load balancer every package is served through. All
               # three check something and all three are seconds long. Repo CI is

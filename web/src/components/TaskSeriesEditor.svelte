@@ -34,9 +34,7 @@
   let startDate = $state(initial?.start_date ?? todayISO());
   // Not `?? 'weekly'`: a stored null is a real rule set outside the curated set,
   // and coalescing it would silently replace that rule on the next save.
-  let preset = $state<RecurrencePreset | null>(
-    initial === undefined ? 'weekly' : (initial.preset as RecurrencePreset | null)
-  );
+  let preset = $state<RecurrencePreset | null>(initial === undefined ? 'weekly' : initial.preset);
   let dueDate = $state(initial?.due_date ?? '');
   let labelIds = $state<string[]>(initial?.label_ids ?? []);
   let assigneeIds = $state<string[]>(initial?.assignee_ids ?? []);

@@ -95,6 +95,60 @@ function wrapMark(mark: Rec, children: PhrasingContent[]): PhrasingContent[] {
   }
 }
 
+// GFM opens a strikethrough run only on non-whitespace, so `~~ text ~~` reparses
+// as literal tildes injected into the user's words and the mark is lost: the
+// serializer for delete declares no unsafe pattern, so nothing escapes its way
+// out of it. CommonMark says the same of emphasis, where mdast happens to escape
+// the neighbouring characters instead. Moving the edge whitespace outside the
+// delimiters is what both rules want, and is what web's EDGE_TRIMMED_MARKS does.
+// Emphasis only: `[ text](url)` is legal, and inline code pads itself.
+const EDGE_TRIMMED_MARKS = new Set(['bold', 'italic', 'strike']);
+
+// Peels the run's outermost spaces and tabs off as plain siblings. Nested marks
+// are trimmed first, so whitespace buried in an inner wrapper has already been
+// hoisted to this level by the time the outer one looks for it.
+function trimEdges(children: PhrasingContent[]): [string, PhrasingContent[], string] {
+  const core = [...children];
+  let lead = '';
+  let trail = '';
+  while (core.length > 0 && core[0].type === 'text') {
+    const [, space, rest] = /^([ \t]*)([\s\S]*)$/.exec(core[0].value) ?? [];
+    lead += space ?? '';
+    if (rest === '') {
+      core.shift();
+      continue;
+    }
+    core[0] = { type: 'text', value: rest ?? '' };
+    break;
+  }
+  while (core.length > 0 && core[core.length - 1].type === 'text') {
+    const last = core[core.length - 1] as { type: 'text'; value: string };
+    const [, rest, space] = /^([\s\S]*?)([ \t]*)$/.exec(last.value) ?? [];
+    trail = `${space ?? ''}${trail}`;
+    if (rest === '') {
+      core.pop();
+      continue;
+    }
+    core[core.length - 1] = { type: 'text', value: rest ?? '' };
+    break;
+  }
+  return [lead, core, trail];
+}
+
+function markRun(mark: Rec, children: PhrasingContent[]): PhrasingContent[] {
+  if (!EDGE_TRIMMED_MARKS.has(String(mark.type))) {
+    return wrapMark(mark, children);
+  }
+  const [lead, core, trail] = trimEdges(children);
+  return [
+    ...(lead === '' ? [] : [{ type: 'text' as const, value: lead }]),
+    // An all-whitespace run has nothing to mark: the delimiters would only
+    // reparse as literal text either side of it.
+    ...(core.length === 0 ? [] : wrapMark(mark, core)),
+    ...(trail === '' ? [] : [{ type: 'text' as const, value: trail }]),
+  ];
+}
+
 // Consecutive nodes sharing a leading mark are grouped under one wrapper so runs
 // like bold("a ") + bold-italic("b") serialize as **a *b*** rather than as
 // adjacent emphasis runs, which would not reparse to the same document.
@@ -152,7 +206,7 @@ function phrasingFromItems(items: InlineItem[], depth: number): PhrasingContent[
         value: run.map((r) => (typeof r.node.text === 'string' ? r.node.text : '')).join(''),
       });
     } else {
-      out.push(...wrapMark(mark, phrasingFromItems(run, depth + 1)));
+      out.push(...markRun(mark, phrasingFromItems(run, depth + 1)));
     }
     i = j;
   }

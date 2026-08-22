@@ -6,20 +6,20 @@ description: Add a Kysely database migration for the Critical Path API (Postgres
 # Add a database migration
 
 Migrations live in `src/db/migrations/` (Kysely `Migrator`), numbered
-`NNNN_name.ts`. The current highest number is in that directory — use the next
+`<NNNN>_<name>.ts`. The current highest number is in that directory — use the next
 one.
 
 ## 1. Backward compatibility first
 
-Production deploys are **rolling**: the migration job runs first, then old and
-new pods serve side by side. Every migration must be compatible with the
+Production deploys are **rolling**: the migration job runs before any new pod
+serves, and old pods keep serving through it. Every migration must be compatible with the
 previous release. Never drop or rename a column the running code still reads,
 and never change a constraint in a way the old code violates — do destructive
 follow-ups in a **later** release.
 
 ## 2. Write the migration
 
-`src/db/migrations/NNNN_name.ts` exporting `up` and `down`:
+`src/db/migrations/<NNNN>_<name>.ts` exporting `up` and `down`:
 
 ```ts
 import { sql } from 'kysely';

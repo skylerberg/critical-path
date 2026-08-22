@@ -52,8 +52,7 @@ describe('Cross-project (project_id, column_id) pairs on task_series, written st
     return id;
   }
 
-  // The rejections below differ from this row in the column id and nothing else,
-  // so none of them can be blamed on some other constraint.
+  // The control row: the rejections below differ from it in the column id only.
   it('accepts the row when the column is the project’s own', async () => {
     await expect(insertSeriesInto(ownColumn)).resolves.toBeDefined();
   });
@@ -84,8 +83,7 @@ describe('Cross-project (project_id, column_id) pairs on task_series, written st
     expect(err.constraint).toBe('task_series_project_id_column_id_fkey');
   });
 
-  // The composite key is the only one left, so it has to reject what the
-  // column_id-only key used to.
+  // The composite key has to reject what the column_id-only key used to.
   it('refuses an insert naming a column that does not exist', async () => {
     const err = await rejectionOf(() => insertSeriesInto(newId()));
     expect(err.code).toBe('23503');

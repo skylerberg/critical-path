@@ -390,13 +390,18 @@ async function createComments(client: CriticalPathClient, plan: ImportPlan): Pro
   );
 }
 
+// The bulk endpoints cap task_ids, so an import of any size has to be chunked.
+// Named rather than written twice inside the loop: the API's cap is what this
+// has to equal, and api/tests/unit/clientLimits.test.ts is what says so.
+const BULK_TASK_CHUNK = 100;
+
 async function archiveTasks(client: CriticalPathClient, plan: ImportPlan): Promise<void> {
   const ids = plan.tasks.filter((task) => task.archived).map((task) => task.id);
   log(`Archiving (${String(ids.length)})`);
-  for (let index = 0; index < ids.length; index += 100) {
+  for (let index = 0; index < ids.length; index += BULK_TASK_CHUNK) {
     await client.post('/api/tasks/bulk-archive', {
       project_id: options.project,
-      task_ids: ids.slice(index, index + 100),
+      task_ids: ids.slice(index, index + BULK_TASK_CHUNK),
     });
   }
 }

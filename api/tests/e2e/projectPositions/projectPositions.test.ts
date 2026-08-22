@@ -300,8 +300,8 @@ class RtClient {
   }
 }
 
-// Delivery runs in unawaited post-commit hooks, so silence can only be
-// asserted after giving in-flight deliveries time to land.
+// Deliveries land in unawaited post-commit hooks; asserting silence needs a
+// beat first. tests/e2e/realtime/helpers.ts has the twin.
 function settle(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, 200));
 }

@@ -3,8 +3,7 @@ import { notificationSettingsSchema } from './notifications';
 import { personalAccessTokenSchema } from './personalAccessTokens';
 import { sessionSchema } from './sessions';
 
-// Nested pieces stay module-private: the OpenAPI schema-name registry reads the
-// barrel and throws when two exports produce identical JSON Schema.
+// Nested pieces stay module-private; see the barrel in src/schemas/index.ts.
 const accountExportProfileSchema = type({
   id: 'string',
   name: 'string',

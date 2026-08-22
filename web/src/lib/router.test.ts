@@ -247,8 +247,8 @@ describe('matchRoute', () => {
   });
 
   // The complete set of paths the API sends people to, kept in step with
-  // critical-path-api/src/services/webLinks.ts, where the same list is pinned
-  // from the sending end. Neither repo can see the other, so each holds its own
+  // `api/src/services/webLinks.ts`, where the same list is pinned from the
+  // sending end. Neither package can import the other, so each holds its own
   // half and both fail loudly; that is what /projects/:id lacked when the app
   // went alias-only and every assignment email started landing on not-found.
   //

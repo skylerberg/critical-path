@@ -1206,7 +1206,7 @@ router.get(
     },
   }),
   async (c): Promise<Returned<typeof exportAccountResponses>> => {
-    // One reading, so the manifest timestamp and the filename date agree.
+    // One reading, so the manifest and the filename cannot disagree.
     const now = new Date();
 
     // One snapshot: under read committed a revoke landing between two of these

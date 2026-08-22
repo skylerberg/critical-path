@@ -10,8 +10,9 @@ import {
   taskHref,
 } from './short-links';
 
-// Asserted verbatim in the CLI's twin suite; the two implementations share no
-// package, and these pairs are the only thing that stops them drifting.
+// Asserted verbatim in the CLI's twin suite, cli/tests/unit/short-links.test.ts;
+// the two implementations share no package, and these pairs are the only thing
+// that stops them drifting.
 const VECTORS: [uuid: string, alias: string][] = [
   ['00000000-0000-0000-0000-000000000000', 'AAAAAAAAAAAAAAAAAAAAAA'],
   ['ffffffff-ffff-ffff-ffff-ffffffffffff', 'HxECNQWFdpvuJxIw3HPrmH'],

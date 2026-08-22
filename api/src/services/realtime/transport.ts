@@ -14,6 +14,7 @@ import { SESSIONS_REVOKED, subscribeBus } from './bus';
 import type { BusEntry } from './bus';
 import { CLOSE_TOO_MANY, CLOSE_UNAUTHORIZED } from './closeCodes';
 import { deliver } from './delivery';
+import { HEARTBEAT_INTERVAL_MS } from './heartbeat';
 import {
   getSocketState,
   registerSocket,
@@ -26,7 +27,6 @@ import {
 import type { RealtimeSocket } from './state';
 
 const AUTH_TIMEOUT_MS = 10_000;
-const HEARTBEAT_INTERVAL_MS = 30_000;
 const MAX_MISSED_PONGS = 2;
 const MAX_MESSAGE_BYTES = 16 * 1024;
 const OPEN = 1;

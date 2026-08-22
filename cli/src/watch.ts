@@ -25,9 +25,16 @@ function projectIdFromPayload(data: unknown): ProjectListEvent['data']['id'] | n
 
 const INITIAL_BACKOFF_MS = 1000;
 const MAX_BACKOFF_MS = 30_000;
-// Three times the server's heartbeat interval: no frame at all for this long means a
-// half-open connection that will never produce a close event.
-const STALE_TIMEOUT_MS = 90_000;
+// The server's own ping interval, annotated with the literal type the realtime
+// document publishes it as. Annotated rather than inferred on purpose: raising
+// the interval server-side then stops this assignment compiling, which is the
+// only warning this client gets. Left as a bare number, a server raised to a
+// longer interval would leave the timeout below firing on healthy sockets for
+// ever — a teardown-and-reconnect loop indistinguishable from a bad network.
+const SERVER_HEARTBEAT_MS: components['schemas']['RealtimeHeartbeatMs'] = 30_000;
+// No frame at all for three heartbeats means a half-open connection that will
+// never produce a close event.
+const STALE_TIMEOUT_MS = SERVER_HEARTBEAT_MS * 3;
 const WS_OPEN = 1;
 
 type RealtimeCloseCode = components['schemas']['RealtimeCloseCode'];
@@ -36,6 +43,10 @@ type CloseAction = 'revalidate' | 'yield';
 // Keyed by the generated union, so a close code added or removed in the API
 // stops this compiling rather than arriving as a code nothing routes on. Every
 // code not named here is an ordinary drop and reconnects.
+//
+// The web client's twin of this table is in web/src/lib/realtime.svelte.ts, and
+// the reason the two are separate is written there: the routed set is shared,
+// the response to a code is each client's own.
 const CLOSE_ACTIONS: Record<RealtimeCloseCode, CloseAction> = {
   4401: 'revalidate',
   4429: 'yield',

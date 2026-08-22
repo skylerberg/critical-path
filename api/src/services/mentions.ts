@@ -2,8 +2,8 @@ import { projectAccessIdsAmong } from './authorization';
 import { notify } from './notifications';
 import type { PublicContext } from '../types/index';
 
-// Membership already bounds who can be notified; this bounds the fan-out of a
-// single write on a project with a large membership.
+// Membership already bounds who can be notified; this caps one description or
+// comment, which could otherwise name every member at once.
 export const MAX_MENTION_RECIPIENTS = 25;
 
 export type MentionSource = 'description' | 'comment';

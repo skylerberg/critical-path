@@ -17,7 +17,7 @@ import { fileURLToPath } from 'node:url';
 // Run the full suite before opening a PR regardless.
 //
 // In a monorepo the two halves speak different paths: git names files from the
-// repo root (`api/src/foo.ts`), vitest resolves them from its own root (`api/`).
+// repo root (`api/src/<file>.ts`), vitest resolves them from its own root (`api/`).
 // Handing git's answer straight over fails silently — `vitest related` prints
 // "No test files found" and exits 0, after this script has already listed the
 // changed files, so the no-op reads as a pass. Every path is therefore rebased
