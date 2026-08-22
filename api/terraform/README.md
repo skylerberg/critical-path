@@ -86,6 +86,18 @@ backend change. The frontend repo's workflow uploads each PR's build to a
      wildcard, so this uses Certificate Manager DNS-01; one CNAME covers the
      whole `*.…` set.
 
+> **Currently unsatisfied — previews do not work over HTTPS.** As of 2026-08-21
+> the `_acme-challenge.criticalpath.skylerberg.com` CNAME does not exist, so the
+> wildcard certificate created on 2026-08-01 has sat in `PROVISIONING` with
+> `CNAME_MISMATCH` ever since and every `pr-<n>.criticalpath.skylerberg.com`
+> fails TLS. Nothing reports this: `preview-deploy` uploads the bundle and posts
+> the comment without ever requesting the URL, so each PR gets a preview link
+> that cannot be opened. Check with
+> `gcloud certificate-manager certificates describe critical-path-wildcard-cert
+> --location=global` (managed.state) and `dig +short CNAME
+> _acme-challenge.criticalpath.skylerberg.com`, and read the expected value from
+> `gcloud certificate-manager dns-authorizations list --location=global`.
+
    The cert provisions ~15–60 min after both records resolve. Track it with
    `gcloud certificate-manager certificates describe critical-path-wildcard-cert --location=global` (managed.state → ACTIVE).
 
@@ -101,6 +113,41 @@ curl -s -o /dev/null -w '%{http_code}\n' https://pr-<n>.criticalpath.skylerberg.
 curl -sI https://pr-<n>.criticalpath.skylerberg.com/ | grep -i 'content-type\|cache-control' # text/html, no-cache
 curl -s -o /dev/null -w '%{http_code}\n' https://pr-<n>.criticalpath.skylerberg.com/my-tasks # 200 (SPA fallback)
 ```
+
+## CI authentication is not terraform-managed
+
+The four privileged workflows authenticate to GCP by workload identity
+federation, and **the per-repository gate is a hand-applied IAM binding that
+nothing in this directory manages.** The provider's own attribute condition is
+deliberately broad:
+
+```
+assertion.repository_owner in ['crucible-of-worlds', 'skylerberg']
+  && assertion.ref == 'refs/heads/main'
+```
+
+Owner and ref — not repository name. What actually admits one repository is a
+`principalSet` member on the `github-actions-service` service account's IAM
+policy. The only `workloadIdentityUser` binding in `main.tf` is the GKE one for
+the API's runtime identity, which is unrelated.
+
+So **renaming the repository breaks every deploy** until a matching binding is
+added: the rename changes `assertion.repository`, the old principalSet stops
+matching, and all four workflows fail at their `auth` step. Add the new one
+first:
+
+```sh
+gcloud iam service-accounts add-iam-policy-binding \
+  github-actions-service@realm-construction.iam.gserviceaccount.com \
+  --role=roles/iam.workloadIdentityUser \
+  --member='principalSet://iam.googleapis.com/projects/1085332810847/locations/global/workloadIdentityPools/default-pool/attribute.repository/skylerberg/<REPO>'
+```
+
+Read the current set with `gcloud iam service-accounts get-iam-policy
+github-actions-service@realm-construction.iam.gserviceaccount.com`. This was
+applied by hand for `skylerberg/critical-path` when the api and web repositories
+were merged on 2026-08-21; the bindings for the two old names are still present
+and can be removed once nothing references them.
 
 ## Secrets (never committed)
 
