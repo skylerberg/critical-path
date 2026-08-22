@@ -1,0 +1,156 @@
+import { fetchMock, jsonResponse, requestAt } from '../api/testUtils';
+import { beforeEach, describe, expect, it } from 'vitest';
+import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
+import NotificationSettings from './NotificationSettings.svelte';
+import { session } from '../lib/session.svelte';
+
+const ASSIGNED = 'When someone assigns me a task';
+const BULK_ASSIGNED = 'When someone assigns me several cards at once';
+const MENTIONED = 'When someone mentions me';
+const ADDED = 'When someone adds me to a board';
+const WITHHELD_LINE = 'These emails are on hold until your address is verified.';
+
+function signIn(emailVerified: boolean): void {
+  session.user = {
+    id: 'u-me',
+    email: 'ada@example.com',
+    name: 'Ada',
+    avatar_url: null,
+    email_verified: emailVerified,
+  };
+}
+
+function settingsResponse(
+  task_assigned: boolean,
+  added_to_project: boolean,
+  bulk_task_assigned = true,
+  mentioned = true
+): Response {
+  return jsonResponse(200, { task_assigned, added_to_project, bulk_task_assigned, mentioned });
+}
+
+beforeEach(() => {
+  fetchMock.mockReset();
+  signIn(true);
+});
+
+describe('NotificationSettings', () => {
+  it('loads the current preferences', async () => {
+    fetchMock.mockResolvedValue(settingsResponse(true, false));
+    render(NotificationSettings);
+
+    await waitFor(() => {
+      expect(screen.getByLabelText(ASSIGNED)).toBeChecked();
+    });
+    expect(screen.getByLabelText(ADDED)).not.toBeChecked();
+    expect(new URL(requestAt(0).url).pathname).toBe('/api/auth/me/notification-settings');
+  });
+
+  // Only the preference that moved: a tab open across a release that adds a
+  // kind must not write back its own stale idea of the others.
+  it('sends only the toggle that changed', async () => {
+    fetchMock.mockResolvedValueOnce(settingsResponse(true, true));
+    render(NotificationSettings);
+
+    const toggle = await screen.findByLabelText(ASSIGNED);
+    fetchMock.mockResolvedValueOnce(settingsResponse(false, true));
+    await fireEvent.click(toggle);
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    });
+    const request = requestAt(1);
+    expect(request.method).toBe('PATCH');
+    expect(await request.clone().json()).toEqual({ task_assigned: false });
+    expect(await screen.findByText('Preferences saved')).toBeInTheDocument();
+  });
+
+  it('carries the digest toggle independently of the single-card one', async () => {
+    fetchMock.mockResolvedValueOnce(settingsResponse(true, true, true));
+    render(NotificationSettings);
+
+    const toggle = await screen.findByLabelText(BULK_ASSIGNED);
+    expect(toggle).toBeChecked();
+    fetchMock.mockResolvedValueOnce(settingsResponse(true, true, false));
+    await fireEvent.click(toggle);
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    });
+    expect(await requestAt(1).clone().json()).toEqual({ bulk_task_assigned: false });
+    await waitFor(() => {
+      expect(screen.getByLabelText(BULK_ASSIGNED)).not.toBeChecked();
+    });
+    expect(screen.getByLabelText(ASSIGNED)).toBeChecked();
+  });
+
+  it('offers a mention toggle and switches it off on its own', async () => {
+    fetchMock.mockResolvedValueOnce(settingsResponse(true, true, true, true));
+    render(NotificationSettings);
+
+    const toggle = await screen.findByLabelText(MENTIONED);
+    expect(toggle).toBeChecked();
+    fetchMock.mockResolvedValueOnce(settingsResponse(true, true, true, false));
+    await fireEvent.click(toggle);
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    });
+    expect(await requestAt(1).clone().json()).toEqual({ mentioned: false });
+    await waitFor(() => {
+      expect(screen.getByLabelText(MENTIONED)).not.toBeChecked();
+    });
+    expect(screen.getByLabelText(ASSIGNED)).toBeChecked();
+    expect(screen.getByLabelText(ADDED)).toBeChecked();
+  });
+
+  it('reloads the stored preferences when a save fails', async () => {
+    fetchMock.mockResolvedValueOnce(settingsResponse(true, true));
+    render(NotificationSettings);
+
+    const toggle = await screen.findByLabelText(ASSIGNED);
+    fetchMock.mockResolvedValueOnce(jsonResponse(500, { error: 'nope' }));
+    fetchMock.mockResolvedValueOnce(settingsResponse(true, true));
+    await fireEvent.click(toggle);
+
+    await waitFor(() => {
+      expect(screen.getByLabelText(ASSIGNED)).toBeChecked();
+    });
+  });
+
+  it('shows no toggle at all when the save and the resync both fail', async () => {
+    fetchMock.mockResolvedValueOnce(settingsResponse(true, true));
+    render(NotificationSettings);
+
+    const toggle = await screen.findByLabelText(ASSIGNED);
+    fetchMock.mockResolvedValueOnce(jsonResponse(500, { error: 'save failed' }));
+    fetchMock.mockResolvedValueOnce(jsonResponse(500, { error: 'reload failed' }));
+    await fireEvent.click(toggle);
+
+    await waitFor(() => {
+      expect(screen.queryByLabelText(ASSIGNED)).not.toBeInTheDocument();
+    });
+    expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument();
+    expect(screen.getByText('save failed')).toBeInTheDocument();
+  });
+
+  it('stops saying mail is on hold once the address is verified', async () => {
+    fetchMock.mockResolvedValue(settingsResponse(true, true));
+    render(NotificationSettings);
+
+    await screen.findByLabelText(ASSIGNED);
+    expect(screen.queryByText(WITHHELD_LINE)).not.toBeInTheDocument();
+  });
+
+  it('says mail is withheld while unverified, without offering its own remedy', async () => {
+    signIn(false);
+    fetchMock.mockResolvedValue(settingsResponse(true, true));
+    render(NotificationSettings);
+
+    expect(await screen.findByText(WITHHELD_LINE)).toBeInTheDocument();
+    expect(await screen.findByLabelText(ASSIGNED)).toBeEnabled();
+    expect(screen.queryByRole('button', { name: /verif/i })).not.toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(new URL(requestAt(0).url).pathname).toBe('/api/auth/me/notification-settings');
+  });
+});

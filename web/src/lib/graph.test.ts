@@ -1,0 +1,386 @@
+import { describe, expect, it } from 'vitest';
+import type { BoardColumn, BoardTask } from './board-types';
+import {
+  NODE_HEIGHT,
+  NODE_WIDTH,
+  buildGraph,
+  computeGraph,
+  cyclePathIds,
+  detectCycle,
+  edgeId,
+  edgePath,
+  layoutGraph,
+  panToNode,
+  type GraphEdge,
+  type GraphNode,
+  type ViewBox,
+} from './graph';
+
+function column(id: string, name: string, isDone = false): BoardColumn {
+  return { id, name, sort_key: 'V0000010001', is_done: isDone };
+}
+
+function task(id: string, columnId: string, blockerIds: string[] = []): BoardTask {
+  return {
+    id,
+    column_id: columnId,
+    title: `Task ${id}`,
+    description: null,
+    sort_key: 'V0000010001',
+    created_at: '2026-07-15T00:00:00Z',
+    updated_at: '2026-07-15T00:00:00Z',
+    column_since: '2026-07-15T00:00:00Z',
+    label_ids: [],
+    assignee_ids: [],
+    blocker_ids: blockerIds,
+    open_cross_project_blocker_count: 0,
+    cover_image_url: null,
+    due_date: null,
+    comment_count: 0,
+    checklist_item_count: 0,
+    checklist_done_count: 0,
+    attachment_count: 0,
+  };
+}
+
+const columns = [column('todo', 'To Do'), column('done', 'Done', true)];
+
+function node(id: string, isDone = false): GraphNode {
+  return { kind: 'task', id, title: `Task ${id}`, columnName: isDone ? 'Done' : 'To Do', isDone };
+}
+
+function edge(from: string, to: string): GraphEdge {
+  return { id: edgeId(from, to), from, to };
+}
+
+describe('buildGraph', () => {
+  it('maps tasks to nodes with column name and done flag', () => {
+    const { nodes } = buildGraph([task('a', 'todo'), task('b', 'done')], columns);
+
+    expect(nodes).toEqual([
+      { kind: 'task', id: 'a', title: 'Task a', columnName: 'To Do', isDone: false },
+      { kind: 'task', id: 'b', title: 'Task b', columnName: 'Done', isDone: true },
+    ]);
+  });
+
+  it('creates blocker -> blocked edges from blocker_ids', () => {
+    const { edges } = buildGraph([task('a', 'todo'), task('b', 'todo', ['a'])], columns);
+
+    expect(edges).toEqual([{ id: 'a->b', from: 'a', to: 'b' }]);
+  });
+
+  it('skips blockers that are not in the task set and duplicate blocker ids', () => {
+    const { edges } = buildGraph(
+      [task('a', 'todo'), task('b', 'todo', ['a', 'a', 'missing'])],
+      columns
+    );
+
+    expect(edges).toEqual([{ id: 'a->b', from: 'a', to: 'b' }]);
+  });
+
+  it('handles tasks whose column is unknown', () => {
+    const { nodes } = buildGraph([task('a', 'gone')], columns);
+
+    expect(nodes).toEqual([
+      { kind: 'task', id: 'a', title: 'Task a', columnName: '', isDone: false },
+    ]);
+  });
+});
+
+describe('detectCycle', () => {
+  it('accepts a chain', () => {
+    const nodes = [node('a'), node('b'), node('c')];
+    expect(detectCycle(nodes, [edge('a', 'b'), edge('b', 'c')])).toBe(false);
+  });
+
+  it('accepts a diamond', () => {
+    const nodes = [node('a'), node('b'), node('c'), node('d')];
+    const edges = [edge('a', 'b'), edge('a', 'c'), edge('b', 'd'), edge('c', 'd')];
+    expect(detectCycle(nodes, edges)).toBe(false);
+  });
+
+  it('flags a two-node cycle and terminates', () => {
+    const nodes = [node('a'), node('b')];
+    expect(detectCycle(nodes, [edge('a', 'b'), edge('b', 'a')])).toBe(true);
+  });
+
+  it('flags a self-loop', () => {
+    expect(detectCycle([node('a')], [edge('a', 'a')])).toBe(true);
+  });
+
+  it('flags a cycle reachable only from part of the graph', () => {
+    const nodes = [node('a'), node('b'), node('c'), node('d')];
+    const edges = [edge('a', 'b'), edge('b', 'c'), edge('c', 'b'), edge('a', 'd')];
+    expect(detectCycle(nodes, edges)).toBe(true);
+  });
+});
+
+describe('cyclePathIds', () => {
+  it('walks the chain from the blocked task to the blocker and closes the loop', () => {
+    const edges = [edge('a', 'b'), edge('b', 'c')];
+    expect(cyclePathIds(edges, 'a', 'c')).toEqual(['a', 'b', 'c', 'a']);
+  });
+
+  it('returns nothing when the edge would not close a loop', () => {
+    const edges = [edge('a', 'b'), edge('b', 'c')];
+    expect(cyclePathIds(edges, 'c', 'a')).toEqual([]);
+    expect(cyclePathIds([], 'a', 'b')).toEqual([]);
+  });
+
+  it('names a direct two-task loop', () => {
+    expect(cyclePathIds([edge('a', 'b')], 'a', 'b')).toEqual(['a', 'b', 'a']);
+  });
+
+  it('reports one shortest branch of a diamond', () => {
+    const edges = [edge('a', 'b'), edge('a', 'c'), edge('b', 'd'), edge('c', 'd')];
+    const path = cyclePathIds(edges, 'a', 'd');
+
+    expect(path).toHaveLength(4);
+    expect(path[0]).toBe('a');
+    expect(path[3]).toBe('a');
+    expect(path[2]).toBe('d');
+    expect(['b', 'c']).toContain(path[1]);
+  });
+
+  it('terminates on edges that already contain a cycle', () => {
+    const edges = [edge('x', 'y'), edge('y', 'x'), edge('a', 'b'), edge('b', 'c')];
+    expect(cyclePathIds(edges, 'a', 'c')).toEqual(['a', 'b', 'c', 'a']);
+    expect(cyclePathIds(edges, 'x', 'y')).toEqual(['x', 'y', 'x']);
+  });
+});
+
+describe('layoutGraph', () => {
+  it('returns an empty layout for no nodes', () => {
+    expect(layoutGraph([], [])).toEqual({ nodes: [], edges: [], width: 0, height: 0 });
+  });
+
+  it('positions every node with finite coordinates', () => {
+    const nodes = [node('a'), node('b'), node('c'), node('d')];
+    const edges = [edge('a', 'b'), edge('a', 'c'), edge('b', 'd'), edge('c', 'd')];
+
+    const layout = layoutGraph(nodes, edges);
+
+    expect(layout.nodes).toHaveLength(4);
+    for (const positioned of layout.nodes) {
+      expect(Number.isFinite(positioned.x)).toBe(true);
+      expect(Number.isFinite(positioned.y)).toBe(true);
+    }
+    expect(layout.width).toBeGreaterThanOrEqual(NODE_WIDTH);
+    expect(layout.height).toBeGreaterThanOrEqual(NODE_HEIGHT);
+  });
+
+  it('flows left to right along dependencies', () => {
+    const layout = layoutGraph([node('a'), node('b')], [edge('a', 'b')]);
+
+    const a = layout.nodes.find((n) => n.id === 'a')!;
+    const b = layout.nodes.find((n) => n.id === 'b')!;
+    expect(a.x).toBeLessThan(b.x);
+  });
+
+  it('returns edge waypoints with finite coordinates', () => {
+    const layout = layoutGraph([node('a'), node('b')], [edge('a', 'b')]);
+
+    expect(layout.edges).toHaveLength(1);
+    const points = layout.edges[0]!.points;
+    expect(points.length).toBeGreaterThanOrEqual(2);
+    for (const point of points) {
+      expect(Number.isFinite(point.x)).toBe(true);
+      expect(Number.isFinite(point.y)).toBe(true);
+    }
+  });
+});
+
+describe('computeGraph', () => {
+  it('returns a cycle marker without layout on cyclic data', () => {
+    const tasks = [task('a', 'todo', ['b']), task('b', 'todo', ['a'])];
+    expect(computeGraph(tasks, columns)).toEqual({ kind: 'cycle' });
+  });
+
+  it('returns a layout for a DAG', () => {
+    const tasks = [task('a', 'todo'), task('b', 'todo', ['a']), task('c', 'done', ['b'])];
+
+    const result = computeGraph(tasks, columns);
+
+    expect(result.kind).toBe('ok');
+    if (result.kind !== 'ok') return;
+    expect(result.layout.nodes).toHaveLength(3);
+    expect(result.layout.edges).toHaveLength(2);
+  });
+});
+
+describe('panToNode', () => {
+  const vb: ViewBox = { x: 0, y: 0, w: 640, h: 480 };
+
+  it('returns null when the node is fully inside the viewBox', () => {
+    expect(panToNode(vb, { x: 320, y: 240 })).toBeNull();
+  });
+
+  it('returns null when the node exactly touches the viewBox edges', () => {
+    expect(panToNode(vb, { x: NODE_WIDTH / 2, y: NODE_HEIGHT / 2 })).toBeNull();
+    expect(panToNode(vb, { x: 640 - NODE_WIDTH / 2, y: 480 - NODE_HEIGHT / 2 })).toBeNull();
+  });
+
+  it('centers on a node beyond the right edge, keeping the zoom', () => {
+    expect(panToNode(vb, { x: 1000, y: 240 })).toEqual({ x: 680, y: 0, w: 640, h: 480 });
+  });
+
+  it('centers on a node above and left of the viewBox', () => {
+    expect(panToNode(vb, { x: -50, y: -60 })).toEqual({ x: -370, y: -300, w: 640, h: 480 });
+  });
+
+  it('pans when the node is only partially visible', () => {
+    const clipped = { x: 640 - NODE_WIDTH / 2 + 1, y: 240 };
+    expect(panToNode(vb, clipped)).toEqual({ x: clipped.x - 320, y: 0, w: 640, h: 480 });
+  });
+
+  it('honors a non-origin viewBox offset', () => {
+    const offset: ViewBox = { x: 500, y: 300, w: 640, h: 480 };
+    expect(panToNode(offset, { x: 820, y: 540 })).toBeNull();
+    expect(panToNode(offset, { x: 200, y: 100 })).toEqual({ x: -120, y: -140, w: 640, h: 480 });
+  });
+});
+
+describe('edgePath', () => {
+  it('returns an empty string for no points', () => {
+    expect(edgePath([])).toBe('');
+  });
+
+  it('builds a single cubic segment between two points', () => {
+    const d = edgePath([
+      { x: 0, y: 0 },
+      { x: 100, y: 50 },
+    ]);
+
+    expect(d).toBe('M 0 0 C 16.67 8.33 83.33 41.67 100 50');
+  });
+
+  it('builds one cubic segment per span with finite numbers', () => {
+    const d = edgePath([
+      { x: 0, y: 0 },
+      { x: 50, y: 80 },
+      { x: 120, y: 20 },
+      { x: 200, y: 60 },
+    ]);
+
+    expect(d.startsWith('M 0 0')).toBe(true);
+    expect(d.match(/C /g)).toHaveLength(3);
+    expect(d).not.toMatch(/NaN|Infinity/);
+  });
+});
+
+describe('buildGraph cross-project placeholders', () => {
+  function crossTask(id: string, count: number): BoardTask {
+    return { ...task(id, 'todo'), open_cross_project_blocker_count: count };
+  }
+
+  it('emits nothing for a task with no cross-project blockers', () => {
+    const { nodes, edges } = buildGraph([task('a', 'todo')], columns);
+    expect(nodes.every((n) => n.kind === 'task')).toBe(true);
+    expect(edges).toEqual([]);
+  });
+
+  // A pod predating the count omits the key, and `undefined === 0` is false: the
+  // graph used to draw every task a placeholder labelled "undefined".
+  it('emits nothing for a task whose payload carries no count at all', () => {
+    const noCount = task('a', 'todo');
+    delete (noCount as Partial<BoardTask>).open_cross_project_blocker_count;
+    const { nodes, edges } = buildGraph([noCount], columns);
+
+    expect(nodes.filter((n) => n.kind !== 'task')).toEqual([]);
+    expect(edges).toEqual([]);
+  });
+
+  it('emits one placeholder per task, not one per remote blocker', () => {
+    const { nodes, edges } = buildGraph([crossTask('a', 3)], columns);
+
+    const placeholders = nodes.filter((n) => n.kind === 'placeholder');
+    expect(placeholders).toEqual([{ kind: 'placeholder', id: 'xp:a', hostTaskId: 'a', count: 3 }]);
+    expect(edges).toEqual([{ id: 'xp:a->a', from: 'xp:a', to: 'a' }]);
+  });
+
+  it('keeps the placeholder while an expansion is still loading', () => {
+    const { nodes } = buildGraph([crossTask('a', 1)], columns, {
+      expanded: new Set(['a']),
+      loaded: new Map(),
+    });
+    expect(nodes.filter((n) => n.kind === 'placeholder')).toHaveLength(1);
+  });
+
+  it('replaces the placeholder with the loaded remote tasks', () => {
+    const { nodes, edges } = buildGraph([crossTask('a', 1)], columns, {
+      expanded: new Set(['a']),
+      loaded: new Map([
+        [
+          'a',
+          {
+            tasks: [{ task_id: 'far', title: 'Sign off', project_name: 'Design', is_done: false }],
+            hiddenCount: 0,
+          },
+        ],
+      ]),
+    });
+
+    expect(nodes.filter((n) => n.kind === 'placeholder')).toEqual([]);
+    expect(nodes.filter((n) => n.kind === 'remote')).toEqual([
+      { kind: 'remote', id: 'far', title: 'Sign off', projectName: 'Design', isDone: false },
+    ]);
+    expect(edges).toEqual([{ id: 'far->a', from: 'far', to: 'a' }]);
+  });
+
+  // One upstream task can block several local ones, and each host expands on its
+  // own. A second node under the same id is a duplicate key in the graph's
+  // {#each}, which throws in dev and in prod alike and takes the route down.
+  it('emits one node for a remote task that blocks two expanded hosts', () => {
+    const remote = { task_id: 'far', title: 'Sign off', project_name: 'Design', is_done: false };
+    const { nodes, edges } = buildGraph([crossTask('a', 1), crossTask('b', 1)], columns, {
+      expanded: new Set(['a', 'b']),
+      loaded: new Map([
+        ['a', { tasks: [remote], hiddenCount: 0 }],
+        ['b', { tasks: [remote], hiddenCount: 0 }],
+      ]),
+    });
+
+    expect(nodes.filter((n) => n.id === 'far')).toHaveLength(1);
+    expect(new Set(nodes.map((n) => n.id)).size).toBe(nodes.length);
+    // One edge per host, so both cards still show what blocks them.
+    expect(edges).toEqual([
+      { id: 'far->a', from: 'far', to: 'a' },
+      { id: 'far->b', from: 'far', to: 'b' },
+    ]);
+  });
+
+  it('collapses unreadable remote blockers into one unnamed node', () => {
+    const { nodes } = buildGraph([crossTask('a', 2)], columns, {
+      expanded: new Set(['a']),
+      loaded: new Map([['a', { tasks: [], hiddenCount: 2 }]]),
+    });
+
+    expect(nodes.filter((n) => n.kind === 'hidden')).toEqual([
+      { kind: 'hidden', id: 'xph:a', hostTaskId: 'a', count: 2 },
+    ]);
+  });
+
+  // The whole point of stopping at the boundary: a remote node carries no count,
+  // so it can never sprout a placeholder of its own.
+  it('never recurses past an expanded remote task', () => {
+    const { nodes } = buildGraph([crossTask('a', 1)], columns, {
+      expanded: new Set(['a']),
+      loaded: new Map([
+        [
+          'a',
+          {
+            tasks: [{ task_id: 'far', title: 'Far', project_name: 'Other', is_done: false }],
+            hiddenCount: 0,
+          },
+        ],
+      ]),
+    });
+    expect(nodes.filter((n) => n.kind === 'placeholder')).toEqual([]);
+    expect(nodes).toHaveLength(2);
+  });
+
+  it('keeps synthetic nodes off every cycle', () => {
+    const { nodes, edges } = buildGraph([crossTask('a', 1), crossTask('b', 1)], columns);
+    expect(detectCycle(nodes, edges)).toBe(false);
+  });
+});

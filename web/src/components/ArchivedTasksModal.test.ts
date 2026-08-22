@@ -1,0 +1,321 @@
+import { fetchMock, jsonResponse, requestAt } from '../api/testUtils';
+import { beforeEach, describe, expect, it } from 'vitest';
+import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
+import ArchivedTasksModal from './ArchivedTasksModal.svelte';
+import { board } from '../lib/board.svelte';
+import { session } from '../lib/session.svelte';
+import { TASK_TITLE_MAX_LENGTH, truncateTitle } from '../lib/titles';
+import type { ArchivedTask } from '../lib/board-types';
+
+const me = {
+  id: 'u-me',
+  name: 'Ada',
+  email: 'ada@example.com',
+  avatar_url: null,
+  email_verified: false,
+};
+
+const ARCHIVED_AT = '2026-03-01T12:00:00Z';
+const ARCHIVED_LABEL = `Archived ${new Intl.DateTimeFormat(undefined, {
+  dateStyle: 'medium',
+  timeStyle: 'short',
+}).format(new Date(ARCHIVED_AT))}`;
+
+function archived(id: string, title: string, columnId = 'c1'): ArchivedTask {
+  return {
+    id,
+    column_id: columnId,
+    title,
+    description: null,
+    sort_key: 'V0000010001',
+    created_at: '2026-01-01T00:00:00Z',
+    updated_at: '2026-01-01T00:00:00Z',
+    column_since: '2026-01-01T00:00:00Z',
+    label_ids: [],
+    assignee_ids: [],
+    blocker_ids: [],
+    open_cross_project_blocker_count: 0,
+    cover_image_url: null,
+    due_date: null,
+    comment_count: 0,
+    checklist_item_count: 0,
+    checklist_done_count: 0,
+    attachment_count: 0,
+    archived_at: ARCHIVED_AT,
+  };
+}
+
+function deletePaths(): string[] {
+  return fetchMock.mock.calls
+    .map((call) => call[0] as Request)
+    .filter((request) => request.method === 'DELETE')
+    .map((request) => new URL(request.url).pathname);
+}
+
+function mockArchive(tasks: ArchivedTask[]): void {
+  fetchMock.mockImplementation(async (input) => {
+    const url = new URL((input as Request).url);
+    if (url.pathname === '/api/projects/p1/archived-tasks') {
+      return jsonResponse(200, { tasks });
+    }
+    return jsonResponse(204);
+  });
+}
+
+beforeEach(() => {
+  fetchMock.mockReset();
+  board.reset();
+  session.user = me;
+  board.currentProjectId = 'p1';
+  board.project = {
+    id: 'p1',
+    name: 'Game',
+    description: '',
+    archived_at: null,
+    created_by: me.id,
+    member_ids: [],
+    members: [],
+    is_public: false,
+    color: null,
+    created_at: '2026-01-01T00:00:00Z',
+  };
+  board.columns = [
+    { id: 'c1', name: 'Todo', sort_key: 'V0000010001', is_done: false },
+    { id: 'c2', name: 'Done', sort_key: 'V0000020001', is_done: true },
+  ];
+});
+
+describe('ArchivedTasksModal', () => {
+  it('fetches on mount and renders each row with its column and a restore control', async () => {
+    mockArchive([archived('t1', 'Old idea'), archived('t2', 'Shipped thing', 'c2')]);
+
+    render(ArchivedTasksModal, { open: true, onclose: () => {} });
+
+    await waitFor(() => expect(screen.getByText('Old idea')).toBeInTheDocument());
+    expect(new URL(requestAt(0).url).pathname).toBe('/api/projects/p1/archived-tasks');
+    expect(screen.getByText(`Todo · ${ARCHIVED_LABEL}`)).toBeInTheDocument();
+    expect(screen.getByText(`Done · ${ARCHIVED_LABEL}`)).toBeInTheDocument();
+    expect(screen.getByLabelText('Restore card Old idea')).toBeInTheDocument();
+    expect(screen.getByLabelText('Restore card Shipped thing')).toBeInTheDocument();
+    expect(screen.getByLabelText('Delete card Old idea')).toBeInTheDocument();
+    expect(screen.getByLabelText('Delete card Shipped thing')).toBeInTheDocument();
+  });
+
+  it('clips a long title in the row and in its restore control', async () => {
+    const long = 'A'.repeat(TASK_TITLE_MAX_LENGTH);
+    mockArchive([archived('t1', long)]);
+
+    render(ArchivedTasksModal, { open: true, onclose: () => {} });
+
+    const shown = truncateTitle(long);
+    await waitFor(() => expect(screen.getByText(shown)).toBeInTheDocument());
+    expect(screen.queryByText(long)).toBeNull();
+    expect(screen.getByLabelText(`Restore card ${shown}`)).toBeInTheDocument();
+    expect(screen.getByLabelText(`Delete card ${shown}`)).toBeInTheDocument();
+  });
+
+  it('renders the date alone when the column is gone', async () => {
+    mockArchive([archived('t1', 'Orphan', 'missing')]);
+
+    render(ArchivedTasksModal, { open: true, onclose: () => {} });
+
+    await waitFor(() => expect(screen.getByText('Orphan')).toBeInTheDocument());
+    expect(screen.getByText(ARCHIVED_LABEL)).toBeInTheDocument();
+  });
+
+  // A card that is off the board is not overdue, so it must not carry the pill's
+  // urgency into the archive.
+  it('says nothing about a due date the archived card still holds', async () => {
+    mockArchive([{ ...archived('t1', 'Old idea'), due_date: '2020-01-04' }]);
+
+    render(ArchivedTasksModal, { open: true, onclose: () => {} });
+
+    await waitFor(() => expect(screen.getByText('Old idea')).toBeInTheDocument());
+    expect(screen.queryByTitle(/^Due /)).toBeNull();
+    expect(screen.queryByText(/2020/)).toBeNull();
+  });
+
+  it('filters rows by title and explains an empty result', async () => {
+    mockArchive([archived('t1', 'Old idea'), archived('t2', 'Shipped thing')]);
+
+    render(ArchivedTasksModal, { open: true, onclose: () => {} });
+    await waitFor(() => expect(screen.getByText('Old idea')).toBeInTheDocument());
+
+    const search = screen.getByLabelText('Search archived cards');
+    await fireEvent.input(search, { target: { value: 'shipped' } });
+    expect(screen.queryByText('Old idea')).toBeNull();
+    expect(screen.getByText('Shipped thing')).toBeInTheDocument();
+
+    await fireEvent.input(search, { target: { value: 'nothing here' } });
+    expect(screen.getByText('No archived cards match your search.')).toBeInTheDocument();
+  });
+
+  it('restores a card and drops its row', async () => {
+    fetchMock.mockImplementation(async (input) => {
+      const request = input as Request;
+      const url = new URL(request.url);
+      if (url.pathname === '/api/projects/p1/archived-tasks') {
+        return jsonResponse(200, { tasks: [archived('t1', 'Old idea')] });
+      }
+      if (request.method === 'POST' && url.pathname === '/api/tasks/t1/restore') {
+        const restored: Record<string, unknown> = { ...archived('t1', 'Old idea') };
+        delete restored.archived_at;
+        return jsonResponse(200, restored);
+      }
+      return jsonResponse(200, {
+        project: board.project,
+        columns: board.columns,
+        tasks: [],
+        labels: [],
+      });
+    });
+
+    render(ArchivedTasksModal, { open: true, onclose: () => {} });
+    await waitFor(() => expect(screen.getByText('Old idea')).toBeInTheDocument());
+
+    await fireEvent.click(screen.getByLabelText('Restore card Old idea'));
+
+    await waitFor(() => expect(screen.getByText('No archived cards.')).toBeInTheDocument());
+    const paths = fetchMock.mock.calls.map((call) => new URL((call[0] as Request).url).pathname);
+    expect(paths).toContain('/api/tasks/t1/restore');
+  });
+
+  it('deletes an archived card only after a second, explicit press', async () => {
+    fetchMock.mockImplementation(async (input) => {
+      const request = input as Request;
+      const url = new URL(request.url);
+      if (url.pathname === '/api/projects/p1/archived-tasks') {
+        return jsonResponse(200, { tasks: [archived('t1', 'Old idea')] });
+      }
+      return jsonResponse(204);
+    });
+
+    render(ArchivedTasksModal, { open: true, onclose: () => {} });
+    await waitFor(() => expect(screen.getByText('Old idea')).toBeInTheDocument());
+
+    await fireEvent.click(screen.getByLabelText('Delete card Old idea'));
+
+    expect(deletePaths()).toEqual([]);
+    expect(screen.getByLabelText('Confirm delete of card Old idea')).toBeInTheDocument();
+    expect(screen.getByText('Old idea')).toBeInTheDocument();
+
+    await fireEvent.click(screen.getByLabelText('Confirm delete of card Old idea'));
+
+    await waitFor(() => expect(deletePaths()).toEqual(['/api/tasks/t1']));
+    await waitFor(() => expect(screen.getByText('No archived cards.')).toBeInTheDocument());
+  });
+
+  it('disarms a card whose delete was armed when another card is armed instead', async () => {
+    mockArchive([archived('t1', 'Old idea'), archived('t2', 'Shipped thing')]);
+
+    render(ArchivedTasksModal, { open: true, onclose: () => {} });
+    await waitFor(() => expect(screen.getByText('Old idea')).toBeInTheDocument());
+
+    await fireEvent.click(screen.getByLabelText('Delete card Old idea'));
+    await fireEvent.click(screen.getByLabelText('Delete card Shipped thing'));
+
+    expect(screen.getByLabelText('Delete card Old idea')).toBeInTheDocument();
+    expect(screen.getByLabelText('Confirm delete of card Shipped thing')).toBeInTheDocument();
+    expect(deletePaths()).toEqual([]);
+  });
+
+  it('disarms an armed delete when the panel closes', async () => {
+    mockArchive([archived('t1', 'Old idea')]);
+
+    const { rerender } = render(ArchivedTasksModal, { open: true, onclose: () => {} });
+    await waitFor(() => expect(screen.getByText('Old idea')).toBeInTheDocument());
+    await fireEvent.click(screen.getByLabelText('Delete card Old idea'));
+    expect(screen.getByLabelText('Confirm delete of card Old idea')).toBeInTheDocument();
+
+    await rerender({ open: false, onclose: () => {} });
+    await rerender({ open: true, onclose: () => {} });
+
+    await waitFor(() => expect(screen.getByLabelText('Delete card Old idea')).toBeInTheDocument());
+    expect(deletePaths()).toEqual([]);
+  });
+
+  it('offers Try again after a failed load and refetches', async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse(500, { error: 'Archive unavailable' }));
+
+    render(ArchivedTasksModal, { open: true, onclose: () => {} });
+
+    await waitFor(() => expect(screen.getByText('Archive unavailable')).toBeInTheDocument());
+
+    mockArchive([archived('t1', 'Recovered')]);
+    await fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
+
+    await waitFor(() => expect(screen.getByText('Recovered')).toBeInTheDocument());
+  });
+
+  it('shows a loading state while a retry runs and re-renders a second failure', async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse(500, { error: 'Archive unavailable' }));
+
+    render(ArchivedTasksModal, { open: true, onclose: () => {} });
+    await waitFor(() => expect(screen.getByText('Archive unavailable')).toBeInTheDocument());
+
+    let release!: (response: Response) => void;
+    const inFlight = new Promise<Response>((resolve) => {
+      release = resolve;
+    });
+    fetchMock.mockImplementation(async () => inFlight);
+    await fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
+
+    await waitFor(() =>
+      expect(screen.getByLabelText('Loading archived cards')).toBeInTheDocument()
+    );
+    expect(screen.queryByRole('button', { name: 'Try again' })).toBeNull();
+
+    release(jsonResponse(500, { error: 'Still unavailable' }));
+    await waitFor(() => expect(screen.getByText('Still unavailable')).toBeInTheDocument());
+  });
+
+  it('waits for the first load rather than passing off an optimistically archived row', async () => {
+    board.archivedTasks = [archived('t1', 'Fix login')];
+    let release!: (response: Response) => void;
+    const inFlight = new Promise<Response>((resolve) => {
+      release = resolve;
+    });
+    fetchMock.mockImplementation(async () => inFlight);
+
+    render(ArchivedTasksModal, { open: true, onclose: () => {} });
+
+    await waitFor(() =>
+      expect(screen.getByLabelText('Loading archived cards')).toBeInTheDocument()
+    );
+    expect(screen.queryByText('Fix login')).toBeNull();
+
+    release(jsonResponse(200, { tasks: [archived('t1', 'Fix login'), archived('t2', 'Older')] }));
+    await waitFor(() => expect(screen.getByText('Older')).toBeInTheDocument());
+    expect(screen.getByText('Fix login')).toBeInTheDocument();
+  });
+
+  it('fetches only once it is open, so a permanent mount costs nothing', async () => {
+    mockArchive([]);
+
+    const { rerender } = render(ArchivedTasksModal, { open: false, onclose: () => {} });
+    await Promise.resolve();
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    await rerender({ open: true, onclose: () => {} });
+
+    await waitFor(() => expect(screen.getByText('No archived cards.')).toBeInTheDocument());
+  });
+});
+
+describe('ArchivedTasksModal for a viewer', () => {
+  it('lists the archive without a restore control', async () => {
+    board.project = {
+      ...board.project!,
+      created_by: 'u-owner',
+      member_ids: [me.id],
+      members: [{ user_id: me.id, role: 'viewer' }],
+    };
+    mockArchive([archived('t1', 'Old idea')]);
+
+    render(ArchivedTasksModal, { open: true, onclose: () => {} });
+
+    expect(await screen.findByText('Old idea')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^Restore card/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: /^Delete card/ })).toBeNull();
+  });
+});

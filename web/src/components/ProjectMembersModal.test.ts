@@ -1,0 +1,647 @@
+import { fetchMock, jsonResponse } from '../api/testUtils';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
+import ProjectMembersModal from './ProjectMembersModal.svelte';
+import { invitations, type Invitation } from '../lib/invitations.svelte';
+import { projects, type Project } from '../lib/projects.svelte';
+import { router } from '../lib/router.svelte';
+import { session } from '../lib/session.svelte';
+import { projectHref, publicBoardHref } from '../lib/short-links';
+import { testUuid } from '../lib/test-ids';
+import { toasts } from '../lib/toasts.svelte';
+import { users } from '../lib/users.svelte';
+import { realtimeEvent } from '../lib/realtime-test-events';
+
+const me = {
+  id: 'u-me',
+  email: 'me@example.com',
+  name: 'Me',
+  avatar_url: null,
+  email_verified: false,
+};
+const ada = { id: 'u-ada', email: 'ada@example.com', name: 'Ada', avatar_url: null };
+const PROJECT_ID = testUuid('p-1');
+const PROJECT_A = testUuid('p-A');
+const PROJECT_B = testUuid('p-B');
+
+const DAY_MS = 86_400_000;
+
+function invitation(overrides: Partial<Invitation> = {}): Invitation {
+  return {
+    id: 'inv-1',
+    project_id: PROJECT_ID,
+    email: 'ghost@example.com',
+    role: 'editor',
+    invited_by: me.id,
+    created_at: '2026-01-01T00:00:00.000Z',
+    expires_at: new Date(Date.now() + 14 * DAY_MS).toISOString(),
+    ...overrides,
+  };
+}
+
+// Every render an editor sees loads the pending list, so tests that are not about
+// it still need a well-formed answer for that one request.
+function mockApi(
+  handler: (request: Request, url: URL) => Response | Promise<Response>,
+  pending: Invitation[] = []
+): void {
+  fetchMock.mockImplementation(async (input) => {
+    const request = input as Request;
+    const url = new URL(request.url);
+    if (url.pathname.endsWith('/invitations')) {
+      return jsonResponse(200, { invitations: pending });
+    }
+    return handler(request, url);
+  });
+}
+
+function project(overrides: Partial<Project> = {}): Project {
+  const memberIds = overrides.member_ids ?? [me.id];
+  return {
+    id: PROJECT_ID,
+    name: 'Team Game',
+    description: '',
+    archived_at: null,
+    created_by: ada.id,
+    member_ids: memberIds,
+    members: memberIds.map((user_id) => ({ user_id, role: 'editor' as const })),
+    is_public: false,
+    color: null,
+    created_at: '2026-01-01T00:00:00.000Z',
+    open_task_count: 0,
+    done_task_count: 0,
+    sort_key: null,
+    last_seen_at: null,
+    has_unseen_changes: false,
+    ...overrides,
+  };
+}
+
+beforeEach(() => {
+  fetchMock.mockReset();
+  invitations.reset();
+  projects.reset();
+  users.reset();
+  toasts.toasts = [];
+  session.user = me;
+  users.users = [me, ada];
+  router.beforeNavigate = undefined;
+  router.navigate('/', { replace: true });
+  mockApi(() => jsonResponse(200, { users: [me, ada] }));
+});
+
+// Put back by name rather than with `vi.unstubAllGlobals()`, which would also
+// drop the stubs testUtils installs for the whole file.
+const realNavigator = navigator;
+
+afterEach(() => {
+  vi.stubGlobal('navigator', realNavigator);
+  expect(globalThis.fetch).toBe(fetchMock);
+});
+
+describe('ProjectMembersModal', () => {
+  it('marks the owner and offers no remove button for them or yourself', () => {
+    projects.projects = [project()];
+
+    render(ProjectMembersModal, { projectId: PROJECT_ID, onclose: () => {} });
+
+    expect(screen.getByText('Ada')).toBeInTheDocument();
+    expect(screen.getByText('Owner')).toBeInTheDocument();
+    expect(screen.getByText('Me (you)')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Remove Ada' })).toBeNull();
+    expect(screen.queryByRole('button', { name: /Remove Me/ })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Leave board' })).toBeInTheDocument();
+  });
+
+  it('hides the leave button for the creator', () => {
+    projects.projects = [project({ created_by: me.id, member_ids: [ada.id] })];
+
+    render(ProjectMembersModal, { projectId: PROJECT_ID, onclose: () => {} });
+
+    expect(screen.queryByRole('button', { name: 'Leave board' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Remove Ada' })).toBeInTheDocument();
+  });
+
+  it('offers the people picker pre-populated with your other collaborators', async () => {
+    const bob = { id: 'u-bob', email: 'bob@example.com', name: 'Bob', avatar_url: null };
+    users.users = [me, ada, bob];
+    projects.projects = [project({ created_by: me.id, member_ids: [ada.id] })];
+    mockApi(() => jsonResponse(200, { users: [me, ada, bob] }));
+
+    render(ProjectMembersModal, { projectId: PROJECT_ID, onclose: () => {} });
+
+    expect(screen.getByLabelText('Add people')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Add Bob' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Add Ada' })).toBeNull();
+    await waitFor(() => {
+      expect(new URL((fetchMock.mock.calls[0]![0] as Request).url).pathname).toBe('/api/users');
+    });
+  });
+
+  // Someone found by global search is in nobody's directory yet, and this list
+  // falls back to the raw id for a member it cannot name.
+  it('names a member added from outside your collaborators', async () => {
+    const stranger = { id: 'u-sky', name: 'Skyler Berg', avatar_url: null };
+    projects.projects = [project({ created_by: me.id, member_ids: [] })];
+    mockApi((request, url) =>
+      url.pathname === '/api/users/search'
+        ? jsonResponse(200, { users: [stranger], truncated: false })
+        : request.method === 'PUT'
+          ? jsonResponse(204)
+          : jsonResponse(200, { users: [me, ada] })
+    );
+
+    render(ProjectMembersModal, { projectId: PROJECT_ID, onclose: () => {} });
+
+    await fireEvent.input(screen.getByLabelText('Add people'), { target: { value: 'sky' } });
+    const row = await screen.findByRole('button', { name: 'Add Skyler Berg' });
+    await fireEvent.click(row);
+
+    // The member row is named for whoever it holds, so its controls are the
+    // unambiguous evidence the list resolved them rather than printing the id.
+    expect(await screen.findByRole('button', { name: 'Remove Skyler Berg' })).toBeInTheDocument();
+    expect(screen.getByLabelText('Role for Skyler Berg')).toBeInTheDocument();
+    expect(screen.queryByText('u-sky')).toBeNull();
+  });
+
+  it('leaving from the board route PUTs minus self and navigates to the projects page', async () => {
+    projects.projects = [project({ member_ids: [me.id, 'u-3'] })];
+    mockApi(() => jsonResponse(204));
+    router.navigate(projectHref(PROJECT_ID, 'Team Game'));
+    const onclose = vi.fn();
+
+    render(ProjectMembersModal, { projectId: PROJECT_ID, onclose });
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Leave board' }));
+
+    await waitFor(() => {
+      expect(fetchMock.mock.calls.some((c) => (c[0] as Request).method === 'PUT')).toBe(true);
+    });
+    const put = fetchMock.mock.calls.find((c) => (c[0] as Request).method === 'PUT')![0] as Request;
+    expect(new URL(put.url).pathname).toBe(`/api/projects/${PROJECT_ID}/members`);
+    expect(await put.clone().json()).toEqual({ user_ids: ['u-3'] });
+    expect(projects.projects).toEqual([]);
+    expect(onclose).toHaveBeenCalled();
+    expect(router.path).toBe('/');
+    expect(router.current.name).toBe('projects');
+  });
+
+  it('leaving from the projects page stays put', async () => {
+    projects.projects = [project()];
+    mockApi(() => jsonResponse(204));
+
+    render(ProjectMembersModal, { projectId: PROJECT_ID, onclose: () => {} });
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Leave board' }));
+
+    expect(router.path).toBe('/');
+    expect(router.current.name).toBe('projects');
+    expect(projects.projects).toEqual([]);
+  });
+
+  it('offers "Make owner" only to the owner, and explains why they cannot leave', () => {
+    projects.projects = [project({ created_by: me.id, member_ids: [ada.id] })];
+
+    render(ProjectMembersModal, { projectId: PROJECT_ID, onclose: () => {} });
+
+    expect(screen.getByRole('button', { name: 'Make owner: Ada' })).toBeInTheDocument();
+    expect(
+      screen.getByText("Owners can't leave a board. Make someone else the owner first.")
+    ).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Leave board' })).toBeNull();
+  });
+
+  it('offers no "Make owner" button to an ordinary member', () => {
+    projects.projects = [project()];
+
+    render(ProjectMembersModal, { projectId: PROJECT_ID, onclose: () => {} });
+
+    expect(screen.queryByRole('button', { name: /Make owner/ })).toBeNull();
+  });
+
+  it('confirms before transferring, and canceling sends nothing', async () => {
+    projects.projects = [project({ created_by: me.id, member_ids: [ada.id] })];
+
+    render(ProjectMembersModal, { projectId: PROJECT_ID, onclose: () => {} });
+
+    const makeOwner = screen.getByRole('button', { name: 'Make owner: Ada' });
+    await fireEvent.click(makeOwner);
+
+    expect(screen.getByText(/Make Ada the owner\?/)).toBeInTheDocument();
+    expect(fetchMock.mock.calls.some((c) => (c[0] as Request).method === 'PUT')).toBe(false);
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+
+    expect(screen.queryByText(/Make Ada the owner\?/)).toBeNull();
+    expect(fetchMock.mock.calls.some((c) => (c[0] as Request).method === 'PUT')).toBe(false);
+    expect(projects.projects[0]!.created_by).toBe(me.id);
+    expect(document.activeElement).toBe(makeOwner);
+  });
+
+  it('focuses the confirmation so it is announced and scrolled into view', async () => {
+    projects.projects = [project({ created_by: me.id, member_ids: [ada.id] })];
+
+    render(ProjectMembersModal, { projectId: PROJECT_ID, onclose: () => {} });
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Make owner: Ada' }));
+
+    await waitFor(() => {
+      expect(document.activeElement).toBe(
+        screen.getByRole('group', { name: /Make Ada the owner\?/ })
+      );
+    });
+  });
+
+  it('drops a pending transfer when that member is removed', async () => {
+    projects.projects = [project({ created_by: me.id, member_ids: [ada.id] })];
+    mockApi(() => jsonResponse(204));
+
+    render(ProjectMembersModal, { projectId: PROJECT_ID, onclose: () => {} });
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Make owner: Ada' }));
+    await fireEvent.click(screen.getByRole('button', { name: 'Remove Ada' }));
+
+    expect(screen.queryByText(/Make Ada the owner\?/)).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Transfer ownership' })).toBeNull();
+    expect(projects.projects[0]!.created_by).toBe(me.id);
+  });
+
+  it('confirming PUTs the new owner and reveals the leave button', async () => {
+    projects.projects = [project({ created_by: me.id, member_ids: [ada.id] })];
+    mockApi((request) => {
+      if (request.method === 'PUT') {
+        return jsonResponse(200, {
+          id: PROJECT_ID,
+          name: 'Team Game',
+          description: '',
+          archived_at: null,
+          created_at: '2026-01-01T00:00:00.000Z',
+          created_by: ada.id,
+          member_ids: [me.id],
+        });
+      }
+      return jsonResponse(200, { users: [me, ada] });
+    });
+
+    render(ProjectMembersModal, { projectId: PROJECT_ID, onclose: () => {} });
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Make owner: Ada' }));
+    await fireEvent.click(screen.getByRole('button', { name: 'Transfer ownership' }));
+
+    await waitFor(() => {
+      expect(fetchMock.mock.calls.some((c) => (c[0] as Request).method === 'PUT')).toBe(true);
+    });
+    const put = fetchMock.mock.calls.find((c) => (c[0] as Request).method === 'PUT')![0] as Request;
+    expect(new URL(put.url).pathname).toBe(`/api/projects/${PROJECT_ID}/owner`);
+    expect(await put.clone().json()).toEqual({ user_id: ada.id });
+
+    expect(projects.projects[0]!.created_by).toBe(ada.id);
+    expect(projects.projects[0]!.member_ids).toEqual([me.id]);
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Leave board' })).toBeInTheDocument();
+    });
+    expect(
+      screen.queryByText("Owners can't leave a board. Make someone else the owner first.")
+    ).toBeNull();
+  });
+});
+
+describe('ProjectMembersModal public link', () => {
+  function patchRequests(): Request[] {
+    return fetchMock.mock.calls
+      .map((call) => call[0] as Request)
+      .filter((request) => request.method === 'PATCH');
+  }
+
+  beforeEach(() => {
+    mockApi(async (request, url) => {
+      if (request.method === 'PATCH') {
+        const body = (await request.clone().json()) as { is_public: boolean };
+        const id = url.pathname.split('/').at(-1)!;
+        return jsonResponse(200, { ...project({ id }), ...body });
+      }
+      return jsonResponse(200, { users: [me, ada] });
+    });
+  });
+
+  it('offers publishing behind a confirm dialog that names what becomes visible', async () => {
+    projects.projects = [project()];
+
+    render(ProjectMembersModal, { projectId: PROJECT_ID, onclose: () => {} });
+
+    expect(screen.queryByLabelText('Public link')).toBeNull();
+    await fireEvent.click(screen.getByRole('button', { name: 'Publish read-only link' }));
+
+    const dialog = screen.getByText(/Anyone with the link will be able to see/);
+    expect(dialog).toHaveTextContent('every card title');
+    expect(dialog).toHaveTextContent('every description');
+    expect(dialog).toHaveTextContent('every image on those cards');
+    expect(dialog).toHaveTextContent('who is assigned');
+    expect(patchRequests()).toHaveLength(0);
+  });
+
+  it('confirming PATCHes is_public and then shows the copyable link', async () => {
+    projects.projects = [project()];
+
+    render(ProjectMembersModal, { projectId: PROJECT_ID, onclose: () => {} });
+    await fireEvent.click(screen.getByRole('button', { name: 'Publish read-only link' }));
+    const confirm = screen
+      .getAllByRole('button', { name: 'Publish read-only link' })
+      .at(-1) as HTMLElement;
+    await fireEvent.click(confirm);
+
+    await waitFor(() => expect(patchRequests()).toHaveLength(1));
+    const patch = patchRequests()[0]!;
+    expect(new URL(patch.url).pathname).toBe(`/api/projects/${PROJECT_ID}`);
+    expect(await patch.clone().json()).toEqual({ is_public: true });
+
+    const field = await screen.findByLabelText('Public link');
+    expect(field).toHaveValue(`${location.origin}${publicBoardHref(PROJECT_ID)}`);
+  });
+
+  it('copies the link to the clipboard', async () => {
+    projects.projects = [project({ is_public: true })];
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    vi.stubGlobal('navigator', { ...navigator, clipboard: { writeText } });
+
+    render(ProjectMembersModal, { projectId: PROJECT_ID, onclose: () => {} });
+    await fireEvent.click(screen.getByRole('button', { name: 'Copy link' }));
+
+    expect(writeText).toHaveBeenCalledWith(`${location.origin}${publicBoardHref(PROJECT_ID)}`);
+  });
+
+  it('stops sharing without a second confirm', async () => {
+    projects.projects = [project({ is_public: true })];
+
+    render(ProjectMembersModal, { projectId: PROJECT_ID, onclose: () => {} });
+    await fireEvent.click(screen.getByRole('button', { name: 'Stop sharing' }));
+
+    await waitFor(() => expect(patchRequests()).toHaveLength(1));
+    expect(await patchRequests()[0]!.clone().json()).toEqual({ is_public: false });
+    await waitFor(() => expect(screen.queryByLabelText('Public link')).toBeNull());
+  });
+
+  it('targets the project it was given, not whichever board is open', async () => {
+    projects.projects = [project({ id: PROJECT_A }), project({ id: PROJECT_B })];
+
+    render(ProjectMembersModal, { projectId: PROJECT_B, onclose: () => {} });
+    await fireEvent.click(screen.getByRole('button', { name: 'Publish read-only link' }));
+    await fireEvent.click(
+      screen.getAllByRole('button', { name: 'Publish read-only link' }).at(-1) as HTMLElement
+    );
+
+    await waitFor(() => expect(patchRequests()).toHaveLength(1));
+    expect(new URL(patchRequests()[0]!.url).pathname).toBe(`/api/projects/${PROJECT_B}`);
+    expect(projects.projects.find((p) => p.id === PROJECT_A)?.is_public).toBe(false);
+  });
+});
+
+describe('ProjectMembersModal roles', () => {
+  const bob = { id: 'u-bob', email: 'bob@example.com', name: 'Bob', avatar_url: null };
+
+  function roleSelect(name: string): HTMLSelectElement {
+    return screen.getByLabelText(`Role for ${name}`) as HTMLSelectElement;
+  }
+
+  it('offers an editor a role control per other member and sends a roles-only body', async () => {
+    users.users = [me, ada, bob];
+    projects.projects = [
+      project({
+        created_by: me.id,
+        member_ids: [ada.id, bob.id],
+        members: [
+          { user_id: ada.id, role: 'editor' },
+          { user_id: bob.id, role: 'viewer' },
+        ],
+      }),
+    ];
+    mockApi(() => jsonResponse(204));
+
+    render(ProjectMembersModal, { projectId: PROJECT_ID, onclose: () => {} });
+
+    expect(roleSelect('Ada').value).toBe('editor');
+    expect(roleSelect('Bob').value).toBe('viewer');
+    expect(roleSelect('Ada').className).toContain('min-h-11');
+
+    await fireEvent.change(roleSelect('Ada'), { target: { value: 'viewer' } });
+
+    await waitFor(() => {
+      expect(fetchMock.mock.calls.some((c) => (c[0] as Request).method === 'PUT')).toBe(true);
+    });
+    const put = fetchMock.mock.calls.find((c) => (c[0] as Request).method === 'PUT')![0] as Request;
+    expect(new URL(put.url).pathname).toBe(`/api/projects/${PROJECT_ID}/members`);
+    expect(await put.clone().json()).toEqual({ roles: [{ user_id: ada.id, role: 'viewer' }] });
+    expect(projects.projects[0]!.members).toEqual([
+      { user_id: ada.id, role: 'viewer' },
+      { user_id: bob.id, role: 'viewer' },
+    ]);
+  });
+
+  // A viewer can see the board, so they can pass on the link it is already
+  // published under — but publishing and unpublishing stay with the editors.
+  it('lets a viewer copy the link of a board that is already public, and nothing more', () => {
+    projects.projects = [
+      project({
+        created_by: ada.id,
+        is_public: true,
+        member_ids: [me.id],
+        members: [{ user_id: me.id, role: 'viewer' }],
+      }),
+    ];
+
+    render(ProjectMembersModal, { projectId: PROJECT_ID, onclose: () => {} });
+
+    expect(screen.getByLabelText('Public link')).toHaveValue(
+      `${location.origin}${publicBoardHref(PROJECT_ID)}`
+    );
+    expect(screen.getByRole('button', { name: 'Copy link' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Stop sharing' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Publish read-only link' })).toBeNull();
+  });
+
+  it('gives a viewer no management controls but keeps the leave button', () => {
+    users.users = [me, ada, bob];
+    projects.projects = [
+      project({
+        created_by: ada.id,
+        member_ids: [me.id, bob.id],
+        members: [
+          { user_id: me.id, role: 'viewer' },
+          { user_id: bob.id, role: 'editor' },
+        ],
+      }),
+    ];
+
+    render(ProjectMembersModal, { projectId: PROJECT_ID, onclose: () => {} });
+
+    expect(screen.queryByLabelText('Add people')).toBeNull();
+    expect(screen.queryByLabelText(/^Role for /)).toBeNull();
+    expect(screen.queryByRole('button', { name: /^Remove / })).toBeNull();
+    expect(screen.queryByRole('button', { name: /^Make owner/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Publish read-only link' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Leave board' })).toBeInTheDocument();
+    expect(screen.getByText('Viewer')).toBeInTheDocument();
+  });
+});
+
+describe('ProjectMembersModal pending invitations', () => {
+  const ghost = 'ghost@example.com';
+
+  const INVITATIONS_PATH = `/api/projects/${PROJECT_ID}/invitations`;
+
+  function renderAsEditor(): void {
+    projects.projects = [project({ created_by: me.id, member_ids: [] })];
+    render(ProjectMembersModal, { projectId: PROJECT_ID, onclose: () => {} });
+  }
+
+  it('lists an address with no account, when it expires, and how to act on it', async () => {
+    mockApi(() => jsonResponse(200, { users: [me] }), [invitation()]);
+    renderAsEditor();
+
+    expect(await screen.findByText(ghost)).toBeInTheDocument();
+    expect(screen.getByText('Pending')).toBeInTheDocument();
+    expect(screen.getByText(/^Expires /)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: `Resend invitation to ${ghost}` })).toBeVisible();
+    expect(screen.getByRole('button', { name: `Revoke invitation to ${ghost}` })).toBeVisible();
+    const listed = fetchMock.mock.calls.map((c) => new URL((c[0] as Request).url).pathname);
+    expect(listed).toContain(INVITATIONS_PATH);
+  });
+
+  it('distinguishes an expired invitation from a live one instead of dropping it', async () => {
+    mockApi(
+      () => jsonResponse(200, { users: [me] }),
+      [invitation({ expires_at: new Date(Date.now() - DAY_MS).toISOString() })]
+    );
+    renderAsEditor();
+
+    expect(await screen.findByText('Expired')).toBeInTheDocument();
+    expect(screen.queryByText('Pending')).toBeNull();
+    expect(screen.getByText(/^Expired .* — resend to revive it$/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: `Resend invitation to ${ghost}` })).toBeVisible();
+  });
+
+  it('resending revives an expired row before the server answers', async () => {
+    mockApi(
+      (request) =>
+        request.method === 'POST' ? jsonResponse(204) : jsonResponse(200, { users: [me] }),
+      [invitation({ expires_at: new Date(Date.now() - DAY_MS).toISOString() })]
+    );
+    renderAsEditor();
+
+    await fireEvent.click(
+      await screen.findByRole('button', { name: `Resend invitation to ${ghost}` })
+    );
+
+    expect(await screen.findByText(/^Expires /)).toBeInTheDocument();
+    expect(screen.queryByText('Expired')).toBeNull();
+    await waitFor(() => {
+      expect(toasts.toasts.map((t) => t.message)).toContain('Invitation resent');
+    });
+    const post = fetchMock.mock.calls.find(
+      (c) => (c[0] as Request).method === 'POST'
+    )![0] as Request;
+    expect(new URL(post.url).pathname).toBe(`${INVITATIONS_PATH}/inv-1/resend`);
+  });
+
+  it('revoking drops the row and DELETEs it', async () => {
+    mockApi(
+      (request) =>
+        request.method === 'DELETE' ? jsonResponse(204) : jsonResponse(200, { users: [me] }),
+      [invitation()]
+    );
+    renderAsEditor();
+
+    await fireEvent.click(
+      await screen.findByRole('button', { name: `Revoke invitation to ${ghost}` })
+    );
+
+    expect(screen.queryByText(ghost)).toBeNull();
+    await waitFor(() => {
+      expect(fetchMock.mock.calls.some((c) => (c[0] as Request).method === 'DELETE')).toBe(true);
+    });
+    const del = fetchMock.mock.calls.find(
+      (c) => (c[0] as Request).method === 'DELETE'
+    )![0] as Request;
+    expect(new URL(del.url).pathname).toBe(`${INVITATIONS_PATH}/inv-1`);
+  });
+
+  it('never shows a viewer the invited addresses, nor asks the server for them', async () => {
+    mockApi(() => jsonResponse(200, { users: [me] }), [invitation()]);
+    projects.projects = [
+      project({
+        created_by: ada.id,
+        member_ids: [me.id],
+        members: [{ user_id: me.id, role: 'viewer' }],
+      }),
+    ];
+
+    render(ProjectMembersModal, { projectId: PROJECT_ID, onclose: () => {} });
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    expect(screen.getByText('Me (you)')).toBeInTheDocument();
+    expect(screen.queryByText(ghost)).toBeNull();
+    expect(screen.queryByText('Invited')).toBeNull();
+    const listed = fetchMock.mock.calls.map((c) => new URL((c[0] as Request).url).pathname);
+    expect(listed).not.toContain(INVITATIONS_PATH);
+  });
+
+  it('forgets the addresses when it closes, and stops refetching them', async () => {
+    mockApi(() => jsonResponse(200, { users: [me] }), [invitation()]);
+    projects.projects = [project({ created_by: me.id, member_ids: [] })];
+    const { unmount } = render(ProjectMembersModal, {
+      projectId: PROJECT_ID,
+      onclose: () => {},
+    });
+    expect(await screen.findByText(ghost)).toBeInTheDocument();
+
+    unmount();
+
+    expect(invitations.currentProjectId).toBeNull();
+    expect(invitations.list).toEqual([]);
+
+    fetchMock.mockClear();
+    invitations.applyRealtime(
+      realtimeEvent('invitations_changed', { project_id: PROJECT_ID }, PROJECT_ID)
+    );
+    invitations.resync();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  // Clearing on the way out only works if "the way out" is closing or losing
+  // write access — a board rename must not cycle it and refetch on every event.
+  it('keeps the list through an unrelated project-list update', async () => {
+    mockApi(() => jsonResponse(200, { users: [me] }), [invitation()]);
+    projects.projects = [project({ created_by: me.id, member_ids: [] })];
+    render(ProjectMembersModal, { projectId: PROJECT_ID, onclose: () => {} });
+    expect(await screen.findByText(ghost)).toBeInTheDocument();
+    fetchMock.mockClear();
+
+    projects.projects = [project({ created_by: me.id, member_ids: [], name: 'Renamed' })];
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(screen.getByText(ghost)).toBeInTheDocument();
+    expect(invitations.currentProjectId).toBe(PROJECT_ID);
+    const listed = fetchMock.mock.calls.map((c) => new URL((c[0] as Request).url).pathname);
+    expect(listed).not.toContain(INVITATIONS_PATH);
+  });
+
+  it('forgets them when a demotion arrives while it is open', async () => {
+    mockApi(() => jsonResponse(200, { users: [me] }), [invitation()]);
+    projects.projects = [project({ created_by: ada.id, member_ids: [me.id] })];
+    render(ProjectMembersModal, { projectId: PROJECT_ID, onclose: () => {} });
+    expect(await screen.findByText(ghost)).toBeInTheDocument();
+
+    projects.projects = [
+      project({
+        created_by: ada.id,
+        member_ids: [me.id],
+        members: [{ user_id: me.id, role: 'viewer' }],
+      }),
+    ];
+
+    await waitFor(() => expect(screen.queryByText(ghost)).toBeNull());
+    expect(invitations.list).toEqual([]);
+    expect(invitations.currentProjectId).toBeNull();
+  });
+});

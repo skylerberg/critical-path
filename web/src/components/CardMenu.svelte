@@ -1,0 +1,287 @@
+<script lang="ts">
+  import { menuKeys } from '../lib/actions';
+  import { board } from '../lib/board.svelte';
+  import { CARD_ACTION_KEYS, type CardActionId } from '../lib/card-actions';
+  import { cardMenu } from '../lib/card-menu.svelte';
+  import { link } from '../lib/router.svelte';
+  import { selection } from '../lib/selection.svelte';
+  import { publicTaskHref, taskHref } from '../lib/short-links';
+  import { shortcuts } from '../lib/shortcuts.svelte';
+  import { truncateTitle } from '../lib/titles';
+  import { toasts } from '../lib/toasts.svelte';
+
+  interface Props {
+    projectId: string;
+    canEdit: boolean;
+  }
+
+  let { projectId, canEdit }: Props = $props();
+
+  interface Item {
+    id: CardActionId;
+    label: string;
+    run?: () => void;
+    href?: string;
+    newTab?: boolean;
+  }
+
+  const EDGE_MARGIN_PX = 8;
+
+  let menuEl = $state<HTMLDivElement>();
+  let placed = $state({ x: cardMenu.x, y: cardMenu.y });
+
+  const task = $derived(board.tasks.find((t) => t.id === cardMenu.taskId));
+  const shareHref = $derived(
+    task === undefined
+      ? ''
+      : board.readonly
+        ? publicTaskHref(projectId, task.id)
+        : taskHref(task.id, task.title)
+  );
+  // Opening stays in this board, so it keeps the filters; a copied link goes to
+  // someone else, who should not inherit the sharer's narrowing.
+  const href = $derived(
+    task === undefined || board.readonly ? shareHref : shareHref + board.filterSearch
+  );
+  const completable = $derived(
+    task !== undefined && board.doneColumnIds.size > 0 && !board.doneColumnIds.has(task.column_id)
+  );
+  const targets = $derived(selection.targetsFor(cardMenu.taskId));
+  // Gated on canEdit, so a set left over from before a demotion still leaves the
+  // viewer the link rows rather than an empty menu.
+  const multi = $derived(canEdit && targets.length > 1);
+
+  const editItems = $derived.by<Item[]>(() => {
+    if (task === undefined || !canEdit) {
+      return [];
+    }
+    const id = task.id;
+    if (multi) {
+      const n = targets.length;
+      return [
+        { id: 'labels', label: 'Labels…', run: () => (shortcuts.bulkMenu = 'labels') },
+        { id: 'assignees', label: 'Assignees…', run: () => (shortcuts.bulkMenu = 'assignees') },
+        { id: 'move', label: `Move ${n} cards to…`, run: () => (shortcuts.bulkMenu = 'move') },
+        { id: 'archive', label: `Archive ${n} cards`, run: () => (shortcuts.bulkMenu = 'archive') },
+      ];
+    }
+    const items: Item[] = [
+      {
+        id: 'select',
+        label: selection.has(id) ? 'Deselect' : 'Select',
+        run: () => selection.toggle(id),
+      },
+      { id: 'rename', label: 'Edit title', run: () => cardMenu.rename(id) },
+      { id: 'labels', label: 'Labels…', run: () => (shortcuts.labelMenu = id) },
+      { id: 'assignees', label: 'Assignees…', run: () => (shortcuts.assigneeMenu = id) },
+      {
+        id: 'blockers',
+        label: 'Blocked by…',
+        run: () => (shortcuts.dependencyMenu = { taskId: id, direction: 'blocker' }),
+      },
+      {
+        id: 'blocking',
+        label: 'Blocks…',
+        run: () => (shortcuts.dependencyMenu = { taskId: id, direction: 'blocked' }),
+      },
+      { id: 'move', label: 'Move to…', run: () => (shortcuts.moveMenu = id) },
+    ];
+    if (completable) {
+      items.push({ id: 'done', label: 'Mark done', run: () => void board.markTaskDone(id) });
+    }
+    items.push(
+      { id: 'duplicate', label: 'Duplicate', run: () => void board.duplicateTask(id) },
+      { id: 'archive', label: 'Archive', run: () => void board.archiveTask(id) }
+    );
+    return items;
+  });
+
+  // Open, Open in new tab and Copy link name one card, so they mean nothing for
+  // a set.
+  const linkItems = $derived<Item[]>(
+    multi
+      ? []
+      : [
+          { id: 'open', label: 'Open', href },
+          { id: 'openNewTab', label: 'Open in new tab', href, newTab: true },
+          { id: 'copyLink', label: 'Copy link', run: () => void copyLink() },
+        ]
+  );
+
+  function keyShortcuts(item: Item): string | undefined {
+    const keys = CARD_ACTION_KEYS[item.id];
+    return keys.length === 0 ? undefined : keys.join(' ');
+  }
+
+  // Measured rather than guessed: the anchor is wherever the pointer was, so a
+  // card low in a column would otherwise open the menu off the bottom of the screen.
+  $effect(() => {
+    const rect = menuEl?.getBoundingClientRect();
+    if (rect === undefined) {
+      return;
+    }
+    const maxX = window.innerWidth - rect.width - EDGE_MARGIN_PX;
+    const maxY = window.innerHeight - rect.height - EDGE_MARGIN_PX;
+    placed = {
+      x: Math.max(EDGE_MARGIN_PX, Math.min(cardMenu.x, maxX)),
+      y: Math.max(EDGE_MARGIN_PX, Math.min(cardMenu.y, maxY)),
+    };
+  });
+
+  $effect(() => {
+    if (task === undefined) {
+      cardMenu.close();
+    }
+  });
+
+  async function copyLink(): Promise<void> {
+    try {
+      await navigator.clipboard.writeText(new URL(shareHref, window.location.origin).href);
+      toasts.success('Link copied');
+    } catch {
+      toasts.error('Could not copy the link');
+    }
+  }
+
+  // Run before close: closing empties the menu's view of the card, and an action
+  // that reads it would find nothing there.
+  function activate(item: Item, event: MouseEvent): void {
+    item.run?.();
+    // Only a plain click on the card's own link takes the card away with it. A
+    // modifier-click loads it in a tab the user is not looking at, so like every
+    // other row it leaves them here, and focus belongs back on the card.
+    const leaves =
+      item.href !== undefined &&
+      item.newTab !== true &&
+      !(event.metaKey || event.ctrlKey || event.shiftKey || event.altKey);
+    cardMenu.close({ restoreFocus: !leaves });
+  }
+
+  // Enter is left out: it activates whichever row has focus, which is the menu's
+  // own contract and would otherwise be stolen by the row that advertises it.
+  function rowForKey(event: KeyboardEvent): number {
+    if (event.key === 'Enter' || event.metaKey || event.ctrlKey || event.altKey) {
+      return -1;
+    }
+    const pressed = event.shiftKey ? `Shift+${event.key.toUpperCase()}` : event.key;
+    return [...editItems, ...linkItems].findIndex((item) =>
+      CARD_ACTION_KEYS[item.id].includes(pressed)
+    );
+  }
+
+  // The keys every row advertises have to work while the row is on screen, or the
+  // promise aria-keyshortcuts makes is one the menu does not keep.
+  function runRowShortcut(event: KeyboardEvent, rows: HTMLElement[]): boolean {
+    const index = rowForKey(event);
+    if (index === -1) {
+      return false;
+    }
+    rows[index]?.click();
+    return true;
+  }
+
+  // pointerdown rather than click: a drag begun elsewhere on the board must not
+  // leave the menu floating over it, and a right-click on another card presses
+  // before it asks for its own menu, so this never races that menu shut. A wheel
+  // scrolls the board out from under a menu that is anchored to the viewport.
+  function closeOnOutside(event: Event): void {
+    const target = event.target;
+    if (target instanceof Node && menuEl?.contains(target) === true) {
+      return;
+    }
+    cardMenu.close();
+  }
+
+  const itemClass =
+    'flex min-h-11 w-full cursor-pointer items-center gap-3 px-4 text-left text-sm hover:bg-accent-soft focus-ring-inset';
+</script>
+
+<svelte:window onpointerdown={closeOnOutside} onwheel={closeOnOutside} />
+
+{#snippet row(item: Item)}
+  {@const keys = CARD_ACTION_KEYS[item.id]}
+  <span class="flex-1 truncate">{item.label}</span>
+  {#if keys.length > 0}
+    <!-- Hidden from the accessible name, which carries the keys as aria-keyshortcuts
+         instead: spelling "Enter or o" into every row's label reads as gibberish. -->
+    <span aria-hidden="true" class="flex shrink-0 items-center gap-1">
+      {#each keys as key, i (i)}
+        {#if i > 0}
+          <span class="text-xs text-muted">or</span>
+        {/if}
+        <kbd
+          class="inline-flex min-h-6 min-w-6 items-center justify-center rounded border border-edge bg-canvas px-1.5 text-xs font-medium text-muted"
+        >
+          {key}
+        </kbd>
+      {/each}
+    </span>
+  {/if}
+{/snippet}
+
+{#if task !== undefined}
+  <div
+    bind:this={menuEl}
+    role="menu"
+    tabindex="-1"
+    aria-label={multi
+      ? `Actions for ${String(targets.length)} selected cards`
+      : `Actions for ${truncateTitle(task.title)}`}
+    use:menuKeys={{ onclose: (opts) => cardMenu.close(opts), onunhandledkey: runRowShortcut }}
+    style="left: {placed.x}px; top: {placed.y}px"
+    class="fixed z-40 max-h-[80vh] w-64 overflow-y-auto rounded-md border border-edge bg-surface py-1 shadow-lg"
+  >
+    {#each editItems as item (item.id)}
+      <button
+        type="button"
+        role="menuitem"
+        tabindex="-1"
+        aria-keyshortcuts={keyShortcuts(item)}
+        class={itemClass}
+        onclick={(event) => activate(item, event)}
+      >
+        {@render row(item)}
+      </button>
+    {/each}
+    {#if editItems.length > 0 && linkItems.length > 0}
+      <div role="separator" class="my-1 border-t border-edge"></div>
+    {/if}
+    {#each linkItems as item (item.id)}
+      {#if item.href === undefined}
+        <button
+          type="button"
+          role="menuitem"
+          tabindex="-1"
+          aria-keyshortcuts={keyShortcuts(item)}
+          class={itemClass}
+          onclick={(event) => activate(item, event)}
+        >
+          {@render row(item)}
+        </button>
+      {:else}
+        <!-- A real anchor, so the card's URL keeps working the ways the browser's own
+             menu offered it: middle-click, modifier-click, and drag to the tab bar. -->
+        <a
+          use:link
+          role="menuitem"
+          tabindex="-1"
+          aria-keyshortcuts={keyShortcuts(item)}
+          href={item.href}
+          target={item.newTab === true ? '_blank' : undefined}
+          rel={item.newTab === true ? 'noopener' : undefined}
+          class={itemClass}
+          onclick={(event) => activate(item, event)}
+          onauxclick={(event) => {
+            // The middle button opens the tab natively and dispatches no click, so
+            // nothing else here would take the menu off the board it is floating over.
+            if (event.button === 1) {
+              cardMenu.close({ restoreFocus: true });
+            }
+          }}
+        >
+          {@render row(item)}
+        </a>
+      {/if}
+    {/each}
+  </div>
+{/if}

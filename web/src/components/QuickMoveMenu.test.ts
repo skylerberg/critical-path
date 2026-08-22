@@ -1,0 +1,494 @@
+import '../api/testUtils';
+import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from 'vitest';
+import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
+import { tick } from 'svelte';
+import QuickMoveMenu from './QuickMoveMenu.svelte';
+import { announcer } from '../lib/announcer.svelte';
+import { board } from '../lib/board.svelte';
+import type { BoardTask } from '../lib/board-types';
+
+function task(id: string, columnId: string, title: string, position: number): BoardTask {
+  return {
+    id,
+    column_id: columnId,
+    title,
+    description: null,
+    sort_key: `V0${String(Math.round(position)).padStart(8, '0')}1`,
+    created_at: '2026-01-01T00:00:00Z',
+    updated_at: '2026-01-01T00:00:00Z',
+    column_since: '2026-01-01T00:00:00Z',
+    label_ids: [],
+    assignee_ids: [],
+    blocker_ids: [],
+    open_cross_project_blocker_count: 0,
+    cover_image_url: null,
+    due_date: null,
+    comment_count: 0,
+    checklist_item_count: 0,
+    checklist_done_count: 0,
+    attachment_count: 0,
+  };
+}
+
+const CUT_CARDS_KEY = 'V0000010001';
+const PRINT_RULES_KEY = 'V0000020001';
+
+let onclose: ReturnType<typeof vi.fn<() => void>>;
+let moveTask: MockInstance<typeof board.moveTask>;
+
+beforeEach(() => {
+  board.reset();
+  announcer.clear();
+  board.currentProjectId = 'p1';
+  board.columns = [
+    { id: 'todo', name: 'Todo', sort_key: 'V0000010001', is_done: false },
+    { id: 'doing', name: 'Doing', sort_key: 'V0000020001', is_done: false },
+    { id: 'done', name: 'Done', sort_key: 'V0000030001', is_done: true },
+  ];
+  board.tasks = [
+    task('t1', 'todo', 'Design cards', 1000),
+    task('t4', 'todo', 'Write blurb', 2000),
+    task('t5', 'todo', 'Sleeve cards', 3000),
+    task('t2', 'doing', 'Cut cards', 1000),
+    task('t3', 'doing', 'Print rules', 2000),
+  ];
+  onclose = vi.fn<() => void>();
+  moveTask = vi.spyOn(board, 'moveTask');
+});
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
+
+function open(): ReturnType<typeof render> {
+  return render(QuickMoveMenu, { taskId: 't1', ctx: board, onclose });
+}
+
+function rowLabels(name: string): string[] {
+  return Array.from(screen.getByRole('list', { name }).querySelectorAll('button')).map((button) =>
+    (button.textContent ?? '').trim()
+  );
+}
+
+async function chooseColumn(name: string): Promise<void> {
+  await fireEvent.click(screen.getByRole('button', { name: new RegExp(`^${name}`) }));
+}
+
+// An exception thrown inside a listener never reaches the caller under jsdom; it
+// is re-reported on window, and that is the only place activating a row that is
+// not there shows up.
+function watchErrors(): { errors: unknown[]; stop: () => void } {
+  const errors: unknown[] = [];
+  const onError = (event: ErrorEvent): void => {
+    errors.push(event.error);
+  };
+  window.addEventListener('error', onError);
+  return { errors, stop: () => window.removeEventListener('error', onError) };
+}
+
+describe('QuickMoveMenu', () => {
+  it('lists every column, marks the current one, and focuses the filter', () => {
+    open();
+
+    expect(screen.getByRole('heading', { level: 2, name: 'Move — Design cards' })).toBeVisible();
+    expect(rowLabels('Destination columns')).toEqual(['Todo current', 'Doing', 'Done']);
+    expect(screen.getByLabelText('Search columns')).toHaveFocus();
+  });
+
+  it('narrows the column list as the filter is typed', async () => {
+    open();
+
+    await fireEvent.input(screen.getByLabelText('Search columns'), { target: { value: 'doi' } });
+
+    expect(rowLabels('Destination columns')).toEqual(['Doing']);
+  });
+
+  it('opens narrowed to the column a caller named, without moving anything itself', () => {
+    render(QuickMoveMenu, { taskId: 't1', ctx: board, prefill: 'Done', onclose });
+
+    expect(screen.getByLabelText<HTMLInputElement>('Search columns').value).toBe('Done');
+    expect(rowLabels('Destination columns')).toEqual(['Done']);
+    expect(moveTask).not.toHaveBeenCalled();
+  });
+
+  it('offers top, bottom and a row per following card in the chosen column', async () => {
+    open();
+
+    await chooseColumn('Doing');
+
+    expect(
+      screen.getByRole('heading', { level: 2, name: 'Move to Doing — Design cards' })
+    ).toBeVisible();
+    expect(rowLabels('Positions')).toEqual([
+      'Top (before "Cut cards")',
+      'Before "Print rules"',
+      'Bottom (after "Print rules")',
+    ]);
+    expect(screen.getByLabelText('Search positions')).toHaveFocus();
+  });
+
+  it('excludes the moving card from the anchors of its own column', async () => {
+    open();
+
+    await chooseColumn('Todo');
+
+    // "Write blurb" is the leading card, so Top is already its slot.
+    expect(rowLabels('Positions')).toEqual([
+      'Top (before "Write blurb")',
+      'Before "Sleeve cards"',
+      'Bottom (after "Sleeve cards")',
+    ]);
+  });
+
+  it("finds the leading card's slot by typing its title", async () => {
+    open();
+    await chooseColumn('Doing');
+
+    await fireEvent.input(screen.getByLabelText('Search positions'), { target: { value: 'cut' } });
+
+    expect(rowLabels('Positions')).toEqual(['Top (before "Cut cards")']);
+  });
+
+  // The slot is asserted as a rank against the cards already in Doing —
+  // 'Cut cards' then 'Print rules' — rather than an exact key, which the
+  // generator is free to choose.
+  it.each([
+    [
+      'Top (before "Cut cards")',
+      null,
+      CUT_CARDS_KEY,
+      { kind: 'between', afterId: null, beforeId: 't2' },
+    ],
+    [
+      'Before "Print rules"',
+      CUT_CARDS_KEY,
+      PRINT_RULES_KEY,
+      { kind: 'between', afterId: 't2', beforeId: 't3' },
+    ],
+    [
+      'Bottom (after "Print rules")',
+      PRINT_RULES_KEY,
+      null,
+      { kind: 'between', afterId: 't3', beforeId: null },
+    ],
+  ])('places the card at %s', async (row, after, before, intent) => {
+    open();
+    await chooseColumn('Doing');
+
+    await fireEvent.click(screen.getByRole('button', { name: row }));
+
+    expect(moveTask).toHaveBeenCalledWith('t1', 'doing', { sort_key: expect.any(String) }, intent);
+    const placed = moveTask.mock.calls[0]![2].sort_key;
+    if (after !== null) expect(placed > after).toBe(true);
+    if (before !== null) expect(placed < before).toBe(true);
+  });
+
+  it('skips the position step for a destination with no other cards', async () => {
+    open();
+
+    await chooseColumn('Done');
+
+    expect(moveTask).toHaveBeenCalledWith(
+      't1',
+      'done',
+      { sort_key: expect.any(String) },
+      { kind: 'append' }
+    );
+    expect(onclose).toHaveBeenCalledTimes(1);
+    expect(screen.queryByLabelText('Search positions')).toBeNull();
+  });
+
+  it('announces the resulting column and ordinal', async () => {
+    open();
+
+    await chooseColumn('Doing');
+    await fireEvent.click(screen.getByRole('button', { name: 'Before "Print rules"' }));
+
+    await waitFor(() => {
+      expect(announcer.message).toBe('Moved "Design cards" to Doing, position 2 of 3');
+    });
+  });
+
+  it('activates the highlighted row with the arrow keys and Enter', async () => {
+    open();
+    await chooseColumn('Doing');
+
+    const input = screen.getByLabelText('Search positions');
+    await fireEvent.keyDown(input, { key: 'ArrowDown' });
+    await fireEvent.keyDown(input, { key: 'Enter' });
+
+    expect(moveTask).toHaveBeenCalledWith(
+      't1',
+      'doing',
+      { sort_key: expect.any(String) },
+      { kind: 'between', afterId: 't2', beforeId: 't3' }
+    );
+  });
+
+  it('arrows from the focused row even when the pointer highlights another', async () => {
+    open();
+    await chooseColumn('Doing');
+    const top = screen.getByRole('button', { name: /^Top/ });
+    top.focus();
+    await fireEvent.pointerMove(screen.getByRole('button', { name: /^Bottom/ }));
+
+    await fireEvent.keyDown(top, { key: 'ArrowDown' });
+
+    // Stepping from the pointer's highlight instead clamps on Bottom, and the
+    // Enter below then files the card in a slot nobody picked.
+    const before = screen.getByRole('button', { name: 'Before "Print rules"' });
+    expect(before).toHaveFocus();
+
+    await fireEvent.keyDown(before, { key: 'Enter' });
+
+    expect(moveTask).toHaveBeenCalledWith(
+      't1',
+      'doing',
+      { sort_key: expect.any(String) },
+      { kind: 'between', afterId: 't2', beforeId: 't3' }
+    );
+  });
+
+  it('clamps at the top', async () => {
+    open();
+    await chooseColumn('Doing');
+
+    const input = screen.getByLabelText('Search positions');
+    await fireEvent.keyDown(input, { key: 'ArrowDown' });
+    await fireEvent.keyDown(input, { key: 'ArrowUp' });
+    await fireEvent.keyDown(input, { key: 'ArrowUp' });
+    await fireEvent.keyDown(input, { key: 'Enter' });
+
+    expect(moveTask).toHaveBeenCalledWith(
+      't1',
+      'doing',
+      { sort_key: expect.any(String) },
+      { kind: 'between', afterId: null, beforeId: 't2' }
+    );
+  });
+
+  it('re-resolves the anchor at commit time, so a card inserted meanwhile does not shift the slot', async () => {
+    open();
+    await chooseColumn('Doing');
+
+    const input = screen.getByLabelText('Search positions');
+    await fireEvent.keyDown(input, { key: 'ArrowDown' });
+    expect(rowLabels('Positions')).toEqual([
+      'Top (before "Cut cards")',
+      'Before "Print rules"',
+      'Bottom (after "Print rules")',
+    ]);
+
+    board.tasks = [...board.tasks, task('t6', 'doing', 'New card', 500)];
+    await waitFor(() => {
+      expect(rowLabels('Positions')).toEqual([
+        'Top (before "New card")',
+        'Before "Cut cards"',
+        'Before "Print rules"',
+        'Bottom (after "Print rules")',
+      ]);
+    });
+
+    await fireEvent.keyDown(input, { key: 'Enter' });
+
+    expect(moveTask).toHaveBeenCalledWith(
+      't1',
+      'doing',
+      { sort_key: expect.any(String) },
+      { kind: 'between', afterId: 't2', beforeId: 't3' }
+    );
+    await waitFor(() => {
+      expect(announcer.message).toBe('Moved "Design cards" to Doing, position 3 of 4');
+    });
+  });
+
+  it('falls back to the bottom when the anchor is deleted between render and click', async () => {
+    open();
+    await chooseColumn('Doing');
+    const anchorRow = screen.getByRole('button', { name: 'Before "Print rules"' });
+
+    // Clicked before Svelte can flush the removal away, which is the only way the
+    // row and the live column can disagree.
+    board.tasks = board.tasks.filter((t) => t.id !== 't3');
+    anchorRow.click();
+
+    expect(moveTask).toHaveBeenCalledWith(
+      't1',
+      'doing',
+      { sort_key: expect.any(String) },
+      { kind: 'between', afterId: 't2', beforeId: null }
+    );
+  });
+
+  it('unwinds the query first and the step second on Escape', async () => {
+    open();
+    await chooseColumn('Doing');
+
+    const input = screen.getByLabelText<HTMLInputElement>('Search positions');
+    await fireEvent.input(input, { target: { value: 'print' } });
+    expect(rowLabels('Positions')).toEqual([
+      'Before "Print rules"',
+      'Bottom (after "Print rules")',
+    ]);
+
+    await fireEvent.keyDown(input, { key: 'Escape' });
+    expect(input.value).toBe('');
+    expect(screen.getByLabelText('Search positions')).toBeInTheDocument();
+
+    await fireEvent.keyDown(input, { key: 'Escape' });
+    expect(screen.getByLabelText('Search columns')).toBeInTheDocument();
+    expect(onclose).not.toHaveBeenCalled();
+  });
+
+  it('returns to the column list from the back button', async () => {
+    open();
+    await chooseColumn('Doing');
+
+    await fireEvent.click(screen.getByRole('button', { name: '← Columns' }));
+
+    expect(screen.getByLabelText('Search columns')).toBeInTheDocument();
+    expect(rowLabels('Destination columns')).toEqual(['Todo current', 'Doing', 'Done']);
+  });
+
+  it('unwinds one step on Escape from the back button instead of letting it escape', async () => {
+    open();
+    await chooseColumn('Doing');
+    const onWindowKeydown = vi.fn();
+    window.addEventListener('keydown', onWindowKeydown);
+
+    try {
+      const event = new KeyboardEvent('keydown', {
+        key: 'Escape',
+        bubbles: true,
+        cancelable: true,
+      });
+      screen.getByRole('button', { name: '← Columns' }).dispatchEvent(event);
+      await tick();
+
+      expect(screen.getByLabelText('Search columns')).toBeInTheDocument();
+      expect(event.defaultPrevented).toBe(true);
+      expect(onWindowKeydown).not.toHaveBeenCalled();
+      expect(onclose).not.toHaveBeenCalled();
+    } finally {
+      window.removeEventListener('keydown', onWindowKeydown);
+    }
+  });
+
+  it('says so and leaves Enter inert when the filter matches no column', async () => {
+    const watch = watchErrors();
+    open();
+
+    const input = screen.getByLabelText('Search columns');
+    await fireEvent.input(input, { target: { value: 'zzz' } });
+    await fireEvent.keyDown(input, { key: 'Enter' });
+    watch.stop();
+
+    expect(screen.getByText('No matching columns.')).toBeInTheDocument();
+    expect(screen.queryByRole('list')).toBeNull();
+    expect(watch.errors).toEqual([]);
+    expect(moveTask).not.toHaveBeenCalled();
+    expect(screen.queryByLabelText('Search positions')).toBeNull();
+    expect(onclose).not.toHaveBeenCalled();
+  });
+
+  it('says so and leaves Enter inert when the filter matches no position', async () => {
+    open();
+    await chooseColumn('Doing');
+    const watch = watchErrors();
+
+    const input = screen.getByLabelText('Search positions');
+    await fireEvent.input(input, { target: { value: 'zzz' } });
+    await fireEvent.keyDown(input, { key: 'Enter' });
+    watch.stop();
+
+    expect(screen.getByText('No matching positions.')).toBeInTheDocument();
+    expect(screen.queryByRole('list')).toBeNull();
+    expect(watch.errors).toEqual([]);
+    expect(moveTask).not.toHaveBeenCalled();
+    expect(onclose).not.toHaveBeenCalled();
+  });
+
+  // The Enter that commits an IME candidate is not a choice, and it arrives on
+  // the same field at both steps: unguarded, one commit picks the column and the
+  // next moves the card.
+  it('leaves Enter to the IME while a composition is active', async () => {
+    open();
+    await fireEvent.input(screen.getByLabelText('Search columns'), { target: { value: 'doing' } });
+
+    await fireEvent.keyDown(screen.getByLabelText('Search columns'), {
+      key: 'Enter',
+      isComposing: true,
+    });
+    expect(screen.queryByLabelText('Search positions')).toBeNull();
+
+    await fireEvent.keyDown(screen.getByLabelText('Search columns'), { key: 'Enter' });
+    const input = screen.getByLabelText('Search positions');
+    await fireEvent.keyDown(input, { key: 'Enter', isComposing: true });
+
+    expect(moveTask).not.toHaveBeenCalled();
+    expect(onclose).not.toHaveBeenCalled();
+    expect(input).toBeInTheDocument();
+  });
+
+  it('ignores an auto-repeated Enter, so holding it cannot skip the position step', async () => {
+    open();
+    await fireEvent.input(screen.getByLabelText('Search columns'), { target: { value: 'doing' } });
+
+    await fireEvent.keyDown(screen.getByLabelText('Search columns'), { key: 'Enter' });
+    const input = screen.getByLabelText('Search positions');
+    await fireEvent.keyDown(input, { key: 'Enter', repeat: true });
+
+    expect(moveTask).not.toHaveBeenCalled();
+    expect(rowLabels('Positions')).toEqual([
+      'Top (before "Cut cards")',
+      'Before "Print rules"',
+      'Bottom (after "Print rules")',
+    ]);
+  });
+
+  it('moves once when a row is activated twice before the menu unmounts', async () => {
+    open();
+    await chooseColumn('Doing');
+
+    const row = screen.getByRole('button', { name: 'Bottom (after "Print rules")' });
+    row.click();
+    row.click();
+
+    expect(moveTask).toHaveBeenCalledTimes(1);
+    expect(onclose).toHaveBeenCalledTimes(1);
+  });
+
+  it('closes when the task is deleted under the open menu', async () => {
+    open();
+
+    board.tasks = board.tasks.filter((t) => t.id !== 't1');
+
+    await waitFor(() => {
+      expect(onclose).toHaveBeenCalled();
+    });
+  });
+
+  it('returns to the column list when the chosen column is deleted', async () => {
+    open();
+    await chooseColumn('Doing');
+
+    board.columns = board.columns.filter((c) => c.id !== 'doing');
+
+    await waitFor(() => {
+      expect(screen.getByLabelText('Search columns')).toBeInTheDocument();
+    });
+    expect(onclose).not.toHaveBeenCalled();
+  });
+
+  it('closes and announces without waiting for the move to settle', async () => {
+    moveTask.mockReturnValue(new Promise<void>(() => undefined));
+    open();
+
+    await chooseColumn('Done');
+
+    expect(onclose).toHaveBeenCalledTimes(1);
+    await waitFor(() => {
+      expect(announcer.message).toBe('Moved "Design cards" to Done, position 1 of 1');
+    });
+  });
+});

@@ -1,0 +1,20 @@
+<!doctype html>
+<!--
+  Dev-only entry (NOT part of the production build) that mounts the REAL
+  Board.svelte with seeded data for headless-Chrome layout measurement, so layout
+  bugs are caught against the actual component (real Tailwind CSS, real
+  svelte-dnd-action) instead of a hand-authored fixture. Served by `vite dev` at
+  /scripts/board-probe.html. See scripts/check-board-layout-real.mjs and the
+  browser-repro skill.
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title>board probe (real component)</title>
+  </head>
+  <body>
+    <div id="app"></div>
+    <script type="module" src="/scripts/board-probe.ts"></script>
+  </body>
+</html>

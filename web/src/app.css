@@ -1,0 +1,201 @@
+@import 'tailwindcss';
+
+:root {
+  /* The palette flips on `prefers-color-scheme`, but that query is a signal the
+     page reads — it tells the browser nothing, so every UA-painted surface stayed
+     light-tuned under the dark theme. Selected text was the visible cost: with
+     this undeclared, Chromium paints the dark rename field's selection at 2.18:1
+     against the field and forces the glyphs to black, which is what "I can't see
+     that the title is selected" was. It also owns the caret, the scrollbars and
+     the default form-control rendering.
+
+     `light dark` rather than `dark`, so the UA follows the same signal the
+     palette does instead of pinning one theme. */
+  color-scheme: light dark;
+  --cp-canvas: #fafafa;
+  --cp-surface: #ffffff;
+  --cp-edge: #e5e5e5;
+  --cp-ink: #171717;
+  --cp-muted: #6b6b6b;
+  --cp-accent: #4f46e5;
+  --cp-accent-strong: #4338ca;
+  --cp-accent-soft: #eef2ff;
+  --cp-on-accent: #ffffff;
+  --cp-danger: #c81e1e;
+  /* Paired with --cp-danger the way on-accent is with accent. White clears 4.5:1
+     on the light danger and not on the dark one, so the danger button's text
+     colour has to flip with the scheme rather than being hardcoded. */
+  --cp-on-danger: #ffffff;
+  --cp-success: #15803d;
+  --cp-warning: #b45309;
+  /* Board accents. Fill only — nothing is ever drawn on top of one, so each is
+     held to the 3:1 non-text bar against surface, canvas and accent-soft in both
+     themes, which a single value per key cannot meet. */
+  --cp-project-rose: #e11d48;
+  --cp-project-amber: #b45309;
+  --cp-project-lime: #4d7c0f;
+  --cp-project-emerald: #047857;
+  --cp-project-sky: #0284c7;
+  --cp-project-violet: #7c3aed;
+  --cp-project-fuchsia: #c026d3;
+  --cp-project-slate: #475569;
+  /* Total height of the fixed mobile bottom nav (min-h-14 + home-indicator safe
+     area). Used to reserve space in the shell and to size the board viewport so
+     the nav never overlaps board content. Ignored at lg, where the nav is a
+     sidebar, and taken to zero for as long as the nav is not drawn at all. */
+  --cp-bottom-nav-h: calc(3.5rem + env(safe-area-inset-bottom));
+  /* The height that is on screen. `100dvh` until a software keyboard covers part
+     of it, which no viewport unit can see — src/lib/viewport.svelte.ts owns that
+     override and the reason there is no CSS-only version of it. Everything that
+     fills the screen measures from here rather than from a viewport unit. */
+  --cp-viewport-h: 100dvh;
+  /* Height available to a project screen on mobile: the visible height minus the
+     bottom nav. Defined as a variable so the class layer stays free of
+     calc()-in-arbitrary-value fragility. */
+  --cp-board-h: calc(var(--cp-viewport-h) - var(--cp-bottom-nav-h));
+  /* Width of one board column, shared by the columns and the "+ Add column" tile
+     so the two cannot drift — a tile any other width is a snap target of the
+     wrong size. On a phone this leaves the next column peeking past the one you
+     are on, which is the cue that there is more board. */
+  --cp-board-col-w: min(85vw, 18rem);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --cp-canvas: #0a0a0a;
+    --cp-surface: #171717;
+    --cp-edge: #2e2e2e;
+    --cp-ink: #f5f5f5;
+    --cp-muted: #a3a3a3;
+    /* Accent carries two jobs that pull opposite ways here: it is text on a dark
+       background (wants lighter) and the fill under on-accent (wants darker). No
+       single indigo clears 4.5:1 for both — indigo-500 reaches only 4.01 as text
+       on surface and 4.47 under white. Resolved by keeping the fill light enough
+       to read as text and flipping on-accent to near-black, which is why these
+       two must move together: restoring white here drops the primary button to
+       2.98:1 on hover. */
+    --cp-accent: #818cf8;
+    --cp-accent-strong: #a5b4fc;
+    --cp-accent-soft: #27274d;
+    --cp-on-accent: #0a0a0a;
+    --cp-danger: #f87171;
+    --cp-on-danger: #0a0a0a;
+    --cp-success: #22c55e;
+    --cp-warning: #f59e0b;
+    --cp-project-rose: #fb7185;
+    --cp-project-amber: #f59e0b;
+    --cp-project-lime: #a3e635;
+    --cp-project-emerald: #34d399;
+    --cp-project-sky: #38bdf8;
+    --cp-project-violet: #a78bfa;
+    --cp-project-fuchsia: #e879f9;
+    --cp-project-slate: #94a3b8;
+  }
+}
+
+@theme inline {
+  --color-canvas: var(--cp-canvas);
+  --color-surface: var(--cp-surface);
+  --color-edge: var(--cp-edge);
+  --color-ink: var(--cp-ink);
+  --color-muted: var(--cp-muted);
+  --color-accent: var(--cp-accent);
+  --color-accent-strong: var(--cp-accent-strong);
+  --color-accent-soft: var(--cp-accent-soft);
+  --color-on-accent: var(--cp-on-accent);
+  --color-danger: var(--cp-danger);
+  --color-on-danger: var(--cp-on-danger);
+  --color-success: var(--cp-success);
+  --color-warning: var(--cp-warning);
+}
+
+@layer base {
+  html {
+    background-color: var(--cp-canvas);
+    color: var(--cp-ink);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* Owned rather than left to the UA, because a default tuned for a white page is
+     what the dark theme was getting. The accent/on-accent pair is the same one the
+     primary button uses, so it carries that pair's contrast guarantee into both
+     themes and needs no second value under the dark media query.
+
+     This rule and `color-scheme` above are load-bearing for each other on WebKit,
+     which is the engine the report came from: with the scheme undeclared WebKit
+     composites a specified selection colour down toward the backdrop — accent
+     lands at #1f2a96, 1.73:1 on the dark field, worse than the default it
+     replaced — and with it declared paints near the value asked for (#6972c8,
+     4.56:1). Removing either one silently takes most of the other's value with
+     it, which is why app.css.test.ts asserts both. Chromium honours the colour
+     literally either way and so cannot show this. */
+  ::selection {
+    background-color: var(--cp-accent);
+    color: var(--cp-on-accent);
+  }
+}
+
+@utility touch-callout-none {
+  -webkit-touch-callout: none;
+}
+
+/* The one focus indicator, so a control cannot pick up `outline-none` and be left
+   with a border-colour swap as its only focused state — which is what most of the
+   text fields here had, and what the permanently-border-accent ones had instead of
+   any state at all. An outline rather than a ring: it follows border-radius, costs
+   no layout, and survives inside the overflow-hidden scrollers on the board.
+
+   Three placements, differing only in where the ring sits relative to the box.
+   They were spelled out class-by-class at 22 sites before they were named here,
+   which is why two of them had drifted onto the browser's own ring instead:
+
+     focus-ring        outside, for a control with room around it
+     focus-ring-flush  on the edge, for something filling its container — a card
+                       in a scrolling column, an inset:0 overlay link
+     focus-ring-inset  inside, for a full-width row in a rounded popup, where an
+                       outside ring is clipped by the container's own corner
+
+   Not covered: the two cards that raise the ring to a parent with
+   `has-[a:focus-visible]:`, since the variant is the parent's, not the control's.
+   `grep -rn 'has-\[a:focus-visible\]' src` is both of them. */
+@utility focus-ring {
+  @variant focus-visible {
+    outline-width: 2px;
+    outline-style: solid;
+    outline-color: var(--cp-accent);
+    outline-offset: 2px;
+  }
+}
+
+@utility focus-ring-flush {
+  @variant focus-visible {
+    outline-width: 2px;
+    outline-style: solid;
+    outline-color: var(--cp-accent);
+    outline-offset: 0;
+  }
+}
+
+@utility focus-ring-inset {
+  @variant focus-visible {
+    outline-width: 2px;
+    outline-style: solid;
+    outline-color: var(--cp-accent);
+    outline-offset: -2px;
+  }
+}
+
+/* Unlayered so a component <style> can opt an element back in with its own !important;
+   a layered !important here would outrank that. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-delay: 0ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    transition-delay: 0ms !important;
+    scroll-behavior: auto !important;
+  }
+}

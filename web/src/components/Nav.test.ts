@@ -1,0 +1,685 @@
+import { fetchMock, jsonResponse, requestAt } from '../api/testUtils';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/svelte';
+import {
+  SHADOW_PLACEHOLDER_ITEM_ID,
+  SOURCES,
+  TRIGGERS,
+  type DndEvent,
+  type Options,
+} from 'svelte-dnd-action';
+import Nav from './Nav.svelte';
+import { board } from '../lib/board.svelte';
+import { APP_NAME } from '../lib/constants';
+import { motion } from '../lib/motion.svelte';
+import { projects, type Project } from '../lib/projects.svelte';
+import { realtime } from '../lib/realtime.svelte';
+import { session } from '../lib/session.svelte';
+import { router } from '../lib/router.svelte';
+import { projectHref } from '../lib/short-links';
+import { testUuid } from '../lib/test-ids';
+import { viewport } from '../lib/viewport.svelte';
+
+const { zoneOptions } = vi.hoisted(() => ({ zoneOptions: [] as Options[] }));
+
+// Wraps rather than replaces: the keyboard-drag cases below drive the real action.
+vi.mock('svelte-dnd-action', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('svelte-dnd-action')>();
+  return {
+    ...actual,
+    dndzone: (node: HTMLElement, options: Options) => {
+      zoneOptions.push(options);
+      const zone = actual.dndzone(node, options);
+      return {
+        update: (next: Options) => {
+          zoneOptions.push(next);
+          zone.update?.(next);
+        },
+        destroy: () => zone.destroy?.(),
+      };
+    },
+  };
+});
+
+function sidebarZoneConfigs(): Options[] {
+  return zoneOptions.filter((options) => options.type === 'sidebar-project');
+}
+
+const me = {
+  id: 'u-me',
+  email: 'me@example.com',
+  name: 'Me',
+  avatar_url: null,
+  email_verified: false,
+};
+
+const SOLO_ID = testUuid('p-solo');
+const TEAM_ID = testUuid('p-team');
+const A_ID = testUuid('p-a');
+const B_ID = testUuid('p-b');
+const C_ID = testUuid('p-c');
+
+function project({ rank, ...overrides }: Partial<Project> & { rank?: number } = {}): Project {
+  const memberIds = overrides.member_ids ?? [];
+  const base: Project = {
+    id: testUuid('p-1'),
+    name: 'Alpha',
+    description: '',
+    archived_at: null,
+    created_by: null,
+    member_ids: memberIds,
+    members: memberIds.map((user_id) => ({ user_id, role: 'editor' as const })),
+    is_public: false,
+    color: null,
+    created_at: '2026-01-01T00:00:00.000Z',
+    open_task_count: 0,
+    done_task_count: 0,
+    sort_key: null,
+    last_seen_at: null,
+    has_unseen_changes: false,
+    ...overrides,
+  };
+  // A ranked project needs a key; without one every reorder would take the
+  // re-stamp branch and PUT the whole sidebar.
+  if (base.sort_key === null && rank !== undefined) {
+    base.sort_key = `V0${String(rank).padStart(8, '0')}1`;
+  }
+  return base;
+}
+
+function sidebarProjectNames(): string[] {
+  return [...document.querySelectorAll('a[href^="/p/"]')].map(
+    (anchor) => anchor.textContent?.trim() ?? ''
+  );
+}
+
+// Every drawn row, linked or not, unlike the href-keyed list above.
+function sidebarRowNames(): string[] {
+  const zone = document.querySelector('[aria-label="Projects"]');
+  return [...(zone?.children ?? [])].map((row) => row.getAttribute('aria-label') ?? '');
+}
+
+function alertText(): string {
+  return document.getElementById('dnd-action-aria-alert')?.textContent ?? '';
+}
+
+beforeEach(() => {
+  fetchMock.mockReset();
+  zoneOptions.length = 0;
+  motion.reduced = false;
+  projects.reset();
+  board.reset();
+  session.user = me;
+  session.status = 'authed';
+  realtime.disconnect();
+  router.beforeNavigate = undefined;
+  router.navigate('/', { replace: true });
+});
+
+describe('Nav sidebar', () => {
+  it('lists active projects in one flat list with an active state', () => {
+    projects.projects = [
+      project({ id: SOLO_ID, name: 'Solo Game' }),
+      project({
+        id: TEAM_ID,
+        name: 'Team Game',
+        member_ids: [me.id],
+        created_at: '2026-01-02T00:00:00.000Z',
+      }),
+      project({
+        id: testUuid('p-arch'),
+        name: 'Archived',
+        archived_at: '2026-02-01T00:00:00.000Z',
+      }),
+    ];
+    router.navigate(projectHref(TEAM_ID, 'Team Game'));
+
+    render(Nav);
+
+    expect(screen.queryByText('Personal')).toBeNull();
+
+    const solo = screen.getByRole('link', { name: 'Solo Game' });
+    expect(solo).toHaveAttribute('href', projectHref(SOLO_ID, 'Solo Game'));
+    const team = screen.getByRole('link', { name: 'Team Game' });
+    expect(team).toHaveAttribute('href', projectHref(TEAM_ID, 'Team Game'));
+    expect(team).toHaveAttribute('aria-current', 'page');
+
+    expect(screen.queryByRole('link', { name: 'Archived' })).toBeNull();
+  });
+
+  it('dots a colored board and leaves an uncolored one bare', () => {
+    projects.projects = [
+      project({ id: SOLO_ID, name: 'Solo Game', color: 'rose' }),
+      project({ id: TEAM_ID, name: 'Team Game', created_at: '2026-01-02T00:00:00.000Z' }),
+    ];
+
+    render(Nav);
+
+    const solo = screen.getByRole('link', { name: 'Solo Game' });
+    const dot = solo.querySelector('span[aria-hidden="true"]');
+    expect(dot).toHaveStyle({ backgroundColor: 'var(--cp-project-rose)' });
+    expect(dot).toHaveClass('shrink-0');
+    expect(
+      screen.getByRole('link', { name: 'Team Game' }).querySelector('span[aria-hidden="true"]')
+    ).toBeNull();
+  });
+
+  // Worst case for the placeholder: an item carrying nothing but an id, which is
+  // what an indexed palette lookup dies on — and the death lands mid-drag.
+  it('survives a drag placeholder that carries no color at all', async () => {
+    projects.projects = [
+      project({ id: A_ID, name: 'A', sort_key: 'V0000010001', color: 'sky' }),
+      project({ id: B_ID, name: 'B', rank: 2000 }),
+    ];
+
+    render(Nav);
+    const linkA = await screen.findByRole('link', { name: 'A' });
+    const zone = linkA.parentElement!.parentElement!;
+    const detail = {
+      items: [{ id: SHADOW_PLACEHOLDER_ITEM_ID } as Project, projects.active[1]!],
+      info: { trigger: TRIGGERS.DRAG_STARTED, id: A_ID, source: SOURCES.POINTER },
+    };
+    await fireEvent(zone, new CustomEvent('consider', { detail }));
+
+    expect(sidebarRowNames()).toEqual(['', 'B']);
+    expect(sidebarProjectNames()).toEqual(['B']);
+  });
+
+  it('renders sidebar projects in rank order with nulls last', async () => {
+    projects.projects = [
+      project({ id: testUuid('p-legacy'), name: 'Legacy', created_at: '2026-01-01T00:00:00.000Z' }),
+      project({ id: testUuid('p-2'), name: 'Second', rank: 2000 }),
+      project({ id: testUuid('p-1'), name: 'First', rank: 1000 }),
+    ];
+
+    render(Nav);
+
+    await screen.findByRole('link', { name: 'First' });
+    expect(sidebarProjectNames()).toEqual(['First', 'Second', 'Legacy']);
+  });
+
+  it('commits a drop by PUTting the computed midpoint key', async () => {
+    projects.projects = [
+      project({ id: A_ID, name: 'A', rank: 1000 }),
+      project({ id: B_ID, name: 'B', rank: 2000 }),
+      project({ id: C_ID, name: 'C', rank: 3000 }),
+    ];
+    fetchMock.mockImplementation(async () => jsonResponse(204));
+
+    render(Nav);
+    const linkA = await screen.findByRole('link', { name: 'A' });
+    const zone = linkA.parentElement!.parentElement!;
+    const [a, b, c] = projects.active;
+    const detail: DndEvent<Project> = {
+      items: [a!, c!, b!],
+      info: { trigger: TRIGGERS.DROPPED_INTO_ZONE, id: C_ID, source: SOURCES.POINTER },
+    };
+    await fireEvent(zone, new CustomEvent('finalize', { detail }));
+
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    expect(requestAt(0).method).toBe('PUT');
+    expect(new URL(requestAt(0).url).pathname).toBe(`/api/projects/${C_ID}/position`);
+    expect(await requestAt(0).clone().json()).toEqual({
+      sort_key: expect.any(String),
+    });
+    await vi.waitFor(() => expect(sidebarProjectNames()).toEqual(['A', 'C', 'B']));
+  });
+
+  // A lifted row is replaced in the list by a placeholder holding its content under
+  // an id that names no project. Encoding that id for the row's link throws, and the
+  // throw kills the render mid-drag: rows stop making way, the held one is painted
+  // nowhere, and the drop never reaches the store.
+  it('swaps the held project for the placeholder in the rendered sidebar', async () => {
+    projects.projects = [
+      project({ id: A_ID, name: 'A', rank: 1000 }),
+      project({ id: B_ID, name: 'B', rank: 2000 }),
+      project({ id: C_ID, name: 'C', rank: 3000 }),
+    ];
+
+    render(Nav);
+    const linkA = await screen.findByRole('link', { name: 'A' });
+    const zone = linkA.parentElement!.parentElement!;
+    const [a, b, c] = projects.active;
+    const detail = {
+      items: [{ ...a!, isDndShadowItem: true, id: SHADOW_PLACEHOLDER_ITEM_ID }, b!, c!],
+      info: { trigger: TRIGGERS.DRAG_STARTED, id: A_ID, source: SOURCES.POINTER },
+    };
+    await fireEvent(zone, new CustomEvent('consider', { detail }));
+
+    // The held row keeps its place and its name, and is the one now carrying no
+    // link — a render that died would leave all three linked, as before the drag.
+    expect(sidebarRowNames()).toEqual(['A', 'B', 'C']);
+    expect(sidebarProjectNames()).toEqual(['B', 'C']);
+  });
+
+  describe('keyboard reordering', () => {
+    beforeEach(() => {
+      projects.projects = [
+        project({ id: A_ID, name: 'A', rank: 1000 }),
+        project({ id: B_ID, name: 'B', rank: 2000 }),
+        project({ id: C_ID, name: 'C', rank: 3000 }),
+      ];
+      fetchMock.mockImplementation(async () => jsonResponse(204));
+    });
+
+    it('exposes projects as focusable list items without touching the links', async () => {
+      render(Nav);
+
+      const item = await screen.findByRole('listitem', { name: 'A' });
+      expect(item).toHaveAttribute('tabindex', '0');
+      const zone = document.querySelector('[aria-label="Projects"]');
+      expect(zone).toHaveAttribute('role', 'list');
+      expect(zone).toHaveAttribute('aria-describedby', 'dnd-zone-active');
+      expect(document.getElementById('dnd-zone-active')).not.toBeNull();
+      const anchor = screen.getByRole('link', { name: 'A' });
+      expect(anchor).toHaveAttribute('href', projectHref(A_ID, 'A'));
+      expect(anchor).not.toHaveAttribute('tabindex');
+    });
+
+    it('leaves Enter on a project link to the browser', async () => {
+      render(Nav);
+      const anchor = await screen.findByRole('link', { name: 'A' });
+      anchor.focus();
+
+      const enter = new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true });
+      await fireEvent(anchor, enter);
+
+      expect(enter.defaultPrevented).toBe(false);
+      expect(alertText()).not.toContain('Started dragging');
+      expect(sidebarProjectNames()).toEqual(['A', 'B', 'C']);
+    });
+
+    it('picks up with Enter, commits every arrow move, and drops with Enter', async () => {
+      render(Nav);
+      const item = await screen.findByRole('listitem', { name: 'A' });
+      item.focus();
+
+      const pickup = new KeyboardEvent('keydown', {
+        key: 'Enter',
+        bubbles: true,
+        cancelable: true,
+      });
+      await fireEvent(item, pickup);
+      expect(pickup.defaultPrevented).toBe(true);
+      expect(alertText()).toContain('Started dragging item A');
+
+      await fireEvent.keyDown(item, { key: 'ArrowDown' });
+      expect(alertText()).toContain('Moved item A to position 2');
+      await vi.waitFor(() => expect(sidebarProjectNames()).toEqual(['B', 'A', 'C']));
+      await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+      expect(requestAt(0).method).toBe('PUT');
+      expect(new URL(requestAt(0).url).pathname).toBe(`/api/projects/${A_ID}/position`);
+      expect(await requestAt(0).clone().json()).toEqual({
+        sort_key: expect.any(String),
+      });
+
+      await fireEvent.keyDown(item, { key: 'ArrowDown' });
+      await vi.waitFor(() => expect(sidebarProjectNames()).toEqual(['B', 'C', 'A']));
+      await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+      expect(await requestAt(1).clone().json()).toEqual({
+        sort_key: expect.any(String),
+      });
+
+      await fireEvent.keyDown(item, { key: 'Enter' });
+      expect(alertText()).toContain('Stopped dragging item A');
+      await fireEvent.keyDown(item, { key: 'ArrowDown' });
+      expect(sidebarProjectNames()).toEqual(['B', 'C', 'A']);
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+
+      // A stuck projectDragging flag would freeze the store->DOM mirror here.
+      projects.projects = [
+        project({ id: testUuid('p-z'), name: 'Z', rank: 500 }),
+        ...projects.projects,
+      ];
+      await vi.waitFor(() => expect(sidebarProjectNames()).toEqual(['Z', 'B', 'C', 'A']));
+    });
+
+    it('drops in place on Escape', async () => {
+      render(Nav);
+      const item = await screen.findByRole('listitem', { name: 'A' });
+      item.focus();
+
+      await fireEvent.keyDown(item, { key: 'Enter' });
+      await fireEvent.keyDown(item, { key: 'ArrowDown' });
+      await vi.waitFor(() => expect(sidebarProjectNames()).toEqual(['B', 'A', 'C']));
+
+      await fireEvent.keyDown(window, { key: 'Escape' });
+      expect(alertText()).toContain('Stopped dragging item A');
+      await fireEvent.keyDown(item, { key: 'ArrowDown' });
+      expect(sidebarProjectNames()).toEqual(['B', 'A', 'C']);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it('links to my tasks and marks it current on that route', async () => {
+    render(Nav);
+
+    const before = screen.getAllByRole('link', { name: 'My tasks' });
+    expect(before.length).toBeGreaterThan(0);
+    for (const anchor of before) {
+      expect(anchor).toHaveAttribute('href', '/my-tasks');
+      expect(anchor).not.toHaveAttribute('aria-current');
+    }
+
+    router.navigate('/my-tasks');
+
+    await waitFor(() => {
+      for (const anchor of screen.getAllByRole('link', { name: 'My tasks' })) {
+        expect(anchor).toHaveAttribute('aria-current', 'page');
+      }
+    });
+  });
+
+  it('links to search from both bars and marks it current on that route', async () => {
+    render(Nav);
+
+    const before = screen.getAllByRole('link', { name: 'Search' });
+    expect(before).toHaveLength(2);
+    for (const anchor of before) {
+      expect(anchor).toHaveAttribute('href', '/search');
+      expect(anchor).not.toHaveAttribute('aria-current');
+    }
+
+    router.navigate('/search');
+
+    await waitFor(() => {
+      for (const anchor of screen.getAllByRole('link', { name: 'Search' })) {
+        expect(anchor).toHaveAttribute('aria-current', 'page');
+      }
+    });
+  });
+
+  it('prints the palette chord on the sidebar search row without renaming the link', () => {
+    render(Nav);
+
+    const [sidebar, bottomBar] = screen.getAllByRole('link', { name: 'Search' });
+    const chip = sidebar!.querySelector('kbd');
+
+    expect(chip).toHaveTextContent('Ctrl K');
+    expect(chip).toHaveAttribute('aria-hidden', 'true');
+    expect(bottomBar!.querySelector('kbd')).toBeNull();
+  });
+
+  it('names the modifier the platform answers to in that chip', () => {
+    const original = navigator.userAgent;
+    Object.defineProperty(navigator, 'userAgent', {
+      value: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)',
+      configurable: true,
+    });
+
+    try {
+      render(Nav);
+
+      expect(
+        screen.getAllByRole('link', { name: 'Search' })[0]!.querySelector('kbd')
+      ).toHaveTextContent('⌘ K');
+    } finally {
+      Object.defineProperty(navigator, 'userAgent', { value: original, configurable: true });
+    }
+  });
+
+  it('keeps the long-press that starts a project drag from raising the link menu', () => {
+    projects.projects = [project({ id: A_ID, name: 'A', rank: 1000 })];
+
+    render(Nav);
+
+    const anchor = screen.getByRole('link', { name: 'A' });
+    expect(anchor.className).toContain('touch-callout-none');
+
+    const touch = new PointerEvent('contextmenu', {
+      bubbles: true,
+      cancelable: true,
+      pointerType: 'touch',
+    });
+    anchor.dispatchEvent(touch);
+    expect(touch.defaultPrevented).toBe(true);
+
+    const mouse = new PointerEvent('contextmenu', {
+      bubbles: true,
+      cancelable: true,
+      pointerType: 'mouse',
+    });
+    anchor.dispatchEvent(mouse);
+    expect(mouse.defaultPrevented).toBe(false);
+  });
+
+  it('links the user section to the account page', () => {
+    render(Nav);
+
+    const accountLinks = screen
+      .getAllByRole('link')
+      .filter((a) => a.getAttribute('href') === '/account');
+    expect(accountLinks.length).toBeGreaterThan(0);
+  });
+
+  it('opens the feedback dialog from the sidebar footer', async () => {
+    render(Nav);
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Send feedback' }));
+
+    expect(document.querySelector('dialog')?.open).toBe(true);
+    expect(screen.getByLabelText('Feedback message')).toBeInTheDocument();
+  });
+});
+
+describe('Nav reduced motion', () => {
+  beforeEach(() => {
+    projects.projects = [
+      project({ id: A_ID, name: 'A', rank: 1000 }),
+      project({ id: B_ID, name: 'B', rank: 2000 }),
+      project({ id: C_ID, name: 'C', rank: 3000 }),
+    ];
+    fetchMock.mockImplementation(async () => jsonResponse(204));
+  });
+
+  function expectEveryZone(flipDurationMs: number, dropAnimationDisabled: boolean): void {
+    const configs = sidebarZoneConfigs();
+    expect(configs.length).toBeGreaterThan(0);
+    for (const config of configs) {
+      expect(config.flipDurationMs).toBe(flipDurationMs);
+      expect(config.dropAnimationDisabled).toBe(dropAnimationDisabled);
+    }
+  }
+
+  it('animates the sidebar zone by default', async () => {
+    render(Nav);
+    await screen.findByRole('link', { name: 'A' });
+
+    expectEveryZone(150, false);
+  });
+
+  it('disables flip and drop animation when motion is reduced', async () => {
+    motion.reduced = true;
+    render(Nav);
+    await screen.findByRole('link', { name: 'A' });
+
+    expectEveryZone(0, true);
+  });
+
+  it('still commits keyboard reorders when motion is reduced', async () => {
+    motion.reduced = true;
+    render(Nav);
+    const item = await screen.findByRole('listitem', { name: 'A' });
+    item.focus();
+
+    await fireEvent.keyDown(item, { key: 'Enter' });
+    await fireEvent.keyDown(item, { key: 'ArrowDown' });
+
+    await vi.waitFor(() => expect(sidebarProjectNames()).toEqual(['B', 'A', 'C']));
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    expect(requestAt(0).method).toBe('PUT');
+    expect(new URL(requestAt(0).url).pathname).toBe(`/api/projects/${A_ID}/position`);
+    expect(await requestAt(0).clone().json()).toEqual({
+      sort_key: expect.any(String),
+    });
+    expectEveryZone(0, true);
+  });
+});
+
+describe('offline badge', () => {
+  it('stays hidden while realtime is not online but has latched no interruption', () => {
+    expect(realtime.status).toBe('offline');
+    expect(realtime.interrupted).toBe(false);
+
+    render(Nav);
+
+    expect(screen.queryByText(/reconnecting/i)).toBeNull();
+  });
+
+  it('appears once the client reports a sustained interruption', async () => {
+    render(Nav);
+    realtime.interrupted = true;
+
+    const badge = await vi.waitFor(() => screen.getByText(/reconnecting/i));
+    expect(badge).toHaveAttribute('role', 'status');
+  });
+
+  it('stays hidden when the session is not authed', () => {
+    session.status = 'anon';
+    realtime.interrupted = true;
+
+    render(Nav);
+    expect(screen.queryByText(/reconnecting/i)).toBeNull();
+  });
+});
+
+describe('Nav unseen changes dot', () => {
+  it('marks a project with unseen changes and leaves the open one alone', () => {
+    projects.projects = [
+      project({
+        id: A_ID,
+        name: 'A',
+        sort_key: 'V0000010001',
+        has_unseen_changes: true,
+      }),
+      project({
+        id: B_ID,
+        name: 'B',
+        sort_key: 'V0000020001',
+        has_unseen_changes: true,
+      }),
+      project({ id: C_ID, name: 'C', rank: 3000 }),
+    ];
+    router.navigate(projectHref(B_ID, 'B'));
+
+    render(Nav);
+
+    expect(screen.getByRole('link', { name: 'A Unseen changes' })).toHaveAttribute(
+      'href',
+      projectHref(A_ID, 'A')
+    );
+    expect(screen.getByRole('link', { name: 'B' })).toHaveAttribute('aria-current', 'page');
+    expect(screen.getByRole('link', { name: 'C' })).toBeInTheDocument();
+    expect(screen.getAllByText('Unseen changes')).toHaveLength(1);
+  });
+
+  // The placeholder is a clone of the held row carrying its real flag under an id
+  // that names no project, so an unguarded read dots a row that is not a project.
+  it('keeps the dot off the drag placeholder', async () => {
+    projects.projects = [
+      project({
+        id: A_ID,
+        name: 'A',
+        sort_key: 'V0000010001',
+        has_unseen_changes: true,
+      }),
+      project({ id: B_ID, name: 'B', rank: 2000 }),
+    ];
+
+    render(Nav);
+    const linkA = await screen.findByRole('link', { name: 'A Unseen changes' });
+    const zone = linkA.parentElement!.parentElement!;
+    const [a, b] = projects.active;
+    await fireEvent(
+      zone,
+      new CustomEvent('consider', {
+        detail: {
+          items: [{ ...a!, isDndShadowItem: true, id: SHADOW_PLACEHOLDER_ITEM_ID }, b!],
+          info: { trigger: TRIGGERS.DRAG_STARTED, id: A_ID, source: SOURCES.POINTER },
+        },
+      })
+    );
+
+    expect(sidebarRowNames()).toEqual(['A', 'B']);
+    expect(screen.queryAllByText('Unseen changes')).toEqual([]);
+  });
+});
+
+// The only way out of the app from inside it, and one that is drawn twice: the
+// sidebar on a wide screen, the bottom bar on a phone. Driven through the button
+// rather than by calling the store, which is the half that has been missing —
+// the store's own test passes with either handler dropped.
+describe('Nav sign-out', () => {
+  const bars: [string, number][] = [
+    ['the sidebar', 0],
+    ['the bottom bar', 1],
+  ];
+
+  it.each(bars)('signs out from %s', async (_name, index) => {
+    fetchMock.mockResolvedValue(jsonResponse(204));
+    render(Nav);
+    const bar = screen.getAllByRole('navigation', { name: 'Primary' })[index]!;
+
+    await fireEvent.click(within(bar).getByRole('button', { name: 'Log out' }));
+
+    await waitFor(() => expect(session.status).toBe('anon'));
+    expect(session.user).toBeNull();
+    expect(new URL(requestAt(0).url).pathname).toBe('/api/auth/logout');
+    expect(window.location.pathname).toBe('/login');
+  });
+});
+
+// The indicator is the only thing that says a background read failed: the board
+// stays on screen deliberately, so without this the app quietly stops matching
+// the server. Asserted through Nav because that is where SyncStatus is mounted.
+describe('Nav sync indicator', () => {
+  function state(): string | null {
+    return (
+      document.querySelector('[data-testid="sync-status"]')?.getAttribute('data-state') ?? null
+    );
+  }
+
+  it('says nothing when the last read landed', () => {
+    board.staleRead = false;
+
+    render(Nav);
+
+    expect(state()).toBeNull();
+  });
+
+  it('reports a board left behind by a failed refresh', () => {
+    board.staleRead = true;
+
+    render(Nav);
+
+    expect(state()).toBe('stale');
+    expect(screen.getByText('Could not refresh — showing an older version')).toBeInTheDocument();
+  });
+});
+
+// The bottom bar is fixed to the layout viewport, which a software keyboard does
+// not shrink, so with one up it is behind the keyboard rather than above it. What
+// makes that worth removing rather than leaving is the height the rest of the app
+// reserves for it: see src/lib/viewport.svelte.test.ts for the other half.
+describe('Nav under a software keyboard', () => {
+  afterEach(() => {
+    viewport.keyboardOpen = false;
+  });
+
+  it('draws both bars while nothing is over the screen', () => {
+    render(Nav);
+
+    expect(screen.getAllByRole('navigation', { name: 'Primary' })).toHaveLength(2);
+  });
+
+  it('drops the bottom bar the keyboard has covered', () => {
+    viewport.keyboardOpen = true;
+
+    render(Nav);
+
+    const bars = screen.getAllByRole('navigation', { name: 'Primary' });
+    expect(bars).toHaveLength(1);
+    // The sidebar, which no keyboard reaches: it is the one carrying the wordmark.
+    expect(within(bars[0]!).getByText(APP_NAME)).toBeInTheDocument();
+  });
+});

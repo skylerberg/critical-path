@@ -1,0 +1,413 @@
+<script lang="ts">
+  import { onMount } from 'svelte';
+  import { menuKeys } from '../lib/actions';
+  import { apiMessage } from '../lib/apiMessages';
+  import { accentVar } from '../lib/accents';
+  import { isProjectOwner, projects, type Project } from '../lib/projects.svelte';
+  import { link, router } from '../lib/router.svelte';
+  import { projectHref } from '../lib/short-links';
+  import ProjectColorDialog from '../components/ProjectColorDialog.svelte';
+  import ProjectMembersModal from '../components/ProjectMembersModal.svelte';
+  import Badge from '../components/ui/Badge.svelte';
+  import Button from '../components/ui/Button.svelte';
+  import Input from '../components/ui/Input.svelte';
+  import Modal from '../components/ui/Modal.svelte';
+  import Spinner from '../components/ui/Spinner.svelte';
+
+  onMount(() => {
+    if (!projects.loaded) {
+      void projects.load();
+    }
+  });
+
+  let createOpen = $state(false);
+  let copySource = $state<Project | null>(null);
+  let createName = $state('');
+  let createError = $state('');
+  let creating = $state(false);
+
+  let renameTarget = $state<Project | null>(null);
+  let renameName = $state('');
+  let renameError = $state('');
+
+  let deleteTarget = $state<Project | null>(null);
+  let openMenuId = $state<string | null>(null);
+  let archivedOpen = $state(false);
+  let shareProjectId = $state<string | null>(null);
+  let colorTargetId = $state<string | null>(null);
+
+  const colorTarget = $derived(projects.projects.find((p) => p.id === colorTargetId) ?? null);
+
+  const menuItemClass =
+    'flex min-h-11 w-full cursor-pointer items-center px-4 text-left text-sm hover:bg-accent-soft';
+  const gridClass = 'grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4';
+
+  function openCreate(source: Project | null): void {
+    copySource = source;
+    createName = source === null ? '' : `${source.name} copy`;
+    createError = '';
+    createOpen = true;
+  }
+
+  function closeCreate(): void {
+    if (!creating) createOpen = false;
+  }
+
+  async function submitCreate(event: SubmitEvent): Promise<void> {
+    event.preventDefault();
+    const name = createName.trim();
+    if (name === '') {
+      createError = 'Name is required';
+      return;
+    }
+    createError = '';
+    creating = true;
+    try {
+      const id =
+        copySource === null
+          ? await projects.create(name)
+          : await projects.copy(copySource.id, name);
+      createOpen = false;
+      router.navigate(projectHref(id, name));
+    } catch (error) {
+      const fallback =
+        copySource === null
+          ? 'Could not create the project. Try again.'
+          : 'Could not copy the project. Try again.';
+      createError = apiMessage(error, fallback);
+    } finally {
+      creating = false;
+    }
+  }
+
+  function openRename(project: Project): void {
+    renameTarget = project;
+    renameName = project.name;
+    renameError = '';
+  }
+
+  function submitRename(event: SubmitEvent): void {
+    event.preventDefault();
+    if (renameTarget === null) return;
+    const name = renameName.trim();
+    if (name === '') {
+      renameError = 'Name is required';
+      return;
+    }
+    void projects.rename(renameTarget.id, name);
+    renameTarget = null;
+  }
+
+  function confirmDelete(): void {
+    if (deleteTarget === null) return;
+    void projects.remove(deleteTarget.id);
+    deleteTarget = null;
+  }
+
+  // The list renders one trigger per card and only one menu is open, so the kebab
+  // that opened it is remembered rather than looked up: focus has to land back on
+  // that one, not on the first on screen.
+  let openTrigger: HTMLButtonElement | null = null;
+
+  function closeMenu(opts?: { restoreFocus?: boolean }): void {
+    openMenuId = null;
+    if (opts?.restoreFocus === true) {
+      openTrigger?.focus({ preventScroll: true });
+    }
+  }
+
+  function toggleMenu(event: MouseEvent & { currentTarget: HTMLButtonElement }, id: string): void {
+    event.stopPropagation();
+    openTrigger = event.currentTarget;
+    openMenuId = openMenuId === id ? null : id;
+  }
+
+  function toggleArchive(project: Project): void {
+    void (project.archived_at === null
+      ? projects.archive(project.id)
+      : projects.unarchive(project.id));
+  }
+
+  function openShare(project: Project): void {
+    shareProjectId = project.id;
+    openMenuId = null;
+  }
+
+  function openColor(project: Project): void {
+    colorTargetId = project.id;
+    openMenuId = null;
+  }
+</script>
+
+<svelte:window
+  onclick={() => (openMenuId = null)}
+  onkeydown={(event) => {
+    // Guarded on a menu actually being open: this handler sees every Escape on
+    // the screen, and `openTrigger` outlives the menu it opened, so an unguarded
+    // close would drag focus onto that kebab from wherever the user was.
+    if (event.key === 'Escape' && openMenuId !== null) closeMenu({ restoreFocus: true });
+  }}
+/>
+
+{#snippet cardMenu(project: Project)}
+  <div class="relative z-10 shrink-0">
+    <button
+      type="button"
+      aria-label="Options for {project.name}"
+      aria-haspopup="menu"
+      aria-expanded={openMenuId === project.id}
+      onclick={(event) => toggleMenu(event, project.id)}
+      class="flex min-h-11 min-w-11 cursor-pointer items-center justify-center rounded-md text-muted hover:bg-accent-soft hover:text-ink"
+    >
+      <svg class="size-5" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+        <circle cx="5" cy="12" r="1.8" />
+        <circle cx="12" cy="12" r="1.8" />
+        <circle cx="19" cy="12" r="1.8" />
+      </svg>
+    </button>
+    {#if openMenuId === project.id}
+      <div
+        role="menu"
+        tabindex="-1"
+        aria-label="Options for {project.name}"
+        use:menuKeys={{ onclose: closeMenu }}
+        class="absolute top-full right-0 z-20 w-56 rounded-md border border-edge bg-surface py-1 shadow-lg"
+      >
+        {#if projects.canEdit(project.id)}
+          <button
+            type="button"
+            role="menuitem"
+            tabindex="-1"
+            class={menuItemClass}
+            onclick={() => openRename(project)}
+          >
+            Rename
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            tabindex="-1"
+            class={menuItemClass}
+            onclick={() => openColor(project)}
+          >
+            Board color
+          </button>
+        {/if}
+        <!-- A copy is a read of the source plus a new project of the caller's own,
+             so it stays open to a viewer. -->
+        <button
+          type="button"
+          role="menuitem"
+          tabindex="-1"
+          class={menuItemClass}
+          onclick={() => openCreate(project)}
+        >
+          Copy
+        </button>
+        <button
+          type="button"
+          role="menuitem"
+          tabindex="-1"
+          class={menuItemClass}
+          onclick={() => openShare(project)}
+        >
+          Share
+        </button>
+        {#if projects.canEdit(project.id)}
+          <button
+            type="button"
+            role="menuitem"
+            tabindex="-1"
+            class={menuItemClass}
+            onclick={() => toggleArchive(project)}
+          >
+            {project.archived_at === null ? 'Archive' : 'Unarchive'}
+          </button>
+        {/if}
+        {#if isProjectOwner(project)}
+          <button
+            type="button"
+            role="menuitem"
+            tabindex="-1"
+            class="{menuItemClass} text-danger"
+            onclick={() => (deleteTarget = project)}
+          >
+            Delete
+          </button>
+        {/if}
+      </div>
+    {/if}
+  </div>
+{/snippet}
+
+{#snippet projectCard(project: Project, dimmed = false)}
+  {@const rail = accentVar(project.color)}
+  <!-- An inset shadow, not a child element: the card's own overflow has to stay
+       visible for the menu that opens out of it. -->
+  <article
+    class="relative flex items-center gap-1 rounded-lg border border-edge bg-surface pl-3 transition-colors hover:border-accent has-[a:focus-visible]:outline-2 has-[a:focus-visible]:outline-accent {dimmed
+      ? 'opacity-60'
+      : ''} {openMenuId === project.id ? 'z-30' : ''}"
+    style={rail === null ? undefined : `box-shadow: inset 4px 0 0 ${rail}`}
+  >
+    <div class="min-w-0 flex-1 py-1">
+      <!-- The dot is a sibling of the heading, not a child: `truncate` is
+           overflow-hidden, and a long name would clip it away first. -->
+      <div class="flex items-center gap-1.5">
+        <h3 class="min-w-0 truncate text-sm font-semibold">
+          <!-- The ::after covers the whole card, so the anchor is the only element a pointer
+               can hit: one composed title here, and the focus ring on the article, outside
+               the heading's truncate clip. -->
+          <a
+            href={projectHref(project.id, project.name)}
+            title={project.description === ''
+              ? project.name
+              : `${project.name}\n${project.description}`}
+            class="after:absolute after:inset-0 focus-visible:outline-none">{project.name}</a
+          >
+        </h3>
+        {#if project.has_unseen_changes && project.archived_at === null}
+          <span class="size-1.5 shrink-0 rounded-full bg-accent" aria-hidden="true"></span>
+          <span class="sr-only">Unseen changes</span>
+        {/if}
+      </div>
+      {#if project.description !== ''}
+        <p class="line-clamp-2 text-xs text-muted">
+          {project.description}
+        </p>
+      {/if}
+      <div class="flex items-center gap-1.5">
+        <Badge variant="accent">{project.open_task_count} open</Badge>
+        <Badge variant="success">{project.done_task_count} done</Badge>
+      </div>
+    </div>
+    {@render cardMenu(project)}
+  </article>
+{/snippet}
+
+<div use:link class="mx-auto flex w-full max-w-7xl flex-col gap-6 p-4 lg:p-8">
+  <header class="flex items-center justify-between gap-4">
+    <h1 class="text-2xl font-semibold">Projects</h1>
+    <Button onclick={() => openCreate(null)}>New project</Button>
+  </header>
+
+  {#if !projects.loaded}
+    {#if projects.loadError !== null}
+      <div class="flex flex-col items-center gap-3 py-16 text-center">
+        <p class="text-muted">{projects.loadError}</p>
+        <Button variant="secondary" onclick={() => void projects.load()}>Retry</Button>
+      </div>
+    {:else}
+      <div class="flex justify-center py-16">
+        <Spinner size="lg" />
+      </div>
+    {/if}
+  {:else if projects.active.length === 0}
+    <div
+      class="flex flex-col items-center gap-3 rounded-lg border border-dashed border-edge py-16 text-center"
+    >
+      <p class="text-muted">No projects yet.</p>
+      <Button onclick={() => openCreate(null)}>Create your first project</Button>
+    </div>
+  {:else}
+    <div class={gridClass}>
+      {#each projects.active as project (project.id)}
+        {@render projectCard(project)}
+      {/each}
+    </div>
+  {/if}
+
+  {#if projects.loaded}
+    {#if projects.archived.length > 0}
+      <section class="flex flex-col gap-2">
+        <button
+          type="button"
+          aria-expanded={archivedOpen}
+          onclick={() => (archivedOpen = !archivedOpen)}
+          class="flex min-h-11 cursor-pointer items-center gap-2 self-start text-base font-semibold text-muted hover:text-ink"
+        >
+          <svg
+            class="size-4 transition-transform {archivedOpen ? 'rotate-90' : ''}"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
+            <polyline points="9 6 15 12 9 18" />
+          </svg>
+          Archived ({projects.archived.length})
+        </button>
+        {#if archivedOpen}
+          <div class={gridClass}>
+            {#each projects.archived as project (project.id)}
+              {@render projectCard(project, true)}
+            {/each}
+          </div>
+        {/if}
+      </section>
+    {/if}
+  {/if}
+</div>
+
+{#if createOpen}
+  <Modal open title={copySource === null ? 'New project' : 'Copy project'} onclose={closeCreate}>
+    <form id="create-project-form" onsubmit={submitCreate} class="flex flex-col gap-3">
+      {#if copySource !== null}
+        <p class="text-sm text-muted">
+          Copies columns, tasks, labels, dependencies, and images from “{copySource.name}”.
+        </p>
+      {/if}
+      <Input label="Name" bind:value={createName} error={createError} autocapitalize="sentences" />
+    </form>
+    {#snippet footer()}
+      <Button variant="secondary" onclick={closeCreate} disabled={creating}>Cancel</Button>
+      <Button type="submit" form="create-project-form" disabled={creating}>
+        {#if copySource === null}
+          {creating ? 'Creating…' : 'Create project'}
+        {:else}
+          {creating ? 'Copying…' : 'Copy project'}
+        {/if}
+      </Button>
+    {/snippet}
+  </Modal>
+{/if}
+
+{#if shareProjectId !== null}
+  <ProjectMembersModal projectId={shareProjectId} onclose={() => (shareProjectId = null)} />
+{/if}
+
+{#if colorTarget !== null}
+  <ProjectColorDialog
+    projectId={colorTarget.id}
+    current={colorTarget.color}
+    onclose={() => (colorTargetId = null)}
+  />
+{/if}
+
+{#if renameTarget !== null}
+  <Modal open title="Rename project" onclose={() => (renameTarget = null)}>
+    <form id="rename-project-form" onsubmit={submitRename}>
+      <Input label="Name" bind:value={renameName} error={renameError} autocapitalize="sentences" />
+    </form>
+    {#snippet footer()}
+      <Button variant="secondary" onclick={() => (renameTarget = null)}>Cancel</Button>
+      <Button type="submit" form="rename-project-form">Save</Button>
+    {/snippet}
+  </Modal>
+{/if}
+
+{#if deleteTarget !== null}
+  <Modal open title="Delete project" onclose={() => (deleteTarget = null)}>
+    <p class="text-sm">
+      Delete <strong>{deleteTarget.name}</strong>? This permanently removes the project and all of
+      its columns, tasks, and images.
+    </p>
+    {#snippet footer()}
+      <Button variant="secondary" onclick={() => (deleteTarget = null)}>Cancel</Button>
+      <Button variant="danger" onclick={confirmDelete}>Delete project</Button>
+    {/snippet}
+  </Modal>
+{/if}

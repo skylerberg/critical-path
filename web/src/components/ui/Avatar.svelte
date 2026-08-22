@@ -1,0 +1,74 @@
+<script lang="ts">
+  interface Props {
+    name: string;
+    src?: string | null;
+    size?: 'sm' | 'md' | 'lg';
+    /**
+     * Set where the name is already written next to the avatar, so a reader does
+     * not hear it twice. Left off, the avatar carries the name itself: `title` is
+     * a tooltip, not an accessible name, so an avatar that only had one was a
+     * silent stand-in for a person — which is every assignee on a board card.
+     */
+    labelled?: boolean;
+  }
+
+  let { name, src = null, size = 'md', labelled = false }: Props = $props();
+
+  const COLORS = [
+    '#e11d48',
+    '#d97706',
+    '#059669',
+    '#0284c7',
+    '#7c3aed',
+    '#db2777',
+    '#4f46e5',
+    '#0d9488',
+  ];
+
+  const initials = $derived(
+    name
+      .trim()
+      .split(/\s+/)
+      .slice(0, 2)
+      // By code point, like the colour hash below: `word[0]` is a UTF-16 code
+      // unit, so a name starting outside the BMP shows a lone surrogate.
+      .map((word) => [...word][0]?.toUpperCase() ?? '')
+      .join('') || '?'
+  );
+
+  const color = $derived.by(() => {
+    let hash = 0;
+    for (const char of name) {
+      hash = (hash * 31 + (char.codePointAt(0) ?? 0)) >>> 0;
+    }
+    return COLORS[hash % COLORS.length];
+  });
+
+  let erroredSrc = $state<string | null>(null);
+  const imageSrc = $derived(src != null && src !== erroredSrc ? src : null);
+
+  const sizes = { sm: 'size-6 text-[10px]', md: 'size-8 text-xs', lg: 'size-16 text-xl' };
+</script>
+
+{#if imageSrc !== null}
+  <img
+    src={imageSrc}
+    alt={labelled ? '' : name}
+    title={name}
+    draggable="false"
+    class="inline-block shrink-0 rounded-full object-cover select-none {sizes[size]}"
+    onerror={() => (erroredSrc = imageSrc)}
+  />
+{:else}
+  <span
+    class="inline-flex shrink-0 items-center justify-center rounded-full font-semibold text-white select-none {sizes[
+      size
+    ]}"
+    style="background-color: {color}"
+    title={name}
+    role={labelled ? undefined : 'img'}
+    aria-label={labelled ? undefined : name}
+  >
+    {initials}
+  </span>
+{/if}

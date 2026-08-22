@@ -1,0 +1,23 @@
+#!/bin/sh
+# Auto-fix lintable issues in the files just committed, then amend.
+
+if [ -n "$SKIP_POST_COMMIT" ]; then
+  exit 0
+fi
+
+# Not while a rebase is in flight. git makes each replayed commit itself, and
+# this hook fires for them — including the one `git rebase --continue` builds
+# from a conflict resolution. Amending there leaves the next pick refusing to
+# apply, "your local changes would be overwritten by rebase", and the rebase
+# stops on a detached HEAD with commits still unapplied. Nothing is lost, but
+# the message points nowhere near the cause. post-rewrite takes the whole range
+# once the rebase is over.
+if [ -d "$(git rev-parse --git-path rebase-merge)" ] ||
+  [ -d "$(git rev-parse --git-path rebase-apply)" ]; then
+  exit 0
+fi
+
+files=$(git diff-tree --no-commit-id --name-only -r HEAD | grep -E '\.(ts|svelte|mjs)$')
+[ -z "$files" ] && exit 0
+
+exec "$(dirname "$0")/format-touched" $files

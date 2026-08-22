@@ -1,0 +1,29 @@
+#!/bin/sh
+# Run the fixers over the named files and fold the result into HEAD. Shared by
+# post-commit and post-rewrite, which differ only in how they arrive at the file
+# list and in when amending HEAD is safe.
+
+[ $# -eq 0 ] && exit 0
+
+targets=""
+for f in "$@"; do
+  [ -f "$f" ] || continue
+  # Leave files with unstaged WIP alone so the amend doesn't swallow it.
+  git diff --quiet -- "$f" || continue
+  targets="$targets $f"
+done
+[ -z "$targets" ] && exit 0
+
+pnpm exec eslint --fix $targets || true
+# --log-level warn: silent when it succeeds, still loud on a syntax error.
+# Without it this prints a line per file on every commit.
+pnpm exec prettier --write --log-level warn $targets || true
+
+changed=""
+for f in $targets; do
+  git diff --quiet -- "$f" || changed="$changed $f"
+done
+[ -z "$changed" ] && exit 0
+
+git add $changed
+SKIP_POST_COMMIT=1 git commit --amend --no-edit --no-verify

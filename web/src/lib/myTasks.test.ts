@@ -1,0 +1,497 @@
+import { fetchMock, jsonResponse, requestAt } from '../api/testUtils';
+import { beforeEach, describe, expect, it } from 'vitest';
+import { myTasks, type MyTask } from './myTasks.svelte';
+import { projects, type Project } from './projects.svelte';
+
+function project(overrides: Partial<Project> = {}): Project {
+  return {
+    id: 'p-1',
+    name: 'Alpha',
+    description: '',
+    archived_at: null,
+    created_by: null,
+    member_ids: [],
+    members: [],
+    is_public: false,
+    color: null,
+    created_at: '2026-01-01T00:00:00.000Z',
+    open_task_count: 0,
+    done_task_count: 0,
+    sort_key: null,
+    last_seen_at: null,
+    has_unseen_changes: false,
+    ...overrides,
+  };
+}
+
+function task(id: string, bucket: MyTask['bucket'], overrides: Partial<MyTask> = {}): MyTask {
+  return {
+    id,
+    project_id: 'p-1',
+    project_name: 'Alpha',
+    column_name: 'To Do',
+    title: `Task ${id}`,
+    assignee_ids: ['u-me'],
+    bucket,
+    waiting_user_ids: [],
+    blocking: [],
+    blocked_by: [],
+    hidden_blocked_by_count: 0,
+    hidden_blocking_count: 0,
+    ...overrides,
+  };
+}
+
+const payload = {
+  tasks: [task('t-1', 'blocking'), task('t-2', 'ready'), task('t-3', 'blocked')],
+  waiting_on_you: [
+    {
+      user_id: 'u-ada',
+      tasks: [{ id: 't-9', project_id: 'p-1', title: 'Importer', assignee_ids: ['u-ada'] }],
+    },
+  ],
+  you_are_waiting_on: [
+    { user_id: null, tasks: [{ id: 't-8', project_id: 'p-1', title: 'Format', assignee_ids: [] }] },
+  ],
+  next_offset: null,
+};
+
+beforeEach(() => {
+  fetchMock.mockReset();
+  myTasks.reset();
+  projects.projects = [];
+});
+
+describe('myTasks store', () => {
+  it('loads the payload and partitions the tasks by bucket', async () => {
+    fetchMock.mockImplementation(async () => jsonResponse(200, payload));
+
+    await myTasks.load();
+
+    expect(new URL(requestAt(0).url).pathname).toBe('/api/my-tasks');
+    expect(myTasks.loaded).toBe(true);
+    expect(myTasks.error).toBeNull();
+    expect(myTasks.tasks.map((t) => t.id)).toEqual(['t-1', 't-2', 't-3']);
+    expect(myTasks.blocking.map((t) => t.id)).toEqual(['t-1']);
+    expect(myTasks.ready.map((t) => t.id)).toEqual(['t-2']);
+    expect(myTasks.blocked.map((t) => t.id)).toEqual(['t-3']);
+    expect(myTasks.waitingOnYou[0]?.user_id).toBe('u-ada');
+    expect(myTasks.youAreWaitingOn[0]?.user_id).toBeNull();
+  });
+
+  it('records the server error and keeps what was already on screen', async () => {
+    fetchMock.mockImplementation(async () => jsonResponse(200, payload));
+    await myTasks.load();
+
+    fetchMock.mockImplementation(async () => jsonResponse(500, { error: 'Boom' }));
+    await myTasks.load();
+
+    expect(myTasks.error).toBe('Boom');
+    expect(myTasks.loaded).toBe(true);
+    expect(myTasks.tasks.map((t) => t.id)).toEqual(['t-1', 't-2', 't-3']);
+  });
+
+  it('drops the previous error while a retry is in flight', async () => {
+    fetchMock.mockImplementation(async () => jsonResponse(500, { error: 'Boom' }));
+    await myTasks.load();
+    expect(myTasks.error).toBe('Boom');
+
+    let release: (() => void) | undefined;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    fetchMock.mockImplementation(async () => {
+      await gate;
+      return jsonResponse(200, payload);
+    });
+
+    const inflight = myTasks.load();
+    expect(myTasks.error).toBeNull();
+    release?.();
+    await inflight;
+  });
+
+  it('clears the error on a later successful load', async () => {
+    fetchMock.mockImplementation(async () => jsonResponse(500, { error: 'Boom' }));
+    await myTasks.load();
+    expect(myTasks.error).toBe('Boom');
+    expect(myTasks.loaded).toBe(false);
+
+    fetchMock.mockImplementation(async () => jsonResponse(200, payload));
+    await myTasks.load();
+
+    expect(myTasks.error).toBeNull();
+    expect(myTasks.loaded).toBe(true);
+  });
+
+  // The page reloads on its own as well as on demand, so a failing read is
+  // routinely overtaken; landing it anyway puts an error banner over a list that
+  // has since arrived.
+  it('leaves a newer load alone when an older failure lands after it', async () => {
+    let failStale!: () => void;
+    fetchMock.mockImplementationOnce(
+      async () =>
+        new Promise<Response>((resolve) => {
+          failStale = () => resolve(jsonResponse(500, { error: 'Boom' }));
+        })
+    );
+    const stale = myTasks.load();
+
+    fetchMock.mockImplementation(async () => jsonResponse(200, payload));
+    await myTasks.load();
+
+    failStale();
+    await stale;
+
+    expect(myTasks.error).toBeNull();
+    expect(myTasks.tasks.map((t) => t.id)).toEqual(['t-1', 't-2', 't-3']);
+  });
+
+  it('ignores a response that a reset has already superseded', async () => {
+    let release: (() => void) | undefined;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    fetchMock.mockImplementation(async () => {
+      await gate;
+      return jsonResponse(200, payload);
+    });
+
+    const inflight = myTasks.load();
+    myTasks.reset();
+    release?.();
+    await inflight;
+
+    expect(myTasks.tasks).toEqual([]);
+    expect(myTasks.loaded).toBe(false);
+  });
+
+  it('clears everything on reset', async () => {
+    fetchMock.mockImplementation(async () => jsonResponse(200, payload));
+    await myTasks.load();
+
+    myTasks.reset();
+
+    expect(myTasks.tasks).toEqual([]);
+    expect(myTasks.waitingOnYou).toEqual([]);
+    expect(myTasks.youAreWaitingOn).toEqual([]);
+    expect(myTasks.loaded).toBe(false);
+    expect(myTasks.error).toBeNull();
+  });
+
+  it('orders tasks within each bucket to match the project list', async () => {
+    // p-1 sits above p-2 on the Projects page; archived p-3 follows both.
+    projects.projects = [
+      project({ id: 'p-1', name: 'Alpha', sort_key: 'V0000001001' }),
+      project({ id: 'p-2', name: 'Bravo', sort_key: 'V0000002001' }),
+      project({
+        id: 'p-3',
+        name: 'Charlie',
+        sort_key: 'V0000000501',
+        archived_at: '2026-01-02T00:00:00.000Z',
+      }),
+    ];
+    fetchMock.mockImplementation(async () =>
+      jsonResponse(200, {
+        tasks: [
+          task('t-2a', 'ready', { project_id: 'p-2', project_name: 'Bravo' }),
+          task('t-3a', 'ready', { project_id: 'p-3', project_name: 'Charlie' }),
+          task('t-1a', 'ready', { project_id: 'p-1', project_name: 'Alpha' }),
+          task('t-?a', 'ready', { project_id: 'p-x', project_name: 'Unseen' }),
+          task('t-1b', 'ready', { project_id: 'p-1', project_name: 'Alpha' }),
+        ],
+        waiting_on_you: [],
+        you_are_waiting_on: [],
+        next_offset: null,
+      })
+    );
+
+    await myTasks.load();
+
+    // Known projects in list order (Alpha before Bravo before archived Charlie);
+    // the same project keeps the server's order; the unseen project lands last.
+    expect(myTasks.ready.map((t) => `${t.project_id}:${t.id}`)).toEqual([
+      'p-1:t-1a',
+      'p-1:t-1b',
+      'p-2:t-2a',
+      'p-3:t-3a',
+      'p-x:t-?a',
+    ]);
+  });
+
+  it('sorts the tasks inside a waiting-on group by project order', async () => {
+    projects.projects = [
+      project({ id: 'p-1', name: 'Alpha', sort_key: 'V0000001001' }),
+      project({ id: 'p-2', name: 'Bravo', sort_key: 'V0000002001' }),
+    ];
+    fetchMock.mockImplementation(async () =>
+      jsonResponse(200, {
+        tasks: [],
+        waiting_on_you: [],
+        you_are_waiting_on: [
+          {
+            user_id: 'u-ada',
+            tasks: [
+              { id: 't-2', project_id: 'p-2', title: 'Bravo task', assignee_ids: [] },
+              { id: 't-1', project_id: 'p-1', title: 'Alpha task', assignee_ids: [] },
+            ],
+          },
+        ],
+        next_offset: null,
+      })
+    );
+
+    await myTasks.load();
+
+    expect(myTasks.youAreWaitingOn[0]?.tasks.map((t) => t.id)).toEqual(['t-1', 't-2']);
+  });
+
+  describe('paging', () => {
+    it('reports no further pages for the caller the server sends null for', async () => {
+      fetchMock.mockImplementation(async () => jsonResponse(200, payload));
+
+      await myTasks.load();
+
+      expect(myTasks.hasMore).toBe(false);
+    });
+
+    // A pod from the previous release answers without the field at all, and a
+    // Load more button that refetches page one forever is worse than none.
+    it('treats a response with no next_offset as the last page', async () => {
+      fetchMock.mockImplementation(async () =>
+        jsonResponse(200, { tasks: [], waiting_on_you: [], you_are_waiting_on: [] })
+      );
+
+      await myTasks.load();
+
+      expect(myTasks.hasMore).toBe(false);
+    });
+
+    it('appends the next page and merges its person groups', async () => {
+      fetchMock.mockImplementation(async () =>
+        jsonResponse(200, {
+          tasks: [task('t-1', 'ready')],
+          waiting_on_you: [
+            {
+              user_id: 'u-ada',
+              tasks: [{ id: 't-9', project_id: 'p-1', title: 'Importer', assignee_ids: ['u-ada'] }],
+            },
+          ],
+          you_are_waiting_on: [],
+          next_offset: 1000,
+        })
+      );
+      await myTasks.load();
+      expect(myTasks.hasMore).toBe(true);
+
+      fetchMock.mockImplementation(async () =>
+        jsonResponse(200, {
+          tasks: [task('t-2', 'ready')],
+          waiting_on_you: [
+            {
+              user_id: 'u-ada',
+              // One repeated card and one new one: the repeat must not double up.
+              tasks: [
+                { id: 't-9', project_id: 'p-1', title: 'Importer', assignee_ids: ['u-ada'] },
+                { id: 't-10', project_id: 'p-1', title: 'Exporter', assignee_ids: ['u-ada'] },
+              ],
+            },
+          ],
+          you_are_waiting_on: [],
+          next_offset: null,
+        })
+      );
+      await myTasks.loadMore();
+
+      expect(new URL(requestAt(1).url).searchParams.get('offset')).toBe('1000');
+      expect(myTasks.tasks.map((t) => t.id)).toEqual(['t-1', 't-2']);
+      expect(myTasks.waitingOnYou).toHaveLength(1);
+      expect(myTasks.waitingOnYou[0]?.tasks.map((t) => t.id)).toEqual(['t-9', 't-10']);
+      expect(myTasks.hasMore).toBe(false);
+      expect(myTasks.loadingMore).toBe(false);
+    });
+
+    // Offset paging over a set the server ranks live: a card that moves earlier
+    // between the two reads is served on both pages, and MyTasks renders the
+    // list with a keyed each, which throws each_key_duplicate on a repeat.
+    it('keeps a card that arrives on two pages once', async () => {
+      fetchMock.mockImplementation(async () =>
+        jsonResponse(200, {
+          tasks: [task('t-1', 'ready'), task('t-2', 'ready')],
+          waiting_on_you: [],
+          you_are_waiting_on: [],
+          next_offset: 1000,
+        })
+      );
+      await myTasks.load();
+
+      fetchMock.mockImplementation(async () =>
+        jsonResponse(200, {
+          tasks: [task('t-2', 'ready', { title: 'Task t-2 renamed' }), task('t-3', 'ready')],
+          waiting_on_you: [],
+          you_are_waiting_on: [],
+          next_offset: null,
+        })
+      );
+      await myTasks.loadMore();
+
+      expect(myTasks.tasks.map((t) => t.id)).toEqual(['t-1', 't-2', 't-3']);
+      // The later copy wins: it is the fresher read of the same row.
+      expect(myTasks.tasks[1]?.title).toBe('Task t-2 renamed');
+    });
+
+    // The Load more button disables itself while a page is in flight, but the
+    // store is what a double-fire has to survive: loadMore takes no new token,
+    // so two concurrent calls would read the same offset and fetch it twice.
+    it('fetches one page when Load more is pressed twice', async () => {
+      fetchMock.mockImplementation(async () =>
+        jsonResponse(200, { ...payload, next_offset: 1000 })
+      );
+      await myTasks.load();
+
+      let release: (() => void) | undefined;
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      fetchMock.mockImplementation(async () => {
+        await gate;
+        return jsonResponse(200, {
+          tasks: [task('t-4', 'ready')],
+          waiting_on_you: [],
+          you_are_waiting_on: [],
+          next_offset: null,
+        });
+      });
+
+      const first = myTasks.loadMore();
+      const second = myTasks.loadMore();
+      release?.();
+      await Promise.all([first, second]);
+
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(myTasks.tasks.map((t) => t.id)).toEqual(['t-1', 't-2', 't-3', 't-4']);
+    });
+
+    it('does nothing when there is no next page', async () => {
+      fetchMock.mockImplementation(async () => jsonResponse(200, payload));
+      await myTasks.load();
+
+      await myTasks.loadMore();
+
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('keeps what is on screen when the next page fails', async () => {
+      fetchMock.mockImplementation(async () =>
+        jsonResponse(200, { ...payload, next_offset: 1000 })
+      );
+      await myTasks.load();
+
+      fetchMock.mockImplementation(async () => jsonResponse(500, { error: 'Boom' }));
+      await myTasks.loadMore();
+
+      expect(myTasks.error).toBe('Boom');
+      expect(myTasks.tasks.map((t) => t.id)).toEqual(['t-1', 't-2', 't-3']);
+      expect(myTasks.loadingMore).toBe(false);
+      // Still offered, so the reader can retry rather than losing the rest.
+      expect(myTasks.hasMore).toBe(true);
+    });
+
+    it('leaves the loading flag belonging to the load that replaced it', async () => {
+      fetchMock.mockImplementation(async () =>
+        jsonResponse(200, { ...payload, next_offset: 1000 })
+      );
+      await myTasks.load();
+
+      let finishStale!: () => void;
+      fetchMock.mockImplementationOnce(
+        async () =>
+          new Promise<Response>((resolve) => {
+            finishStale = () => resolve(jsonResponse(200, { ...payload, next_offset: 2000 }));
+          })
+      );
+      const stale = myTasks.loadMore();
+
+      // A newer read replaces it, so the flag on screen now belongs to that one.
+      myTasks.reset();
+      await myTasks.load();
+
+      let finishFresh!: () => void;
+      fetchMock.mockImplementationOnce(
+        async () =>
+          new Promise<Response>((resolve) => {
+            finishFresh = () => resolve(jsonResponse(200, { ...payload, next_offset: 3000 }));
+          })
+      );
+      const fresh = myTasks.loadMore();
+      expect(myTasks.loadingMore).toBe(true);
+
+      finishStale();
+      await stale;
+
+      // The abandoned page must not report that the live one has finished.
+      expect(myTasks.loadingMore).toBe(true);
+
+      finishFresh();
+      await fresh;
+      expect(myTasks.loadingMore).toBe(false);
+    });
+
+    it('leaves a reloaded list alone when a failed page lands after it', async () => {
+      fetchMock.mockImplementation(async () =>
+        jsonResponse(200, { ...payload, next_offset: 1000 })
+      );
+      await myTasks.load();
+
+      let failStale!: () => void;
+      fetchMock.mockImplementationOnce(
+        async () =>
+          new Promise<Response>((resolve) => {
+            failStale = () => resolve(jsonResponse(500, { error: 'Boom' }));
+          })
+      );
+      const stale = myTasks.loadMore();
+
+      fetchMock.mockImplementation(async () => jsonResponse(200, payload));
+      await myTasks.load();
+
+      failStale();
+      await stale;
+
+      expect(myTasks.error).toBeNull();
+      expect(myTasks.tasks.map((t) => t.id)).toEqual(['t-1', 't-2', 't-3']);
+    });
+
+    // loadMore extends the list already on screen, so a reset while it is in
+    // flight must throw its result away rather than reviving a cleared list.
+    it('discards a page that lands after a reset', async () => {
+      fetchMock.mockImplementation(async () =>
+        jsonResponse(200, { ...payload, next_offset: 1000 })
+      );
+      await myTasks.load();
+
+      let release: (() => void) | undefined;
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      fetchMock.mockImplementation(async () => {
+        await gate;
+        return jsonResponse(200, {
+          tasks: [task('t-late', 'ready')],
+          waiting_on_you: [],
+          you_are_waiting_on: [],
+          next_offset: null,
+        });
+      });
+
+      const inflight = myTasks.loadMore();
+      myTasks.reset();
+      release?.();
+      await inflight;
+
+      expect(myTasks.tasks).toEqual([]);
+      expect(myTasks.loaded).toBe(false);
+      expect(myTasks.hasMore).toBe(false);
+    });
+  });
+});
