@@ -18,17 +18,6 @@ import { users } from './lib/users.svelte';
 import { publicBoardHref } from './lib/short-links';
 import { testUuid } from './lib/test-ids';
 
-class FakeWebSocket {
-  onopen: (() => void) | null = null;
-  onmessage: (() => void) | null = null;
-  onclose: (() => void) | null = null;
-  onerror: (() => void) | null = null;
-  send(): void {}
-  close(): void {}
-}
-
-vi.stubGlobal('WebSocket', FakeWebSocket);
-
 const me = {
   id: 'u-me',
   email: 'me@example.com',

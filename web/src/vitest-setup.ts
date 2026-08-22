@@ -7,9 +7,15 @@ import 'fake-indexeddb/auto';
 // captures globalThis.fetch and globalThis.Request when the client module is
 // evaluated, and the stubs live here. See the note in that file.
 import './api/testUtils';
-import { afterEach } from 'vitest';
+import { afterEach, vi } from 'vitest';
 import { connectivity } from './lib/connectivity.svelte';
+import { FakeWebSocket } from './lib/fake-websocket';
 import { outbox } from './lib/outbox.svelte';
+
+// For every test, not only the ones that thought to ask: jsdom's WebSocket
+// connects for real, and what a failed connection costs is explained where the
+// double is defined.
+vi.stubGlobal('WebSocket', FakeWebSocket);
 
 // Reachability is deduced from whether requests get answers, so a test that
 // makes fetch reject — several do, deliberately — leaves the app believing it is
@@ -18,6 +24,7 @@ import { outbox } from './lib/outbox.svelte';
 afterEach(() => {
   connectivity.resetForTests();
   outbox.reset();
+  FakeWebSocket.reset();
 });
 
 // jsdom implements neither scrolling nor the Web Animations API, and Svelte's
