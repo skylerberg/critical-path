@@ -52,6 +52,8 @@ export default ts.config(
       // them turns the gate red for a file that is not part of the project — and
       // a stale one left behind makes `pnpm run lint` look broken on a clean tree.
       'scripts/tmp-*',
+      // A throwaway flat config, which has to sit at the root. See .gitignore.
+      '*.tmp.config.js',
     ],
   },
   js.configs.recommended,
@@ -114,7 +116,6 @@ export default ts.config(
         {
           groups: IMPORT_GROUPS,
           pathGroups: TEST_UTILS_FIRST,
-          pathGroupsExcludedImportTypes: [],
           // The bare `import '../api/testUtils'` form is an unassigned import,
           // which the rule ignores by default. Reporting it costs nothing here —
           // testUtils is the only side-effect import in any test file — but the
