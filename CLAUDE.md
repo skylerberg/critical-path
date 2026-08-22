@@ -12,6 +12,17 @@ One repository, four packages, **no root package and no root `node_modules`**.
 The two package CLAUDE.md files are the operating manuals; this one holds only
 what is true at the root.
 
+`infra/terraform/` is not a fifth package and has no `package.json`. It is the
+terraform for the whole repository — the global load balancer and its URL map,
+the web bucket and its CDN backend, the preview-edge Cloud Run service, the
+certificates, the Artifact Registry repository both images are pushed to, and
+the monitoring. Four resources in it are the api's alone — its service account,
+that account's workload-identity binding, the uploads bucket and the bucket's
+IAM member. The rest are shared, which is why it sits at the root rather than
+under `api/`, where it lived until 2026-08-21.
+`.github/workflows/infra-ci.yaml` is its CI, and `infra/terraform/README.md` is
+the operating manual for applying it.
+
 ## This is not a pnpm workspace, and must never become one
 
 Four `package.json`, four `pnpm-lock.yaml`, four `pnpm-workspace.yaml` — one set
@@ -85,6 +96,24 @@ to run after any schema or realtime-payload change. It needs no `.env`, no
 database and no server, it can be run from any directory, and it only sequences
 the six package scripts. `scripts/README.md` is the directory's own index.
 
+`scripts/new-worktree.sh <branch> [base-ref]` is the worktree bootstrap for all
+four packages: it branches, adds the worktree under `~/.worktrees/<repo>/<branch>`
+— outside the repository, so no recursive search gets a second copy of the
+codebase to walk — copies the untracked `.env` files, which live in `api/` and
+not at the checkout root, and runs `pnpm install` in every package it finds via
+`git ls-files '*/package.json'`. It asserts a `node_modules` appeared rather than
+trusting exit 0, which is what a stray root `pnpm-workspace.yaml` would otherwise
+hand you. `--only api,web` narrows the installs. Everything is resolved from the
+checkout it is **run in**, so it works from a sibling project too. Make every
+worktree with it: a hand-made one fails the checks for reasons that have nothing
+to do with the change in it, and an uninstalled `cli/` in particular fails only
+the CLI tests, deep into an api run.
+
+It sits here rather than in `api/scripts/`, where it was written, because
+`api-deploy.yaml` filters on `api/scripts/**` — so a four-package developer
+script was shipping a production API release, image build and migration job
+included, on every edit.
+
 `scripts/lib/` holds the OpenAPI client generator that `web/` and `cli/` both
 run. It is one program: `pnpm -C web run generate:api` and
 `pnpm -C cli run generate:api` are the same commands with the same behaviour,
@@ -108,6 +137,23 @@ outside its own package. Match the surrounding style by hand — both packages'
 prettier agrees (100 columns, single quotes, semicolons, two-space indent).
 `repo-ci.yaml` does shellcheck the `.sh` here, which is lint of a sort, but
 nothing formats anything under `scripts/`.
+
+## The root `docs/` directory
+
+Prose about the product rather than about one package. `docs/feature-research.md`
+is the 251-feature survey of the category and the owner's build/decline decision
+on every row — the roadmap the whole repository works from, web and CLI included.
+It lived in `api/docs/` until it was moved here, which put the product roadmap
+behind a package boundary that web-side work never crosses.
+
+The test for what belongs here is who the reader is, not where the subject is
+implemented: `api/docs/scaling.md` stays in `api/` because it is the api's own
+measured behaviour, keyed to `api/bench/` and `pnpm -C api run bench`, and
+nothing in it means anything to `web/`.
+
+Nothing checks a commit that touches only this directory — it matches no
+package's `paths:` filter, so the run is `ci-gate.yaml` and `preview-build`,
+which is the same thing that is already true of the root prose files.
 
 ## Git hooks and workflows
 
@@ -136,7 +182,7 @@ two, is reported, and is left unformatted. Fixing it means NUL-delimited
 plumbing through `post-commit` and `post-rewrite` too, since both split their
 file lists on whitespace before `format-touched` sees them.
 
-Eleven workflows under `.github/workflows/`, each filtered to the packages it
+Twelve workflows under `.github/workflows/`, each filtered to the packages it
 checks. No pnpm command in CI runs at the root: every one carries `-C <package>`
 or a `working-directory`, and every `setup-node` names an explicit
 `cache-dependency-path`, because there is no root lockfile. Root-level files no
@@ -150,7 +196,11 @@ but two workflows still run on it: `ci-gate.yaml` and `preview-build`, both
 deliberately unfiltered, so a pull request always reports at least those two.
 `k8s-ci.yaml` is the same shape one level down — `api/k8s/**` sits
 inside api-ci's filter but no job there reads a manifest, so it is the one thing
-that validates what `api-deploy.yaml` applies to production.
+that validates what `api-deploy.yaml` applies to production. `infra-ci.yaml`
+covers `infra/**`, which no package filter reaches at all: it runs
+`terraform fmt -check`, `init -backend=false` and `validate`. It cannot plan —
+that needs the real state and credentials no pull-request workflow may hold — so
+it catches a broken configuration and not a wrong one.
 
 Every workflow that checks something must also be named in `ci-gate.yaml`'s
 `is_blocking` (or `is_advisory`). An unlisted name fails the gate by design, so
@@ -164,7 +214,7 @@ Filtering happens in two layers, and they are not interchangeable. A workflow's
 — and narrowing it drops coverage leaving no run behind to notice. Refining
 happens **inside**: `api-ci.yaml` and `web-ci.yaml` each have a `changes` job
 that diffs the event's own range and gates every other job on an `if:`. An
-`api/terraform/**` edit still starts api-ci and still reports, but skips four
+`api/k8s/**` edit still starts api-ci and still reports, but skips four
 Postgres shards and two image builds; a `web/README.md` edit skips everything in
 web-ci but the static group, and a `web/public/**` edit everything but the
 build. Both lists are subtractive on purpose — a path nobody has classified
@@ -187,7 +237,7 @@ the file's header explains the mechanism, the two shapes that look correct and
 are not, and why a skipped job is a *green* required check.
 
 `.github/` also holds `CODEOWNERS`, which claims the four paths that reach
-production without any CI reading them (`api/terraform/`, `api/k8s/`,
+production and that no check reads for *intent* (`infra/`, `api/k8s/`,
 `.github/`, `.githooks/`) plus this file, and `pull_request_template.md`, whose
 only real job is to put the two-commit deploy rule in front of a human — it has
 otherwise lived only here, where agents read it and nobody else does.

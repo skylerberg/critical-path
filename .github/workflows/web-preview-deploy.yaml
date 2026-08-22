@@ -109,7 +109,7 @@ jobs:
             const marker = '<!-- pr-preview-comment -->';
             const body =
               mode === 'deploy'
-                ? `${marker}🟣 **Preview:** https://pr-${number}.criticalpath.skylerberg.com\n\n_Auto-updated on each push; removed when the PR closes. Reads and writes real production data._\n\n_Web bundle only: \`/api\`, \`/ws\` and \`/health\` route to the **production API running \`main\`**, not to this PR's \`api/\`. Anything this PR adds or changes under \`api/\` is not here — new endpoints 404 and changed ones behave as main does._`
+                ? `${marker}🟣 **Preview:** https://pr-${number}.criticalpath.skylerberg.com\n\n_Auto-updated on each push; removed when the PR closes. Reads and writes real production data, and asks for the shared HTTP Basic preview credential — see \`infra/terraform/README.md\`, "Preview auth"._\n\n_Web bundle only: \`/api\`, \`/ws\` and \`/health\` route to the **production API running \`main\`**, not to this PR's \`api/\`. Anything this PR adds or changes under \`api/\` is not here — new endpoints 404 and changed ones behave as main does._`
                 : `${marker}🟣 Preview removed (PR closed).`;
             const comments = await github.rest.issues.listComments({
               owner: context.repo.owner,

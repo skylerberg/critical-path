@@ -44,12 +44,42 @@ opening comments, and `web/scripts/generate-client.test.mjs` fails if they stop
 being; it is also where this directory's behaviour is tested, since neither
 package's own checks reach outside itself.
 
+## `new-worktree.sh`
+
+Creates a worktree that can actually run the checks — the thing a bare
+`git worktree add` does not give you, since it hands over tracked files and no
+`node_modules`, and the api suite then dies much later on a missing `.env.test`.
+
+```sh
+scripts/new-worktree.sh <branch> [base-ref]
+scripts/new-worktree.sh --only api,web <branch>
+```
+
+It creates `~/.worktrees/<repo>/<branch>` — outside the repository on purpose, so
+no recursive search has a second copy of the codebase to walk — copies the
+untracked `.env` files (which live in `api/`, not at the checkout root), and runs
+`pnpm install` in every package. Packages are discovered from
+`git ls-files '*/package.json'` rather than listed, so a fifth one needs no edit
+here, and each install is asserted to have left a `node_modules` behind rather
+than trusted for exiting 0 — which is exactly what a stray root
+`pnpm-workspace.yaml` hands you (`No projects found`, exit 0, nothing installed).
+`--only` narrows the installs and fails on a name that is not a package; the
+`.env` files are copied either way.
+
+Everything is resolved from the git checkout it is **run in**, not from where
+this file lives, so it works from a sibling project's directory too, and running
+it from a package subdirectory is fine.
+
+It lives here rather than in `api/scripts/` because `api-deploy.yaml` filters on
+`api/scripts/**`: while it sat there, editing this developer-only script pushed a
+production API release.
+
 Nothing formats or lints `scripts/`: the `post-commit` hook buckets a path by
 its first segment and no package owns this one. Match the surrounding style by
 hand — both packages' prettier config agrees (100 columns, single quotes,
 semicolons, two-space indent).
 
-`generate-clients.sh` is the exception, and only for lint: `repo-ci.yaml`
+The two `.sh` here are the exception, and only for lint: `repo-ci.yaml`
 shellchecks every file under `.githooks/` and `scripts/` whose shebang names a
 shell, and syntax-checks each under the shell it declares — bash here, POSIX sh
 for the hooks. The `.mjs` under `lib/` are still covered by nothing.

@@ -1,6 +1,8 @@
 import http from 'node:http';
 import { Storage } from '@google-cloud/storage';
 
+import { authorized } from './auth.ts';
+
 // Serves per-PR preview builds from a pr/<n>/ prefix in the web bucket behind
 // the wildcard host pr-<n>.criticalpath.skylerberg.com. A preview is a full
 // same-origin virtual host (/api and /ws still reach the API at the LB), so
@@ -9,9 +11,12 @@ import { Storage } from '@google-cloud/storage';
 
 const BUCKET_NAME = process.env.WEB_BUCKET;
 const HOST_SUFFIX = process.env.PREVIEW_HOST_SUFFIX;
-// Optional shared gate: set to "user:pass" to require HTTP Basic auth. Unset
-// (the default) leaves previews open — they are already network-restricted to
-// the load balancer via the Cloud Run ingress annotation.
+// The shared HTTP Basic credential ("user:pass"), mounted from the
+// critical-path-preview-auth Secret Manager secret by terraform. The gate is
+// fail-closed: see auth.ts, and infra/terraform/README.md for setting the
+// value. Not required at startup like the two above — a revision that cannot
+// read the secret does not start at all, and one that reads a placeholder
+// should serve 401s, not crash-loop.
 const PREVIEW_AUTH = process.env.PREVIEW_AUTH;
 const PR_RE = /^pr-(\d+)\./;
 const HAS_EXTENSION = /\.[^/]+$/;
@@ -23,13 +28,6 @@ if (!BUCKET_NAME || !HOST_SUFFIX) {
 
 const storage = new Storage();
 const bucket = storage.bucket(BUCKET_NAME);
-
-function authorized(req: http.IncomingMessage): boolean {
-  if (!PREVIEW_AUTH) return true;
-  const header = req.headers.authorization;
-  if (!header?.startsWith('Basic ')) return false;
-  return Buffer.from(header.slice('Basic '.length), 'base64').toString() === PREVIEW_AUTH;
-}
 
 function send(
   res: http.ServerResponse,
@@ -91,7 +89,7 @@ const server = http.createServer((req, res) => {
     send(res, 404, 'not a preview host');
     return;
   }
-  if (!authorized(req)) {
+  if (!authorized(req.headers.authorization, PREVIEW_AUTH)) {
     send(res, 401, 'auth required', { 'WWW-Authenticate': 'Basic realm="preview"' });
     return;
   }

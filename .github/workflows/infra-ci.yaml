@@ -1,0 +1,90 @@
+name: Infra CI
+
+# `infra/terraform/main.tf` defines the global load balancer, the URL map every
+# request to criticalpath.skylerberg.com is routed by, the web bucket, the
+# preview-edge Cloud Run service and its auth secret, and the certificates — and
+# until this file existed nothing read it. It sat inside `api/` where api-ci's
+# `paths:` matched it, so an edit started four Postgres shards and two image
+# builds, none of which ran terraform; a syntax error was found by `terraform
+# apply` at a keyboard, and a misspelt attribute by the apply after that.
+#
+# What this buys and what it does not. `validate` is a syntax and schema check
+# against the provider: it catches an unknown argument, a wrong type, a
+# reference to a resource that is not declared. It does not plan, because a plan
+# needs the real state in `gs://cow-terraform-state` and credentials to read it,
+# and a workflow any pull request can trigger must not hold those. So a URL map
+# that routes `/api/` to the web bucket passes here. CODEOWNERS is what puts a
+# human in front of that, and the plan at apply time is the last check.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'infra/**'
+      - '.github/workflows/infra-ci.yaml'
+  pull_request:
+    paths:
+      - 'infra/**'
+      - '.github/workflows/infra-ci.yaml'
+
+# `init` reaches the provider registry and nothing else; no GCP credential is
+# configured here on purpose (see the header), and the configuration being
+# checked is the pull request's own.
+permissions:
+  contents: 'read'
+
+# A literal group, not '${{ github.workflow }}': that expression expands to the
+# `name:` field, which is a shared namespace now that twelve workflows live in
+# one repository. Keyed on the ref so two pull requests cannot cancel each
+# other, and this one does cancel — a superseded validate leaves nothing behind.
+concurrency:
+  group: 'infra-ci-${{ github.ref }}'
+  cancel-in-progress: true
+
+jobs:
+  terraform:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      # Pinned exactly, for the reason repo-ci.yaml's shellcheck and actionlint
+      # installs record: left to float, a terraform release that tightens
+      # validation or changes `fmt`'s output turns main red on a commit that
+      # changed nothing, and the first person to see it is whoever pushed next.
+      # `required_version` in main.tf is a floor (`>= 1.5`), not a pin, so it
+      # constrains nothing here. Bump this deliberately, and run `terraform fmt`
+      # locally on the same version when you do.
+      #
+      # terraform_wrapper: false — the default wraps the binary in a script that
+      # captures stdout and stderr for later steps to read. Nothing here reads
+      # them, and the wrapper is one more thing between a non-zero exit and this
+      # job failing.
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: '1.15.8'
+          terraform_wrapper: false
+
+      # Over `infra/`, not `infra/terraform/`: `-recursive` then covers anything
+      # added beside it later without a second edit here.
+      - name: 'terraform fmt'
+        run: terraform fmt -check -recursive -diff infra
+
+      # -backend=false: the real backend is `gcs`, and initialising it would
+      # need credentials for `gs://cow-terraform-state`. Providers still install
+      # from .terraform.lock.hcl, which is what `validate` needs to check the
+      # configuration against the schema.
+      #
+      # No `-lockfile=readonly`: the committed lock records the `h1:` hash for
+      # the platform it was written on (darwin_arm64) and the registry's `zh:`
+      # hashes for every platform. Installing on linux verifies against the
+      # `zh:` set and then records a linux `h1:` in the runner's copy — a real
+      # change to a file readonly mode would fail the job over, on every run, for
+      # a lock file that is correct.
+      - name: 'terraform init'
+        working-directory: infra/terraform
+        run: terraform init -backend=false -input=false
+
+      - name: 'terraform validate'
+        working-directory: infra/terraform
+        run: terraform validate -no-color

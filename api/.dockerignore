@@ -10,7 +10,6 @@ data
 coverage
 tests
 k8s
-terraform
 eslint-rules
 .env
 .env.*

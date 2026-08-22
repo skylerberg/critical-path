@@ -95,10 +95,17 @@ try {
 // file of ours.
 const IGNORED_DIRS = new Set(['node_modules', 'dist', 'coverage', '.git']);
 
+// `.svelte` earns its place here for the skip report below rather than for this
+// suite: web is the only package that has any, and filtering them out before the
+// partition is what turned a web-only branch into "nothing to run" — the exact
+// silence the partition exists to remove — instead of a line naming
+// `pnpm -C web test`. Anything reaching this list is either run or reported.
+const SOURCE_EXTENSIONS = ['.ts', '.svelte'];
+
 const sources = [...new Set(changed)]
   .filter(
     (file) =>
-      file.endsWith('.ts') &&
+      SOURCE_EXTENSIONS.some((extension) => file.endsWith(extension)) &&
       !file.endsWith('.d.ts') &&
       !file.split('/').some((segment) => IGNORED_DIRS.has(segment))
   )
@@ -130,7 +137,7 @@ const scope = testedDirs.map((dir) => `${dir || '.'}/`).join(' and ');
 if (skipped.size > 0) {
   const total = [...skipped.values()].reduce((sum, count) => sum + count, 0);
   console.log(
-    `Skipped ${String(total)} changed TypeScript file(s) outside ${scope}: this runs ` +
+    `Skipped ${String(total)} changed source file(s) outside ${scope}: this runs ` +
       `${packageDir || '.'}/'s vitest project, which has no tests for them.`
   );
   for (const [dir, count] of [...skipped].sort()) {
@@ -141,7 +148,7 @@ if (skipped.size > 0) {
 }
 
 if (inScope.length === 0) {
-  console.log(`No changed TypeScript files under ${scope} against ${base}; nothing to run.`);
+  console.log(`No changed source files under ${scope} against ${base}; nothing to run.`);
   process.exit(0);
 }
 

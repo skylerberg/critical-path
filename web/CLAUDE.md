@@ -27,6 +27,13 @@ upward, so one there would be what this package resolved to if it ever lost its
 own, and the install would then match no project, print `No projects found` and
 exit 0 having written nothing.
 
+Four packages means four installs, and a new worktree needs all four:
+`scripts/new-worktree.sh <branch>`, at the **repository root**, branches, creates
+`~/.worktrees/<repo>/<branch>`, installs every package and copies the untracked
+`.env` files (which live in `api/`). A bare `git worktree add` leaves this
+package with no `node_modules`, so every check fails on that rather than on the
+change in it.
+
 pnpm 11 reads settings from nowhere else: `.npmrc` carries auth
 and registry only, and package.json's `pnpm` field is ignored, as is npm's
 top-level `overrides`. **Keys are camelCase.** A kebab-case key is dropped

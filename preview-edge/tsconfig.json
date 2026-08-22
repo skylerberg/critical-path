@@ -10,7 +10,11 @@
     "esModuleInterop": true,
     "skipLibCheck": true,
     "noEmit": true,
+    // Node runs these files by stripping types, and its resolver does not
+    // rewrite a ./x.js specifier onto x.ts the way a bundler would, so the
+    // imports name the real file. esbuild resolves the same specifier.
+    "allowImportingTsExtensions": true,
     "types": ["node"]
   },
-  "include": ["index.ts"]
+  "include": ["*.ts"]
 }

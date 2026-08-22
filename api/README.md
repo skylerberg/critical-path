@@ -40,6 +40,11 @@ ENVIRONMENT=test
 own `game_dev_test_api_<hash>` from it, so parallel worktrees never
 share a test database. See [Testing](#testing).
 
+For a worktree rather than a fresh clone, `scripts/new-worktree.sh <branch>` at
+the **repository root** — not this package's `scripts/` — does the install half
+for all four packages and copies both env files across, which is the half a bare
+`git worktree add` leaves out.
+
 ## Development
 
 ```sh

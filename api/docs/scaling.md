@@ -83,7 +83,8 @@ Resolving the sharer set once instead is one hashed pass.
 
 These are the cases that grow without a ceiling. None is fixed here: each
 changes a response shape or an API contract, so each needs a decision and a
-matching change in `../critical-path-web` and `cli/`.
+matching change in `web/` and `cli/` — and, being an API contract change, one
+that respects the two-commit deploy rule in the root `CLAUDE.md`.
 
 Ranked by how soon a real customer hits it.
 

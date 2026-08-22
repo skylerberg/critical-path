@@ -4,15 +4,16 @@
 # and the load balancer, the manifests the deploy applies, the workflows that do
 # the applying, and the hooks that format every commit. Some of it is now
 # checked: k8s-ci.yaml validates the manifests against the schema cow-cluster
-# runs, and repo-ci.yaml shellchecks the hooks and runs actionlint over every
-# workflow. None of that reads intent. A `paths:` filter narrowed by mistake is
-# valid YAML that lints clean and leaves no run behind to notice; terraform is
-# read by nothing here at all. A human reading the diff is the only check those
-# have, so this file makes GitHub ask for one and mark the files as owned in the
-# review view.
+# runs, repo-ci.yaml shellchecks the hooks and runs actionlint over every
+# workflow, and infra-ci.yaml validates the terraform. None of that reads intent.
+# A `paths:` filter narrowed by mistake is valid YAML that lints clean and leaves
+# no run behind to notice; a URL map that parses and routes `/api/` to the web
+# bucket validates just as cleanly. A human reading the diff is the only check
+# those have, so this file makes GitHub ask for one and mark the files as owned
+# in the review view.
 #
 # `.github/` includes this file. Left unowned, the way to skip a review on
-# api/terraform is to edit CODEOWNERS in the same pull request.
+# infra/terraform is to edit CODEOWNERS in the same pull request.
 #
 # One caveat, because it will otherwise be discovered the hard way: @skylerberg
 # is the sole maintainer, and GitHub does not let anyone approve their own pull
@@ -31,7 +32,10 @@
 
 /.github/         @skylerberg
 /.githooks/       @skylerberg
-/api/terraform/   @skylerberg
+# The whole directory, not `/infra/terraform/`: anything that lands under
+# `infra/` later is repo-wide infrastructure by the fact of being there, and an
+# entry naming one subdirectory would leave it unowned until someone noticed.
+/infra/           @skylerberg
 /api/k8s/         @skylerberg
 
 # Not infrastructure, but the same problem: the two-commit deploy rule and the

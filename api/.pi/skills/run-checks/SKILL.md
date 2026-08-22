@@ -7,7 +7,7 @@ description: Run the full pre-finish check suite for the Critical Path API repo.
 
 Run all of these before declaring done. CI runs the same set, in
 `.github/workflows/api-ci.yaml`'s `checks` job — which a `changes` job skips
-when a pull request touches only `api/terraform/`, `api/k8s/` or `api/docs/`.
+when a pull request touches only `api/k8s/` or `api/docs/`.
 
 ## Commands
 
@@ -43,7 +43,8 @@ A changed request/response shape requires regenerating the web and CLI clients
 
 ## CLI worktree note
 
-A worktree installs its own dependencies (`scripts/new-worktree.sh` does this,
-once per package), so run the CLI checks from the worktree — the root
+A worktree installs its own dependencies (`../scripts/new-worktree.sh` does
+this, once per package — it is at the repository root, not in this package's
+`scripts/`), so run the CLI checks from the worktree — the root
 `pnpm test` also drives the CLI e2e suites: vitest.config.ts includes
 `../cli/tests/**/*.test.ts`, reaching out of this package into the sibling.

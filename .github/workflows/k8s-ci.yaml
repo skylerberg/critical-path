@@ -31,7 +31,7 @@ permissions:
   contents: 'read'
 
 # A literal group, not '${{ github.workflow }}': that expression expands to the
-# `name:` field, which is a shared namespace now that eleven workflows live in
+# `name:` field, which is a shared namespace now that twelve workflows live in
 # one repository. Keyed on the ref so two pull requests cannot cancel each
 # other.
 concurrency:
