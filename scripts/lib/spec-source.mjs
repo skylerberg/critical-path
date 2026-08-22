@@ -1,26 +1,12 @@
-// Locating and freshness-checking a generated document from the api package.
-// Shared by both generators, which differ only in which document they read and
-// what they emit from it.
+// Locating and freshness-checking a document the api package generates. Shared
+// by all four generators — two documents, two client packages — which differ
+// only in which document they read and what they emit from it.
 
 import { readFile, stat } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
-import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
-
-const __dirname = dirname(fileURLToPath(import.meta.url));
-
-// The api package, by fixed relative path: this directory is two levels under
-// the repository root and api is this package's sibling there. Nothing is
-// searched for and nothing is overridable, because one commit now holds both
-// sides of every schema change — the document that describes the api sources in
-// this working tree is the only one this app should ever be generated from.
-const API_DIR = resolve(__dirname, '..', '..', 'api');
-
-// What generated output is labeled with. Repo-relative and constant, so a
-// committed header records which package answered rather than one machine's
-// path — and so a header naming a URL instead is visible at a glance.
-const API_LABEL = 'api';
+import { API_DIR, API_LABEL } from './repo-paths.mjs';
 
 // The deployed API, not a dev server: a dev server is whatever build someone last
 // started and nothing here can tell how old it is, which is exactly how a client
@@ -28,11 +14,11 @@ const API_LABEL = 'api';
 const API_ORIGIN = process.env.API_ORIGIN || 'https://criticalpath.skylerberg.com';
 
 // Reading the deployed API is for generating a client outside this repository,
-// which is impossible-by-construction for the app that lives in it. So it is
-// opt-in and never a fallback: unreachable sources fail the run instead. It was
+// which is impossible-by-construction for the two packages that live in it. So it
+// is opt-in and never a fallback: unreachable sources fail the run instead. It was
 // the automatic last resort once, and a lookup that stopped resolving therefore
-// regenerated this app's client from production — one header line, in a file
-// thousands of lines long, was the only tell.
+// regenerated a client from production — one header line, in a file thousands of
+// lines long, was the only tell.
 const ALLOW_REMOTE = process.env.ALLOW_REMOTE_SPEC === '1';
 
 // Which package script in the api package produces each document.
@@ -72,7 +58,7 @@ function announce(dumpPath, redumped) {
 }
 
 // A stale document silently drops whole endpoints from the client, and the result
-// only fails under svelte-check — never under vitest, which strips types.
+// only fails under a type check — never under vitest, which strips types.
 //
 // `redumped` says the file was just produced from the sources in this working
 // tree, which settles the question exactly; the mtime comparison below is only
@@ -88,7 +74,13 @@ async function assertIsFresh(path, { redumped }) {
 
   let sources;
   try {
-    sources = execFileSync('git', ['-C', apiRoot, 'ls-files', 'src'], { encoding: 'utf8' })
+    // stderr discarded: a directory git knows nothing about is one of the
+    // tolerated outcomes below, and letting git print `fatal:` first attributes
+    // the run's real failure to the wrong thing.
+    sources = execFileSync('git', ['-C', apiRoot, 'ls-files', 'src'], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    })
       .trim()
       .split('\n')
       .filter(Boolean);

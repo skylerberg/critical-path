@@ -49,6 +49,13 @@ const CONFIG = [
   'package.json',
   'pnpm-workspace.yaml',
 ];
+// The client generator this package shares with the CLI lives at the repository
+// root, outside every package (the root CLAUDE.md says why). The docs here name
+// its environment variables and its functions and those names are real, so it is
+// indexed the same way configuration is: for the symbols it declares, never read
+// for prose — a file outside this package is not this package's to police, and
+// the CLI reads the identical text.
+const SHARED_SCRIPTS = join(ROOT, '..', 'scripts');
 // Generated clients carry the API's own prose, which is duplicated across
 // endpoints by design and is not ours to edit.
 // scripts/tmp-* is the throwaway-probe prefix: copied from a real module as often
@@ -75,6 +82,12 @@ async function sourceFiles() {
   const matches = (name) => EXTENSIONS.some((ext) => name.endsWith(ext));
   for (const dir of SCANNED) await walkFor(join(ROOT, dir), matches, found);
   found.push(join(ROOT, 'vite.config.ts'));
+  return found;
+}
+
+async function sharedScriptFiles() {
+  const found = [];
+  await walkFor(SHARED_SCRIPTS, (name) => name.endsWith('.mjs'), found);
   return found;
 }
 
@@ -309,7 +322,10 @@ const load = (paths) =>
 async function run(allowed) {
   const code = await load(await sourceFiles());
   const docs = await load(await docFiles());
-  const config = await load(CONFIG.map((name) => join(ROOT, name)));
+  const config = await load([
+    ...CONFIG.map((name) => join(ROOT, name)),
+    ...(await sharedScriptFiles()),
+  ]);
   const blocksOf = (loaded, extract) =>
     loaded.map(({ path, source }) => ({ path: relative(ROOT, path), blocks: extract(source) }));
   const files = [...blocksOf(code, commentBlocks), ...blocksOf(docs, proseBlocks)];

@@ -2857,14 +2857,15 @@ token; `CRITICAL_PATH_PROJECT` sets the default project;
 app and the API need not share an origin.
 
 After changing the API surface, regenerate both committed clients — the CLI's
-and the web app's — in the same commit as the change. Each re-dumps this
-package's spec for itself, so no separate `openapi:dump` is needed. From the
-repository root:
+and the web app's — in the same commit as the change. One command does it, from
+any directory, and needs no separate `openapi:dump`:
 
 ```sh
-pnpm -C cli run generate-api
-pnpm -C web run generate:api
+scripts/generate-clients.sh
 ```
+
+`.github/workflows/codegen-ci.yaml` runs the same script and fails a pull request
+whose committed clients differ from what it produces.
 
 ## Known limitations (v1)
 

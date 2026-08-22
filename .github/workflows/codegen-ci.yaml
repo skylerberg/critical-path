@@ -1,0 +1,131 @@
+name: Codegen CI
+
+# The four committed API clients must be exactly what the generators produce.
+# This re-runs scripts/generate-clients.sh and fails if any of them changed.
+#
+# Why this does not fight the two-commit deploy rule — read this before
+# "fixing" the check by making it skip api pull requests.
+#
+# The rule (root CLAUDE.md) is that an endpoint and the web code calling it
+# reach main in two separate merges, api first, because both production deploys
+# fire from one push and web ships ~2 minutes ahead of api. This check demands
+# the regenerated clients in the *same* commit as the api change, which sounds
+# like the opposite of that. It is not, and the reason is a property of the
+# generated files: they emit no runtime values at all — only types, erased at
+# build time. It holds today and has to keep holding:
+#
+#   grep -cE '^export (const|function|class|let|var|enum) ' \
+#     web/src/api/*.generated.ts cli/src/api/*.generated.ts   # 0 for all four
+#
+# So the web deploy a regenerated client triggers ships a byte-identical bundle.
+# What has to wait for the second merge is the call sites, which is where the
+# rule has always bitten. Exempting api pull requests here would buy nothing and
+# would leave main drifted until some unrelated pull request inherited it.
+
+# Filtered to what can change the answer:
+#   api/src/**            the sources both dumps are a pure function of
+#   api/scripts/**        the two dump scripts themselves
+#   scripts/**            the shared generator, and this script. Nothing else
+#                         covers it: api-ci and web-ci filter on api/ and web/,
+#                         so a change there runs no other CI at all.
+#   web/scripts/**        each package's generator wrapper
+#   cli/scripts/**
+#   web/src/api/**        the committed output — a hand-edit has to fail here
+#   cli/src/api/**
+#
+# Deliberately excluded: everything that cannot change what is generated —
+# api/tests, the rest of web/src and cli/src (call sites consume the clients,
+# they do not produce them), preview-edge (no client), and all prose. The two
+# dumps need no entry: they are gitignored build products, not tracked inputs.
+#
+# The three lockfiles are listed for a reason that outweighs the noise:
+# openapi-typescript decides a client's bytes and hono/arktype/hono-openapi
+# decide the spec's, so a dependency bump can move the generated output with
+# none of the paths above touched. Leaving them out lets main sit drifted until
+# some unrelated pull request inherits the failure — which is the exact class of
+# silent drift this job exists to end. The cost is running three installs and a
+# 16s regeneration on an unrelated svelte or eslint bump. That is the cheaper
+# side of the trade.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'api/src/**'
+      - 'api/scripts/**'
+      - 'web/src/api/**'
+      - 'web/scripts/**'
+      - 'cli/src/api/**'
+      - 'cli/scripts/**'
+      - 'scripts/**'
+      - 'api/pnpm-lock.yaml'
+      - 'web/pnpm-lock.yaml'
+      - 'cli/pnpm-lock.yaml'
+      - '.github/workflows/codegen-ci.yaml'
+  pull_request:
+    paths:
+      - 'api/src/**'
+      - 'api/scripts/**'
+      - 'web/src/api/**'
+      - 'web/scripts/**'
+      - 'cli/src/api/**'
+      - 'cli/scripts/**'
+      - 'scripts/**'
+      - 'api/pnpm-lock.yaml'
+      - 'web/pnpm-lock.yaml'
+      - 'cli/pnpm-lock.yaml'
+      - '.github/workflows/codegen-ci.yaml'
+
+# Three `pnpm install`s run the pull request's own prepare scripts, and the
+# generators are the pull request's own code. That is untrusted, so it gets the
+# narrowest token and no persisted credential to find in .git/config.
+permissions:
+  contents: 'read'
+
+jobs:
+  drift:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@v4
+        with:
+          # No root package.json: the action reads `packageManager` from the
+          # package it is setting pnpm up for. Left to its default it looks at
+          # the repository root and fails with "No pnpm version is specified".
+          # All four packages pin the same pnpm, so api's answers for the three
+          # installed below.
+          package_json_file: api/package.json
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'pnpm'
+          # Named explicitly: the default is a lockfile at the repo root, and
+          # there is none. All three, because this job installs all three —
+          # which is also what keeps its cache entry distinct from api-ci's and
+          # web-ci's.
+          cache-dependency-path: |
+            api/pnpm-lock.yaml
+            web/pnpm-lock.yaml
+            cli/pnpm-lock.yaml
+      # api dumps the two documents; web and cli each hold the
+      # openapi-typescript that turns one into a client.
+      - run: pnpm -C api install --frozen-lockfile
+      - run: pnpm -C web install --frozen-lockfile
+      - run: pnpm -C cli install --frozen-lockfile
+      # No .env, no database and no server: both dumps are built from api/src
+      # alone, which is what makes a job this small possible.
+      - run: scripts/generate-clients.sh
+      - name: Fail if a committed client is not what the generator produced
+        # Scoped to the two directories holding the four tracked clients rather
+        # than a bare `git diff`: this check is about those files, and a wider
+        # one would start failing on whatever an install or a `prepare` script
+        # happened to touch. The two dumps the script also wrote are gitignored,
+        # so they appear in no diff either way.
+        run: |
+          if ! git diff --exit-code -- web/src/api cli/src/api; then
+            echo
+            echo "::error::The committed API clients are stale. Run scripts/generate-clients.sh from the repository root and commit the four files under web/src/api and cli/src/api."
+            exit 1
+          fi
+          echo "The committed API clients match what the generators produce."
