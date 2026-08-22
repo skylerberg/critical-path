@@ -69,7 +69,12 @@ details.
 Each package runs its own, from its own directory — `pnpm -C api test`,
 `pnpm -C web run check:all`, `pnpm -C cli run check`. CI is split the same way:
 `.github/workflows/api-ci.yaml` and `web-ci.yaml`, each filtered to the paths it
-covers, plus `codegen-ci.yaml` for the generated clients.
+covers, plus `codegen-ci.yaml` for the generated clients, `repo-ci.yaml` for
+`.githooks/`, `scripts/` and the workflow files themselves, and `k8s-ci.yaml`
+for the manifests. Because every
+one of those is path-filtered, none of them can be a required status check on
+its own; `ci-gate.yaml` is unfiltered, reads the rest, and is the one to
+require.
 
 Do not run `prettier --write` or `eslint --fix` by hand. The repository's
 `.githooks/post-commit` runs each package's own formatter over the files that

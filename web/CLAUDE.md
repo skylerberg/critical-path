@@ -163,11 +163,25 @@ suite when a change is broad enough that you cannot name the files it affects
 (a shared helper, a store, a type everything imports) — and once at the end.
 
 **Leave the full gate to CI.** `pnpm run check:all` is the whole list, in one
-place — which is why CI is a single step and this file no longer spells the
-commands out or counts them. It is minutes of typecheck, every browser check,
-the suite and a production build; running it locally at the end of a change
-mostly re-derives what the push is about to tell you anyway. Push, and read the
-run.
+place — which is why this file no longer spells the commands out or counts them.
+It is minutes of typecheck, every browser check, the suite and a production
+build; running it locally at the end of a change mostly re-derives what the push
+is about to tell you anyway. Push, and read the run.
+
+`check:all` is composed of four groups — `check:static`, `check:suite`,
+`check:browser`, then `check:test-guards` — and `web-ci.yaml` runs each as a
+**separate job**, guards across two shards, each gated on a `changes` job that
+skips the groups a change cannot reach (prose runs the static group alone; an
+icon under `public/` runs only the build). Measured on a 10-core laptop, one
+group at a time: 20.6s, 49.3s, 127.4s, 140.0s. Serially that is 5m37s, and it
+was 9m04s as the single CI step it replaces; as four jobs the slowest one is
+`check:browser`. Locally `check:all` still runs them one after another, and has
+to: every group is CPU-bound, and the series-cap tests in the suite fail a 30s
+timeout under contention rather than on anything real. Separate *jobs* get
+separate runners, which is where the parallelism is safe to take. The groups run
+cheapest-first, and within `check:static` `format:check` comes last because
+`.githooks/post-commit` has already run prettier over every file a commit
+touched.
 
 What is worth doing by hand is whatever your change actually touches: the test
 files near it, and the one check that covers the thing you changed if there is
@@ -354,8 +368,18 @@ Nothing is written to the source tree. Each guard is one spawned `vitest` child
 carrying its edit in the environment, applied by `guardMutation()` in
 `vite.config.ts` as the module is transformed — so a run is invisible to whatever
 else is reading those files and cannot leave a bug behind. That is what put the
-full mutating run in `check:all`: cost was never what kept it out — the guards
-take under two minutes, four children at a time — the in-place write was.
+full mutating run in `check:all`: cost was never what kept it out — the in-place
+write was. Cost is not nothing, though. 136 guards, four children at a time, is
+140.0s on a 10-core laptop and was 4m24s of the old single CI step, which is the
+gap between `GUARD_CONCURRENCY: 4` and the two cores a standard hosted runner
+gives it. `GUARD_SHARD=i/n` splits the list across n runs — every nth guard
+rather than a block, since the list is grouped by the file each guard mutates and
+the per-guard cost runs from ~3s to ~20s — and `web-ci.yaml` uses two, measured
+locally at 57.9s and 73.9s against 140.0s whole. An environment variable rather
+than a flag because pnpm's argument forwarding is a documented trap here, and a
+silently dropped shard looks exactly like a passing run. It refuses to combine with
+`--selftest`: the five controls are one argument about the runner, and a shard
+of them proves nothing about the shards that did not run them.
 `check:test-guards:anchors` is still worth running mid-refactor because it is
 sub-second, but it is no longer what CI proves — it checks that every `find`
 still resolves and stops there, which cannot tell a guard that catches its bug

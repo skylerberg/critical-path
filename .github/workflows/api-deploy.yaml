@@ -61,14 +61,25 @@ jobs:
       # Context is api/, not the repo root: every COPY in api/Dockerfile is
       # context-relative and names something inside api/, and this is also what
       # makes docker read api/.dockerignore.
+      #
+      # scope=api, the same scope api-ci's images job uses. Two things ride on
+      # that. Without any scope the gha exporter defaults to `buildkit`, which
+      # preview-edge.yaml was also writing to, so the two evicted each other on
+      # every run and neither ever hit. And sharing the scope with CI rather than
+      # taking a private one is deliberate: both build the same context from the
+      # same Dockerfile on the same runner image, and the deploy on main can then
+      # start from what main's own api-ci wrote. That directly narrows the window
+      # the two-commit deploy rule exists for — web is live ~45s after a push and
+      # api 2-3 minutes after, and every second off this build is a second less
+      # of it.
       - name: 'Build and push image'
         uses: 'docker/build-push-action@v7'
         with:
           context: api
           push: true
           tags: '${{ env.IMAGE }}:${{ github.sha }}'
-          cache-from: 'type=gha'
-          cache-to: 'type=gha,mode=max'
+          cache-from: 'type=gha,scope=api'
+          cache-to: 'type=gha,mode=max,scope=api'
 
       - name: 'Apply base manifests'
         working-directory: api
@@ -81,7 +92,7 @@ jobs:
           sed "s/{COMMITHASH}/$GITHUB_SHA/g" k8s/migrate-job.yaml | kubectl apply -f -
           # Conditions come as a list ("SuccessCriteriaMet Complete",
           # "FailureTarget Failed" on k8s >= 1.31), so substring-match.
-          for i in $(seq 1 60); do
+          for _ in $(seq 1 60); do
             conditions=$(kubectl -n critical-path get job "critical-path-migrate-$GITHUB_SHA" \
               -o jsonpath='{.status.conditions[?(@.status=="True")].type}')
             case " $conditions " in

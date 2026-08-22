@@ -106,6 +106,8 @@ Nothing formats or lints this directory: `format-touched` buckets a path by its
 first segment and no package owns `scripts/`, and neither eslint config reaches
 outside its own package. Match the surrounding style by hand — both packages'
 prettier agrees (100 columns, single quotes, semicolons, two-space indent).
+`repo-ci.yaml` does shellcheck the `.sh` here, which is lint of a sort, but
+nothing formats anything under `scripts/`.
 
 ## Git hooks and workflows
 
@@ -117,10 +119,75 @@ config or no installed binary is named in a warning and skipped, rather than
 quietly reformatted to prettier's defaults. Never run `prettier --write` or
 `eslint --fix` by hand.
 
-Eight workflows under `.github/workflows/`, each filtered to the packages it
+That script has tests — `.githooks/tests/format-touched.test.sh`, nineteen cases
+run by `repo-ci.yaml` and by nothing else. They stub `git` and `pnpm` onto the
+front of PATH, so they need no repository, no `node_modules` and no network:
+
+```sh
+sh .githooks/tests/format-touched.test.sh   # about a second
+```
+
+Add a case for anything you change in a hook. Every bug this code has ever had
+exits 0 — a bucket handed another package's paths, a fixer that could not start,
+an amend that swallowed unstaged work — so a test asserting *which* paths reached
+*which* package is the only thing that sees it. One known limitation is pinned
+there rather than fixed: a path containing a space reaches the fixers split in
+two, is reported, and is left unformatted. Fixing it means NUL-delimited
+plumbing through `post-commit` and `post-rewrite` too, since both split their
+file lists on whitespace before `format-touched` sees them.
+
+Eleven workflows under `.github/workflows/`, each filtered to the packages it
 checks. No pnpm command in CI runs at the root: every one carries `-C <package>`
 or a `working-directory`, and every `setup-node` names an explicit
-`cache-dependency-path`, because there is no root lockfile. A commit touching
-only root-level files matches no filter and runs no CI at all — with one
-exception, `codegen-ci.yaml`, which does trigger on `scripts/**` because both
-clients are generated from what lives there.
+`cache-dependency-path`, because there is no root lockfile. Root-level files no
+longer fall through the gaps between the package filters: `codegen-ci.yaml`
+triggers on `scripts/**` because both clients are generated from what lives
+there, `repo-ci.yaml` on `.githooks/**`, `scripts/**` and
+`.github/workflows/**` — the three root-level things no package owns, the last
+of them including the gate itself — and `ci-gate.yaml` is filtered to nothing on
+purpose. Nothing *checks* a commit of only root prose,
+but two workflows still run on it: `ci-gate.yaml` and `preview-build`, both
+deliberately unfiltered, so a pull request always reports at least those two.
+`k8s-ci.yaml` is the same shape one level down — `api/k8s/**` sits
+inside api-ci's filter but no job there reads a manifest, so it is the one thing
+that validates what `api-deploy.yaml` applies to production.
+
+Every workflow that checks something must also be named in `ci-gate.yaml`'s
+`is_blocking` (or `is_advisory`). An unlisted name fails the gate by design, so
+adding a workflow is two edits, not one — and `repo-ci.yaml` checks the pair
+statically, so a missed second edit fails on the pull request that made it
+rather than on every pull request after it. Renaming a workflow is the same two
+edits.
+
+Filtering happens in two layers, and they are not interchangeable. A workflow's
+`paths:` is the outer bound — the packages it could have something to say about
+— and narrowing it drops coverage leaving no run behind to notice. Refining
+happens **inside**: `api-ci.yaml` and `web-ci.yaml` each have a `changes` job
+that diffs the event's own range and gates every other job on an `if:`. An
+`api/terraform/**` edit still starts api-ci and still reports, but skips four
+Postgres shards and two image builds; a `web/README.md` edit skips everything in
+web-ci but the static group, and a `web/public/**` edit everything but the
+build. Both lists are subtractive on purpose — a path nobody has classified
+falls through to its package and costs a job, where an allowlist would drop it
+and cost the coverage instead. Both fail open, loudly, when the event's base ref
+cannot be resolved: running too much is always correct, skipping silently never
+is.
+
+## What makes CI enforceable
+
+`ci-gate.yaml` exists because path filtering and required status checks are in
+direct conflict: a workflow its filter excludes produces no check run, and
+GitHub leaves a required check with no check run at "Expected — waiting for
+status" indefinitely. Requiring API CI would block every web-only pull request
+and vice versa, so nothing could be required and every check was advisory. The
+gate is the one workflow with no `paths:`; it reads the other runs' results for
+the head commit and fails if any of them did not pass. **`ci-gate` is the check
+to require in branch protection** — that is a manual step in the GitHub UI, and
+the file's header explains the mechanism, the two shapes that look correct and
+are not, and why a skipped job is a *green* required check.
+
+`.github/` also holds `CODEOWNERS`, which claims the four paths that reach
+production without any CI reading them (`api/terraform/`, `api/k8s/`,
+`.github/`, `.githooks/`) plus this file, and `pull_request_template.md`, whose
+only real job is to put the two-commit deploy rule in front of a human — it has
+otherwise lived only here, where agents read it and nobody else does.

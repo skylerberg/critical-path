@@ -1,0 +1,109 @@
+name: K8s CI
+
+# api/k8s/*.yaml went from a merge to `kubectl apply` against the production
+# cluster with nothing having parsed it in between. A misspelt field was caught
+# by the deploy itself — after the image was built and pushed, and for
+# deployment.yaml after the migration job had already run against the production
+# database.
+#
+# Its own workflow rather than a job in api-ci: api-ci's `changes` job treats
+# `api/k8s/**` as inert precisely because no step there reads a manifest, so a
+# manifest-only change now skips every job it has. This filter is the exact set
+# of files that can change the answer, and nothing here needs node, pnpm or a
+# lockfile.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'api/k8s/**'
+      # The second check below reads it, to catch a manifest nobody applies.
+      - '.github/workflows/api-deploy.yaml'
+      - '.github/workflows/k8s-ci.yaml'
+  pull_request:
+    paths:
+      - 'api/k8s/**'
+      - '.github/workflows/api-deploy.yaml'
+      - '.github/workflows/k8s-ci.yaml'
+
+# Nothing here needs more, and the manifests being validated are the pull
+# request's own.
+permissions:
+  contents: 'read'
+
+# A literal group, not '${{ github.workflow }}': that expression expands to the
+# `name:` field, which is a shared namespace now that eleven workflows live in
+# one repository. Keyed on the ref so two pull requests cannot cancel each
+# other.
+concurrency:
+  group: 'k8s-ci-${{ github.ref }}'
+  cancel-in-progress: true
+
+jobs:
+  manifests:
+    runs-on: ubuntu-latest
+    env:
+      KUBECONFORM_VERSION: 'v0.8.0'
+      KUBECONFORM_SHA256: '9bc2bffbf71f261128533edaf912153948b7ff238f9a531ae6d34466ec287883'
+      # cow-cluster runs GKE v1.35.x. Bump this when the cluster does: a newer
+      # schema green-lights fields the running API server would reject, an older
+      # one fails a manifest that is fine.
+      K8S_VERSION: '1.35.0'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      # kubeconform rather than `kubectl --dry-run=client`: that still asks an
+      # API server for the schema, and there is no cluster here, so offline it
+      # checks little more than that the YAML parses. kubeconform validates
+      # against the published schemas for one named version — also the only way
+      # to hold this to the version cow-cluster actually runs.
+      #
+      # Pinned with a checksum because it is a binary fetched from the internet
+      # into a job any pull request can trigger.
+      - name: 'Install kubeconform'
+        run: |
+          url=https://github.com/yannh/kubeconform/releases/download
+          curl -fsSL -o "$RUNNER_TEMP/kubeconform.tar.gz" \
+            "$url/$KUBECONFORM_VERSION/kubeconform-linux-amd64.tar.gz"
+          echo "$KUBECONFORM_SHA256  $RUNNER_TEMP/kubeconform.tar.gz" | sha256sum -c -
+          tar -xzf "$RUNNER_TEMP/kubeconform.tar.gz" -C "$RUNNER_TEMP" kubeconform
+          sudo install "$RUNNER_TEMP/kubeconform" /usr/local/bin/
+          kubeconform -v
+
+      - name: 'Validate the manifests as api-deploy will apply them'
+        working-directory: api
+        run: |
+          mkdir -p "$RUNNER_TEMP/k8s"
+          # deployment.yaml and migrate-job.yaml carry a {COMMITHASH} that the
+          # deploy substitutes with sed, so what is validated is what is applied
+          # rather than the template. Forty hex characters, the length of a
+          # real sha. Not only tidiness: a placeholder standing alone as a
+          # value parses as a YAML flow mapping rather than a string, and would
+          # fail here as a type error production never sees.
+          for f in k8s/*.yaml; do
+            sed 's/{COMMITHASH}/0123456789abcdef0123456789abcdef01234567/g' "$f" \
+              >"$RUNNER_TEMP/k8s/$(basename "$f")"
+          done
+          # -strict is most of the value: without it kubeconform ignores fields
+          # the schema does not know, which is exactly what a misspelt one is.
+          # -summary prints the resource count, so a glob that matched nothing
+          # cannot pass as a clean run.
+          kubeconform -strict -summary -verbose \
+            -kubernetes-version "$K8S_VERSION" "$RUNNER_TEMP"/k8s/*.yaml
+
+      # A manifest nobody applies is invisible: it validates, it is committed,
+      # and it never reaches the cluster. api-deploy names five of them on one
+      # `kubectl apply` line and pipes the other two through sed, so every
+      # filename it applies appears there literally.
+      - name: 'Fail if a manifest is never applied'
+        working-directory: api
+        run: |
+          status=0
+          for f in k8s/*.yaml; do
+            if ! grep -q "k8s/$(basename "$f")" ../.github/workflows/api-deploy.yaml; then
+              echo "::error file=api/$f::api/$f is never applied by api-deploy.yaml — apply it there, or move it out of api/k8s/."
+              status=1
+            fi
+          done
+          exit "$status"

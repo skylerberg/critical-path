@@ -24,4 +24,5 @@ fi
 files=$(git diff-tree --no-commit-id --name-only -r HEAD | grep -E '\.(ts|svelte|mjs)$')
 [ -z "$files" ] && exit 0
 
+# shellcheck disable=SC2086  # one argument per path is the point
 exec "$(dirname "$0")/format-touched" $files

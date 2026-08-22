@@ -12,7 +12,7 @@ on:
   workflow_dispatch:
 
 # A literal group, like the two production deploys: '${{ github.workflow }}'
-# expands to the `name:` field, which is a shared namespace now that seven
+# expands to the `name:` field, which is a shared namespace now that eleven
 # workflows live in one repository.
 concurrency:
   group: 'preview-edge-deploy'
@@ -74,8 +74,12 @@ jobs:
           tags: |
             ${{ env.IMAGE }}:${{ github.sha }}
             ${{ env.IMAGE }}:latest
-          cache-from: 'type=gha'
-          cache-to: 'type=gha,mode=max'
+          # scope=preview-edge, matching api-ci's build of this same context.
+          # Unscoped, the gha exporter defaults to `buildkit` — which api-deploy
+          # was also writing to, so each run evicted the other's export and
+          # neither image ever hit its cache.
+          cache-from: 'type=gha,scope=preview-edge'
+          cache-to: 'type=gha,mode=max,scope=preview-edge'
 
       # Image-only update: terraform owns the service config (env, service
       # account, ingress), so we never set those here. On the very first run,

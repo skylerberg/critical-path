@@ -48,3 +48,8 @@ Nothing formats or lints `scripts/`: the `post-commit` hook buckets a path by
 its first segment and no package owns this one. Match the surrounding style by
 hand — both packages' prettier config agrees (100 columns, single quotes,
 semicolons, two-space indent).
+
+`generate-clients.sh` is the exception, and only for lint: `repo-ci.yaml`
+shellchecks every file under `.githooks/` and `scripts/` whose shebang names a
+shell, and syntax-checks each under the shell it declares — bash here, POSIX sh
+for the hooks. The `.mjs` under `lib/` are still covered by nothing.

@@ -5,7 +5,9 @@ description: Run the full pre-finish check suite for the Critical Path API repo.
 
 # Run checks (api package)
 
-Run all of these before declaring done. CI runs the same set (`.github/workflows/ci.yaml`).
+Run all of these before declaring done. CI runs the same set, in
+`.github/workflows/api-ci.yaml`'s `checks` job — which a `changes` job skips
+when a pull request touches only `api/terraform/`, `api/k8s/` or `api/docs/`.
 
 ## Commands
 
