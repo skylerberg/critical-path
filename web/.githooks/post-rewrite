@@ -1,0 +1,32 @@
+#!/bin/sh
+# The rebase half of post-commit, which steps aside while a rebase is running.
+# Only a conflict resolution can arrive unformatted — a cleanly replayed commit
+# carries content that was already fixed when it was first committed — but the
+# fixers are cheap and working out which commits conflicted is not worth it.
+
+if [ -n "$SKIP_POST_COMMIT" ]; then
+  exit 0
+fi
+
+# $1 is what did the rewriting. post-commit fires for an amend too and has
+# already handled it; running here as well would fix the same files twice.
+[ "$1" = rebase ] || exit 0
+
+# stdin is one `<old-sha> <new-sha>` line per rewritten commit.
+shas=""
+while read -r old new; do
+  [ -n "$new" ] && shas="$shas $new"
+done
+[ -z "$shas" ] && exit 0
+
+files=""
+for sha in $shas; do
+  files="$files $(git diff-tree --no-commit-id --name-only -r "$sha")"
+done
+files=$(printf '%s\n' $files | sort -u | grep -E '\.(ts|svelte|mjs)$')
+[ -z "$files" ] && exit 0
+
+# Only HEAD can be amended, so on a branch of more than one commit the fix lands
+# in the last commit rather than in whichever one was resolved. The tree is what
+# format:check and CI read, and that is correct either way.
+exec "$(dirname "$0")/format-touched" $files
