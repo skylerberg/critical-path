@@ -34,7 +34,14 @@ Vite serves the app on <http://localhost:5173> and proxies `/api` to
 ## Generated API types
 
 `src/api/api.generated.ts` and `src/api/realtime.generated.ts` are generated from
-the `api/` package and committed:
+the `api/` package and committed. Regenerate this app's two and the CLI's two
+together, which is what CI checks:
+
+```sh
+../scripts/generate-clients.sh     # from anywhere; the repository-root command
+```
+
+The two scripts it runs here are still available on their own:
 
 ```sh
 pnpm run generate:api
@@ -43,10 +50,13 @@ pnpm run generate:realtime
 
 Each re-dumps `api/` at its fixed path in this working tree and prints the
 absolute path it read; dumping first is not needed, and a missing `api/` is an
-error rather than a fall back to the deployed API. Because the schema and the
-client are now in one tree, regenerate in the same commit as the API change.
-`ALLOW_REMOTE_SPEC=1` opts into the deployed API instead, for generating a
-client somewhere other than this repository; see CLAUDE.md.
+error rather than a fall back to the deployed API. The generator itself is
+`../scripts/lib/`, shared with the CLI, so the two clients cannot drift apart in
+how they are produced. Because the schema and the client are now in one tree,
+regenerate in the same commit as the API change — `codegen-ci.yaml` fails the
+pull request otherwise. `ALLOW_REMOTE_SPEC=1` opts into the deployed API
+instead, for generating a client somewhere other than this repository; see
+CLAUDE.md.
 
 ## Checks
 

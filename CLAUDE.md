@@ -52,6 +52,14 @@ both starts both deploys at the same moment — which is the race itself. It has
 to be two merges. Removals run the other way: web stops calling the endpoint in
 the earlier merge, api deletes it in the later one.
 
+The **generated** clients are not the thing that waits. `codegen-ci.yaml` fails
+any pull request whose committed `*.generated.ts` files are not what
+`scripts/generate-clients.sh` produces, so they land in the same merge as the api
+change — which is safe precisely because they declare no runtime values, only
+types, so the web deploy they trigger ships a byte-identical bundle. It is the
+call sites that wait for the second merge. Do not "fix" that check by exempting
+api pull requests; its header comment carries the reasoning.
+
 This is the same constraint as the rolling-deploy discipline in `api/CLAUDE.md`'s
 migration workflow: old and new have to interoperate across a window whose
 length you do not control. That section covers the database half of it; this
@@ -69,6 +77,36 @@ git fetch origin && git rev-list --count HEAD..origin/main -- api/   # or -- web
 
 Both package files carry the longer version under "Staying current with main".
 
+## The root `scripts/` directory
+
+`scripts/generate-clients.sh` regenerates all four committed API clients — api's
+two spec dumps, then web's two clients, then the CLI's two — and is the command
+to run after any schema or realtime-payload change. It needs no `.env`, no
+database and no server, it can be run from any directory, and it only sequences
+the six package scripts. `scripts/README.md` is the directory's own index.
+
+`scripts/lib/` holds the OpenAPI client generator that `web/` and `cli/` both
+run. It is one program: `pnpm -C web run generate:api` and
+`pnpm -C cli run generate:api` are the same commands with the same behaviour,
+and all each package still owns is a wrapper that supplies `openapi-typescript`
+and the path to write. The two used to be forked copies, and the fork was not
+theoretical — one pruned the schemas a deprecated operation orphaned and the
+other did not, and one swallowed a failed dump and generated from whatever stale
+file was lying around.
+
+**It is not a package and must never become one.** No `package.json`, no
+`node_modules`, no lockfile. That is also the constraint on what may live here:
+**a file under `scripts/` may import node builtins and its own siblings, nothing
+else.** Bare specifiers resolve by walking up from the importing file, so a
+third-party import here finds no `node_modules` and fails — which is why the
+generator's one dependency is handed in from the package that has it, rather
+than imported where the shared logic lives.
+
+Nothing formats or lints this directory: `format-touched` buckets a path by its
+first segment and no package owns `scripts/`, and neither eslint config reaches
+outside its own package. Match the surrounding style by hand — both packages'
+prettier agrees (100 columns, single quotes, semicolons, two-space indent).
+
 ## Git hooks and workflows
 
 `.githooks/` at the root is the only hook directory git uses (`core.hooksPath`,
@@ -79,8 +117,10 @@ config or no installed binary is named in a warning and skipped, rather than
 quietly reformatted to prettier's defaults. Never run `prettier --write` or
 `eslint --fix` by hand.
 
-Seven workflows under `.github/workflows/`, each filtered to the packages it
+Eight workflows under `.github/workflows/`, each filtered to the packages it
 checks. No pnpm command in CI runs at the root: every one carries `-C <package>`
 or a `working-directory`, and every `setup-node` names an explicit
 `cache-dependency-path`, because there is no root lockfile. A commit touching
-only root-level files matches no filter and runs no CI at all.
+only root-level files matches no filter and runs no CI at all — with one
+exception, `codegen-ci.yaml`, which does trigger on `scripts/**` because both
+clients are generated from what lives there.

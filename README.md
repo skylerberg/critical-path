@@ -48,12 +48,28 @@ pnpm add --global ./cli     # installs the global `cpath` command
 
 `api/README.md` has the command reference.
 
+## Regenerating the API clients
+
+`web/` and `cli/` each generate their API client from `api/`'s OpenAPI and
+realtime documents, and the four generated files are committed. One command
+rebuilds all of them:
+
+```sh
+scripts/generate-clients.sh
+```
+
+Run it after changing an API schema or a realtime payload, and commit its output
+with the change. It works from any directory and needs no `.env`, no database
+and no running server. `.github/workflows/codegen-ci.yaml` runs the same script
+and fails if the committed clients do not match; `scripts/README.md` has the
+details.
+
 ## Checks
 
 Each package runs its own, from its own directory — `pnpm -C api test`,
 `pnpm -C web run check:all`, `pnpm -C cli run check`. CI is split the same way:
 `.github/workflows/api-ci.yaml` and `web-ci.yaml`, each filtered to the paths it
-covers.
+covers, plus `codegen-ci.yaml` for the generated clients.
 
 Do not run `prettier --write` or `eslint --fix` by hand. The repository's
 `.githooks/post-commit` runs each package's own formatter over the files that

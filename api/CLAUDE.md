@@ -58,21 +58,36 @@ port 5173) — Vite proxies `/api` and `/ws` to `localhost:3001`.
 Both the web app and the `cli/` package generate their API client from this
 package's OpenAPI spec, and both now live in this repository, which is the whole
 point of the merge: **a request/response schema change and both regenerated
-clients belong in one commit.** Run them from the repository root:
+clients belong in one commit.** One command does all of it, from any directory:
 
 ```sh
-pnpm -C cli run generate-api
-pnpm -C web run generate:api
+scripts/generate-clients.sh
 ```
 
-Neither needs `pnpm run openapi:dump` first — both generators re-dump before
-reading, because the dump is a pure function of `api/src/` (no database, under
-two seconds) and producing one is cheaper than reasoning about whether the old
-one is stale. Both resolve this package by a fixed in-repo path rather than
-searching for a checkout, so there is no way to generate against the wrong tree
-and no way to generate against a stale one; a missing `api/` is a fatal error,
-not a quiet fallback to the deployed API. See `web/CLAUDE.md` for the
-frontend's conventions.
+`codegen-ci.yaml` runs the same script on every pull request that touches
+`api/src/` and fails if the committed clients differ from what it produces, so
+this is not optional. Committing them beside the api change does not violate the
+two-commit deploy rule — the generated files declare types and no runtime
+values, so the web deploy they trigger ships an identical bundle; it is the
+*call sites* that wait for the second merge. Root `CLAUDE.md` has both halves.
+
+It needs no `pnpm run openapi:dump` first — every generator re-dumps before
+reading, because the dump is a pure function of `api/src/` (no database, no
+`.env`, under two seconds) and producing one is cheaper than reasoning about
+whether the old one is stale. All of them resolve this package by a fixed in-repo
+path rather than searching for a checkout, so there is no way to generate against
+the wrong tree and no way to generate against a stale one; a missing `api/` is a
+fatal error, not a quiet fallback to the deployed API. The individual package
+scripts (`pnpm -C web run generate:api` and its three siblings) still exist and
+still work — the shell script only sequences them.
+
+They are literally one program, in `scripts/lib/` at the repository root: each
+package keeps only its own `openapi-typescript` dependency (which cannot be
+resolved from the root, where there is no `node_modules`) and the path it
+writes. Two copies had already drifted — only one of them pruned the schemas a
+deprecated operation orphaned — which is why the names, the filtering and the
+freshness check are now shared rather than duplicated. See `web/CLAUDE.md` for
+the frontend's conventions.
 
 Realtime and webhook event types come from a second document,
 `realtime-events.json`, because `/ws` has no HTTP request or response to put in
@@ -180,11 +195,11 @@ committed file.
     name someone. `publishAfterCommit` therefore takes `CallerPayload<T>`, the
     payload minus the field it fills in from the session; `publish` still takes
     the whole thing.
-    After changing a payload run `pnpm -C cli run generate-realtime` and
-    `pnpm -C web run generate:realtime` from the repository root, and commit both
+    After changing a payload run `scripts/generate-clients.sh` and commit both
     regenerated clients (`cli/src/api/realtime.generated.ts`,
-    `web/src/api/realtime.generated.ts`) in the same commit as the payload. Each
-    re-dumps for itself, so `pnpm run realtime:dump` is only needed to refresh
+    `web/src/api/realtime.generated.ts`) in the same commit as the payload;
+    `codegen-ci.yaml` fails the pull request otherwise. Each generator re-dumps
+    for itself, so `pnpm run realtime:dump` is only needed to refresh
     `api/realtime-events.json` for something else. The dump itself is gitignored
     like `openapi.json`.
 15. Every `sort_key` is unique within its scope, and the `task` index spans
@@ -263,8 +278,8 @@ committed file.
   on, so a code added at a close site and not in that table reaches no client at
   all. `tests/unit/realtimeEventsDocument.test.ts` holds the table to the codes
   every module in `src/services/realtime` can actually send, and changing it
-  carries the same
-  `pnpm -C cli run generate-realtime` obligation a payload change does.
+  carries the same `scripts/generate-clients.sh` obligation a payload change
+  does.
 - The realtime bus is in-process by default; when `REDIS_URL` is set (as in
   production, which runs 2+ replicas) publishes fan out via Redis pub/sub so
   every replica delivers to its own sockets. Rate limits also share Redis
@@ -326,14 +341,12 @@ workspace in `api/knip.json` — that is what resolves CLI imports against
 `cli/package.json` instead of api's, and it is unrelated to pnpm workspaces,
 which this repo still must not use. Four lockfiles is what keeps
 `api-deploy.yaml`'s path filter exact: one shared lockfile would make a CLI
-dependency bump redeploy the production API. After changing the API
-surface, run `pnpm -C cli run generate-api` and commit the regenerated
-`cli/src/api/api.generated.ts`; after changing a realtime payload, run
-`pnpm -C cli run generate-realtime` and commit
-`cli/src/api/realtime.generated.ts` alongside it — in the same commit as the
-schema change, together with web's. Both re-dump first, so
-`openapi:dump` and `realtime:dump` are only needed to refresh the dumps for
-something else.
+dependency bump redeploy the production API. After changing the API surface or a
+realtime payload, run `scripts/generate-clients.sh` and commit the regenerated
+`cli/src/api/api.generated.ts` and `cli/src/api/realtime.generated.ts` — in the
+same commit as the schema change, together with web's, which the same script
+writes. Every generator re-dumps first, so `openapi:dump` and `realtime:dump` are
+only needed to refresh the dumps for something else.
 
 # Staying current with main
 
