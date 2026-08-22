@@ -253,15 +253,6 @@ const PROXIMITY = /\b(beside|next to|alongside|in the same (?:directory|folder)|
 // which the absolute form slips past entirely.
 const FORMER_REPO = /(?<![\w-])critical-path-(?:api|web)\//g;
 
-// The two spec dumps. They are real, the docs are right to name them with a
-// directory in front, and they are gitignored build products a generator writes
-// — so they are on disk here and absent from a fresh checkout. Indexing the tree
-// alone made this check pass locally and fail in CI, which is the one failure
-// shape a checker must not have. Declared rather than inferred: a path that is
-// merely missing is still a broken reference, and the difference is that these
-// two are named by `api/.gitignore` and written by `scripts/generate-clients.sh`.
-const GENERATED = new Set(['api/openapi.json', 'api/realtime-events.json']);
-
 // Names that are real but belong to something other than this repo's source. A
 // name here that the tree does declare is reported, the way a dead allowlist
 // entry is: an exemption nobody needs is an exemption nobody has re-read, and
