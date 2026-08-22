@@ -86,6 +86,18 @@ backend change. The frontend repo's workflow uploads each PR's build to a
      wildcard, so this uses Certificate Manager DNS-01; one CNAME covers the
      whole `*.…` set.
 
+> **Currently unsatisfied — previews do not work over HTTPS.** As of 2026-08-21
+> the `_acme-challenge.criticalpath.skylerberg.com` CNAME does not exist, so the
+> wildcard certificate created on 2026-08-01 has sat in `PROVISIONING` with
+> `CNAME_MISMATCH` ever since and every `pr-<n>.criticalpath.skylerberg.com`
+> fails TLS. Nothing reports this: `preview-deploy` uploads the bundle and posts
+> the comment without ever requesting the URL, so each PR gets a preview link
+> that cannot be opened. Check with
+> `gcloud certificate-manager certificates describe critical-path-wildcard-cert
+> --location=global` (managed.state) and `dig +short CNAME
+> _acme-challenge.criticalpath.skylerberg.com`, and read the expected value from
+> `gcloud certificate-manager dns-authorizations list --location=global`.
+
    The cert provisions ~15–60 min after both records resolve. Track it with
    `gcloud certificate-manager certificates describe critical-path-wildcard-cert --location=global` (managed.state → ACTIVE).
 
