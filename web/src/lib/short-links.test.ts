@@ -22,7 +22,7 @@ const VECTORS: [uuid: string, alias: string][] = [
 ];
 
 describe('encodeId', () => {
-  it('matches the fixed cross-repo vectors', () => {
+  it('matches the fixed cross-package vectors', () => {
     for (const [uuid, alias] of VECTORS) {
       expect(encodeId(uuid)).toBe(alias);
     }
@@ -47,7 +47,7 @@ describe('encodeId', () => {
 });
 
 describe('decodeId', () => {
-  it('matches the fixed cross-repo vectors', () => {
+  it('matches the fixed cross-package vectors', () => {
     for (const [uuid, alias] of VECTORS) {
       expect(decodeId(alias)).toBe(uuid);
     }

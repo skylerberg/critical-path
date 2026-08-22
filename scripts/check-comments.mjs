@@ -79,20 +79,22 @@ const OPAQUE = (path) => path.includes('.generated.') || basename(path) === 'pnp
 // reference rather than a claim resting on somebody's uncommitted scratch file.
 const SKIP = (path) => /(^|\/)tmp-/.test(path);
 
-// Two files that are deliberate copies of each other, kept in step by hand
-// because the packaging forbids sharing one: four packages, four node_modules,
-// no workspace, and api's Dockerfile copies `api/scripts` into the image before
-// the install so that `prepare` can run — a root path would not be in the build
-// context at all. Listing the pair here is not an exemption. It is a stronger
-// claim than the duplicate check makes anywhere else: the files must be byte
-// for byte identical, and this fails if either drifts or disappears. That is
-// what replaces the old "another repository's, so not ours to check" hatch —
-// the boundary that excused it is gone, and what is left is a copy someone has
-// to keep honest.
-const MIRRORS = [
-  ['api/scripts/setup-hooks.mjs', 'web/scripts/setup-hooks.mjs'],
-  ['api/.pi/skills/cli-tasks/SKILL.md', 'web/.pi/skills/cli-tasks/SKILL.md'],
-];
+// One pair of files that are deliberate copies of each other, kept in step by
+// hand because the packaging forbids sharing one: four packages, four
+// node_modules, no workspace, and api's Dockerfile copies `api/scripts` into the
+// image before the install so that `prepare` can run — a root path would not be
+// in the build context at all. Listing the pair here is not an exemption. It is
+// a stronger claim than the duplicate check makes anywhere else: the files must
+// be byte for byte identical, and this fails if either drifts or disappears.
+// That is what replaces the old "another repository's, so not ours to check"
+// hatch — the boundary that excused it is gone, and what is left is a copy
+// someone has to keep honest.
+//
+// Only a copy the packaging forces belongs here. A pair that is merely the same
+// document filed twice — as the cli-tasks skill was, in two packages, neither of
+// which builds the tool it describes — has an owner and wants a pointer at the
+// other end instead.
+const MIRRORS = [['api/scripts/setup-hooks.mjs', 'web/scripts/setup-hooks.mjs']];
 
 // A sentence shorter than this is a fragment ("Test seam.", "Best effort:") that
 // two files can share without either being a copy of the other.
@@ -227,8 +229,9 @@ const IDENTIFIER = /`(#?[A-Za-z_$][A-Za-z0-9_$]*)(?:\(\))?`/g;
 // merge rather than going away: a bare `openapi.json` is one of the two spec
 // dumps, a gitignored build product that exists only after a generator run, and
 // a bare `package.json`, `tsconfig.json` or `CLAUDE.md` names four different
-// files. Written with a directory in front, every one of them resolves, and
-// that is the form REPO_PATH below checks.
+// files. A directory in front settles the four-of-a-kind ones, which is the
+// form REPO_PATH below checks; it does not settle the dumps, and GENERATED is
+// why.
 const FILENAME = /(?<![\w/.-])(\w[\w.-]*\.(?:ts|svelte|mjs|js|css|html))(?![\w-])/g;
 // A path is a claim about this repo's tree, and resolving it as one is what gives
 // the check any teeth on the docs, which cite `src/lib/ranks.ts` where a comment
@@ -304,6 +307,19 @@ const EXTERNAL = new Set([
   'share_token',
 ]);
 
+// Repo-relative paths this tree produces and deliberately does not track. Both
+// spec dumps are pure functions of the api package's src, written by
+// `openapi:dump` and `realtime:dump` and excluded by that package's .gitignore,
+// so they exist after a generator run and never in a fresh checkout — which is
+// precisely what repo-ci's `comments` job is: a checkout, no install, no dump.
+// Naming them in prose is correct and the walk cannot see them, so without this
+// the two documents every client is generated from would be the one pair of
+// paths their own docs may not mention. No dead-suppression guard to match
+// EXTERNAL's, because the failure this could hide — a dump committed by
+// accident — is already the whole job of the generated-documents guard in the
+// api suite.
+const GENERATED = new Set(['api/openapi.json', 'api/realtime-events.json']);
+
 // A path in prose resolves from the repository root, and then from the package
 // the prose lives in — web/CLAUDE.md says `src/lib/ranks.ts` and means
 // `web/src/lib/ranks.ts`, while the same document says `api/src/index.ts` and
@@ -344,6 +360,7 @@ export function findBadReferences(files, index) {
       for (const [, named] of block.text.matchAll(REPO_PATH)) {
         const candidates = resolutions(index, path, named);
         if (candidates.length === 0) continue;
+        if (candidates.some((candidate) => GENERATED.has(candidate))) continue;
         if (!candidates.some((candidate) => index.paths.has(candidate))) {
           problems.push({ at, detail: `${candidates.join(' / ')} does not exist` });
         }
@@ -631,6 +648,16 @@ if (SELFTEST) {
       'a path into another package that does not exist is reported',
       refs('web/CLAUDE.md', 'the api holds api/src/absent.ts now').length === 1,
     ],
+    // The exemption and its control together. Without the second, GENERATED
+    // widening to swallow every untracked path would still pass here.
+    [
+      'a path the tree generates but does not track is not reported',
+      refs('api/CLAUDE.md', 'both generators read api/openapi.json first').length === 0,
+    ],
+    [
+      'a path that is merely absent is still reported',
+      refs('api/CLAUDE.md', 'both generators read api/nothing.json first').length === 1,
+    ],
     [
       'a path rooted at a repository this one absorbed is a broken reference',
       refs('web/src/a.ts', 'the CLI copy is at critical-path-api/cli/src/twin.ts').length === 1,
@@ -690,26 +717,26 @@ if (SELFTEST) {
         !tree.paths.some((path) => /(^|\/)tmp-/.test(path)),
     ],
   ];
-  console.log('check:comments --selftest — sensitivity');
+  console.log('check-comments --selftest — sensitivity');
   let failed = 0;
   for (const [name, passed] of cases) {
     console.log(`  ${passed ? '✓' : '✗'} ${name}`);
     if (!passed) failed += 1;
   }
   if (failed > 0) {
-    console.error(`\ncheck:comments --selftest — ${String(failed)} case(s) did not fire.`);
+    console.error(`\ncheck-comments --selftest — ${String(failed)} case(s) did not fire.`);
     process.exit(1);
   }
-  console.log('\ncheck:comments --selftest — all cases fire.');
+  console.log('\ncheck-comments --selftest — all cases fire.');
   process.exit(0);
 }
 
 const problems = report(await run(await loadAllowlist()));
 if (problems > 0) {
   console.error(
-    `\ncheck:comments — ${String(problems)} problem(s).\n` +
+    `\ncheck-comments — ${String(problems)} problem(s).\n` +
       'A duplicated rule wants one owner and a shortened copy; see the header of this file.'
   );
   process.exit(1);
 }
-console.log('check:comments — no duplicated or unresolvable claims in comments or docs.');
+console.log('check-comments — no duplicated or unresolvable claims in comments or docs.');

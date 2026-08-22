@@ -84,8 +84,7 @@ permissions:
 # Three installs and a regeneration; cheap next to api-ci, but there is no
 # reason for a superseded run to finish. A literal group rather than
 # '${{ github.workflow }}' for the reason the deploys record: that expression
-# expands to the `name:` field, which became a shared namespace when eleven
-# workflows moved into one repository.
+# expands to the `name:` field, which every workflow in this repository shares.
 concurrency:
   group: 'codegen-ci-${{ github.ref }}'
   cancel-in-progress: true

@@ -29,7 +29,7 @@ name: Repo CI
 # either, and because it needs exactly what this workflow already is: a runner
 # with a checkout and no install.
 #
-# Widening this workflow rather than adding a thirteenth is deliberate. A new
+# Widening this workflow rather than adding another is deliberate. A new
 # workflow name needs a matching entry in ci-gate.yaml's classifier, so adding
 # one is two edits by design; folding the job in here buys the coverage without
 # spending that. It is also why the rename mattered: this file was `Hooks CI`
@@ -57,10 +57,9 @@ permissions:
   contents: 'read'
 
 # A literal group, not '${{ github.workflow }}': that expression expands to the
-# `name:` field, which is a shared namespace now that twelve workflows live in
-# one repository. Keyed on the ref so two pull requests cannot cancel each
-# other, and unlike the deploys this one does cancel — a superseded lint run
-# leaves nothing half-finished.
+# `name:` field, which every workflow in this repository shares. Keyed on the
+# ref so two pull requests cannot cancel each other, and unlike the deploys this
+# one does cancel — a superseded lint run leaves nothing half-finished.
 concurrency:
   group: 'repo-ci-${{ github.ref }}'
   cancel-in-progress: true
