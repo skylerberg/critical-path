@@ -103,5 +103,8 @@ jobs:
       - name: 'Deploy'
         working-directory: api
         run: |
-          sed "s/{COMMITHASH}/$GITHUB_SHA/g" k8s/deployment.yaml | kubectl apply -f -
+          # A branch name may contain a slash, so that substitution cannot use
+          # sed's default delimiter.
+          sed -e "s/{COMMITHASH}/$GITHUB_SHA/g" -e "s|{BRANCH}|$GITHUB_REF_NAME|g" \
+            k8s/deployment.yaml | kubectl apply -f -
           kubectl -n critical-path rollout status deployment/critical-path-api --timeout=300s

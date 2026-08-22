@@ -39,6 +39,13 @@ spec:
           ports:
             - containerPort: 3001
           env:
+            # What /health reports back. There is no .git in the image -- it
+            # copies source, not history -- so a substituted value is the only
+            # way the running build can say which build it is.
+            - name: BUILD_BRANCH
+              value: '{BRANCH}'
+            - name: BUILD_COMMIT
+              value: '{COMMITHASH}'
             - name: ENVIRONMENT
               value: production
             - name: PORT
