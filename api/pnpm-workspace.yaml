@@ -40,3 +40,15 @@ allowBuilds:
 #
 # Off restores what npm did. Do not turn it back on without re-testing both.
 verifyDepsBeforeRun: false
+
+# Supply-chain gate, matching `min-release-age=7` in ~/.npmrc and the global pnpm
+# config: a version published in the last seven days is not installed, which is the
+# window in which a compromised release is normally caught and pulled. npm counts
+# that setting in DAYS and pnpm counts MINUTES, so seven days is 10080, not 7.
+# Stated in every package because CI never reads a developer's global config, and
+# pnpm 11's own default is only 1440 -- one day.
+#
+# `minimumReleaseAgeStrict` is already true by default once the age is set: when no
+# version in range has aged past the gate, resolution fails rather than quietly
+# falling back to one that has not.
+minimumReleaseAge: 10080
