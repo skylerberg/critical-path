@@ -541,6 +541,35 @@ describe('Board snapping', () => {
     // The composer is the panel's last child, so the panel ends under it.
     expect(panel?.lastElementChild).toHaveAttribute('data-quick-add');
   });
+
+  // ...for exactly as long as no card is in flight. svelte-dnd-action picks a zone
+  // by its bounding rect, so a list that ends at its last card is one a pointer
+  // below it is not in, and a two-card column could be reached only by dragging up
+  // to the cards first. The heights are jsdom-invisible and `check:layout:real`
+  // drives the drop itself; what is asserted here is the arrangement that produces
+  // them — the growth on the panel AND on the zone inside it, since either alone
+  // stretches nothing, and the composer out of the way so the zone reaches the
+  // panel's foot rather than stopping a composer's height above it.
+  it('stretches the column and its task zone to the board while a card is in flight', async () => {
+    render(Board, { props: { projectId: PROJECT_ID } });
+    await screen.findByText('plain one');
+    const panel = (): Element | null => column().firstElementChild;
+    const composer = (): Element | null => document.querySelector('[data-quick-add]');
+
+    pickUp(T1);
+    await tick();
+
+    expect(panel()).toHaveClass('flex-1');
+    expect(taskList()).toHaveClass('flex-1');
+    expect(composer()).toHaveClass('hidden');
+
+    drop(T1, board.tasksInColumn('c1'));
+    await tick();
+
+    expect(panel()).not.toHaveClass('flex-1');
+    expect(taskList()).not.toHaveClass('flex-1');
+    expect(composer()).not.toHaveClass('hidden');
+  });
 });
 
 describe('Board add-column drafts', () => {

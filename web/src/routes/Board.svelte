@@ -149,6 +149,25 @@
   const dragging = $derived(columnDragging || taskDragging);
   const pointerDragging = $derived(dragging && !keyboardDragging);
 
+  // What a live card drag stretches, and the whole of it. svelte-dnd-action picks
+  // a zone by its bounding rect, so a task list that ends at its last card is one
+  // a pointer below it is simply not in: a two-card column could be reached only
+  // by dragging up to the cards first, which on a phone is up from the bottom of
+  // the screen every time. While a card is in flight the panel is drawn to the
+  // foot of the board and the list fills it, so the empty surface under a short
+  // column's cards is somewhere a card can be let go of.
+  //
+  // The composer is hidden for the same span rather than left holding the bottom
+  // band of the column, which is exactly where a finger dragging along the foot of
+  // the screen sits. `hidden` rather than an `{#if}`: unmounting would drop the
+  // focus and the open state of a composer someone is part-way through, and it is
+  // the space the zone needs, not the element.
+  //
+  // Resting layout is untouched, which is the point of keying it to the drag at
+  // all: a column ends with its cards, and `check:layout` and `check:layout:real`
+  // both fail a column drawn to the foot of the board with two cards in it.
+  const dropFill = $derived(taskDragging ? 'flex-1' : '');
+
   $effect(() => {
     board.dragging = dragging;
   });
@@ -777,9 +796,11 @@
         >
           <!-- The column proper: it draws the surface, and it ends where its cards
                do, so "+ Add task" sits under the last one rather than at the foot of
-               the screen. The full-height wrapper above draws nothing and keeps the
-               geometry the board reads off it — the snap position, the flip, and the
-               box a dragged column is measured by — the same whatever a column holds.
+               the screen. A card in flight is the one exception, decided by
+               `dropFill` above. The full-height wrapper above draws nothing and
+               keeps the geometry the board reads off it — the snap position, the
+               flip, and the box a dragged column is measured by — the same whatever
+               a column holds.
 
                Held to the wrapper's height by flex-shrink rather than by max-h-full,
                because a percentage height needs the parent's to resolve and that is
@@ -793,7 +814,7 @@
                are what gives up the room. -->
           <div
             data-column-panel
-            class="flex min-h-0 flex-col rounded-lg border border-edge bg-surface"
+            class="flex min-h-0 flex-col rounded-lg border border-edge bg-surface {dropFill}"
           >
             <ColumnHeader
               {column}
@@ -802,7 +823,7 @@
               matchCount={board.hasActiveFilters ? board.matchingCountInColumn(column.id) : null}
             />
             <div
-              class="flex min-h-16 flex-col gap-2 overflow-y-auto p-2"
+              class="flex min-h-16 flex-col gap-2 overflow-y-auto p-2 {dropFill}"
               data-task-list={column.id}
               aria-label="{column.name} tasks"
               use:scrollToTopOn={board.filterSignature}
@@ -851,7 +872,7 @@
               {/if}
             </div>
             {#if !readonly}
-              <div data-quick-add={column.id} class="shrink-0">
+              <div data-quick-add={column.id} class="shrink-0 {taskDragging ? 'hidden' : ''}">
                 <QuickAddTask columnId={column.id} />
               </div>
             {/if}

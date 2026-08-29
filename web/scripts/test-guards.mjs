@@ -610,6 +610,28 @@ export const guards = [
     tests: ['src/routes/Board.test.ts'],
   },
   {
+    // Both halves of the stretch are one guard each, because either one alone
+    // grows nothing: the panel is what reaches the foot of the board, and the
+    // zone inside it is what fills the panel. A zone that ends at its last card
+    // is one a pointer below it is not in, which is the whole of the bug.
+    name: 'a card in flight stretches the column and its task zone to the board',
+    testName: 'stretches the column and its task zone to the board while a card is in flight',
+    file: 'src/routes/Board.svelte',
+    find: "  const dropFill = $derived(taskDragging ? 'flex-1' : '');",
+    replace: "  const dropFill = $derived('');",
+    tests: ['src/routes/Board.test.ts'],
+  },
+  {
+    // The band a stretched column would otherwise leave to the composer is
+    // exactly where a finger dragging along the foot of the screen sits.
+    name: 'the composer gives up the foot of the column while a card is in flight',
+    testName: 'stretches the column and its task zone to the board while a card is in flight',
+    file: 'src/routes/Board.svelte',
+    find: `class="shrink-0 {taskDragging ? 'hidden' : ''}"`,
+    replace: 'class="shrink-0"',
+    tests: ['src/routes/Board.test.ts'],
+  },
+  {
     // Re-syncing the rendered lists mid-gesture rewrites the very arrays
     // svelte-dnd-action is mutating, and a realtime arrival is what does it at an
     // arbitrary moment. Both freezes read as redundant until one is deleted.

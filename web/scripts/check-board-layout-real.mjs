@@ -824,10 +824,28 @@ failed += await runScrollCases(PROBE, { mustPass: true });
 // Every case grabs the card near its RIGHT edge and drags right. That is the
 // asymmetry the bug lives in — the center trails the finger — and a mid-card grab
 // would pass either way.
+//
+// `low` asks the other half of the same question: the finger ends just above the
+// FOOT of the column rather than at the height it started, which for a column of
+// three cards is far below the last of them. A zone that ends at its last card is
+// one that point is not inside, so the drop bounces back and the only way into a
+// short column is to drag up to its cards first. Also invisible to jsdom, and to
+// the fixture check, which lays out no drag at all.
 const DRAG_PROBE = `(async (c) => {
   const pause = (ms) => new Promise((r) => setTimeout(r, ms));
   const span = (el) => { const r = el.getBoundingClientRect(); return { l: Math.round(r.left), r: Math.round(r.right) }; };
   const lists = () => [...document.querySelectorAll('[data-task-list]')].map((l) => ({ id: l.dataset.taskList, ...span(l) }));
+  // Which column a point is in, by rect rather than by hit-test: the wrapper is
+  // the board's full height however few cards its column holds, so this answers
+  // for the empty surface below them — which is the whole question here, and the
+  // one reading that cannot be produced by the zone geometry under test.
+  const colAt = (x, y) => {
+    for (const el of document.querySelectorAll('[data-column-id]')) {
+      const r = el.getBoundingClientRect();
+      if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) return el.dataset.columnId;
+    }
+    return null;
+  };
   // The list under a point, ignoring the floating card itself — it sits under the
   // pointer at every moment of the drag and would answer for every query.
   const under = (x, y) => {
@@ -846,6 +864,11 @@ const DRAG_PROBE = `(async (c) => {
   const taskId = card.dataset.taskId;
   const grabX = Math.round(cr.right - 16);
   const grabY = Math.round(cr.top + cr.height / 2);
+  // The foot of the column, read off the full-height wrapper rather than off the
+  // panel: the panel is what the drag is supposed to stretch, so measuring it
+  // would move the target with the fix and ask nothing.
+  const footY = Math.round(originList.closest('[data-column-id]').getBoundingClientRect().bottom - 8);
+  const toY = c.low ? footY : grabY;
 
   const touch = (target, type, x, y) => {
     const t = new Touch({ identifier: 1, target: card, clientX: x, clientY: y });
@@ -871,9 +894,9 @@ const DRAG_PROBE = `(async (c) => {
   if (c.pointer === 'touch') await pause(320);
   const armed = !!document.getElementById('dnd-action-dragged-el') || c.pointer === 'mouse';
 
-  const steps = Math.max(1, Math.round(Math.abs(c.toX - grabX) / 12));
+  const steps = Math.max(1, Math.round(Math.max(Math.abs(c.toX - grabX), Math.abs(toY - grabY)) / 12));
   for (let i = 1; i <= steps; i++) {
-    move(Math.round(grabX + ((c.toX - grabX) * i) / steps), grabY);
+    move(Math.round(grabX + ((c.toX - grabX) * i) / steps), Math.round(grabY + ((toY - grabY) * i) / steps));
     await pause(24);
   }
   // The drop zone is re-decided on a poll (~160ms at this flip duration), not per
@@ -887,12 +910,14 @@ const DRAG_PROBE = `(async (c) => {
     armed,
     origin,
     taskId,
-    underFinger: under(c.toX, grabY),
+    toY,
+    columnAtFinger: colAt(c.toX, toY),
+    underFinger: under(c.toX, toY),
     cardCenter: dr && Math.round((dr.left + dr.right) / 2),
     lists: lists(),
   };
 
-  up(c.toX, grabY);
+  up(c.toX, toY);
   await pause(700);
 
   const el = document.querySelector('[data-task-id="' + taskId + '"]');
@@ -915,15 +940,22 @@ function checkDrag(d) {
   if (!d.armed) f.push('the press never armed a drag (no floating card)');
   // Guards the probe, not the board: if the finger did not actually reach another
   // column, "landed where the finger was" is true for free.
-  if (d.underFinger === null) f.push(`the finger ended over no column at all (x=${d.toX})`);
-  else if (d.underFinger === d.origin)
+  if (d.columnAtFinger === null)
+    f.push(`the finger ended over no column at all (${d.toX},${d.toY})`);
+  else if (d.columnAtFinger === d.origin)
     f.push(`the drag never left ${d.origin} — probe geometry is wrong, not the board`);
   else {
-    if (d.landed !== d.underFinger)
-      f.push(`dropped into ${d.landed} with the finger over ${d.underFinger}`);
-    if (d.moved.length !== 1 || d.moved[0] !== d.underFinger)
+    // Named apart from the drop below, because the two fail for different
+    // reasons: a column whose task zone stops at its last card is one the finger
+    // is over and not in, and the drop that bounces back is the symptom rather
+    // than the fault.
+    if (d.underFinger !== d.columnAtFinger)
+      f.push(`no task zone under the finger in ${d.columnAtFinger} (found ${d.underFinger})`);
+    if (d.landed !== d.columnAtFinger)
+      f.push(`dropped into ${d.landed} with the finger over ${d.columnAtFinger}`);
+    if (d.moved.length !== 1 || d.moved[0] !== d.columnAtFinger)
       f.push(
-        `board moved the task to [${d.moved.join(',')}] (want one PATCH, to ${d.underFinger})`
+        `board moved the task to [${d.moved.join(',')}] (want one PATCH, to ${d.columnAtFinger})`
       );
   }
   if (d.other.length) f.push(`a drop made requests beyond its own move (${d.other.join(', ')})`);
@@ -938,17 +970,22 @@ const DRAG_CASES = [
   { w: 768, h: 900, cols: 4, tasks: 3, pointer: 'touch', toX: 350, hold: 400 }, // two columns fully visible, no auto-scroll
   { w: 390, h: 844, cols: 4, tasks: 3, pointer: 'touch', toX: 370, hold: 260 }, // phone: release over the next column's sliver
   { w: 1280, h: 800, cols: 4, tasks: 3, pointer: 'mouse', toX: 600, hold: 400 }, // same rule for a mouse
+  // The two that end at the foot of the column instead. Both are cases the edge
+  // band does not reach, because a board scrolling under a parked finger changes
+  // which column is there and that is a different question.
+  { w: 768, h: 900, cols: 4, tasks: 3, pointer: 'touch', toX: 350, low: true, hold: 400 },
+  { w: 1280, h: 800, cols: 4, tasks: 3, pointer: 'mouse', toX: 600, low: true, hold: 400 },
 ];
 
 function dragName(c) {
-  return `drag/${c.w}x${c.h} ${c.pointer}`;
+  return `drag/${c.w}x${c.h} ${c.pointer}${c.low ? ' below the cards' : ''}`;
 }
 
-async function runDragCases(probeUrl, { mustPass }) {
+async function runDragCases(probeUrl, { mustPass, include = () => true }) {
   let bad = 0;
   for (const c of DRAG_CASES) {
     const name = dragName(c);
-    if (!only.wants(name)) {
+    if (!only.wants(name) || !include(c)) {
       continue;
     }
     await setViewport({ width: c.w, height: c.h, mobile: c.w < 1024 });
@@ -960,7 +997,7 @@ async function runDragCases(probeUrl, { mustPass }) {
       const how = mustPass
         ? `${d.origin} -> ${d.landed}, card center at ${d.cardCenter}`
         : `should fail -> ${failures[0]}`;
-      console.log(`  ✓ ${name} (drag to x=${c.toX}: ${how})`);
+      console.log(`  ✓ ${name} (drag to ${c.toX},${d.toY}: ${how})`);
       continue;
     }
     bad++;
@@ -1045,6 +1082,36 @@ if (SELFTEST) {
     ]),
     DRAG_CASES.map(dragName),
     (probe) => runDragCases(probe, { mustPass: false })
+  );
+
+  // The drop below the cards rests on two edits that each give the zone part of
+  // the column, and each is worth its own arm because either one alone leaves the
+  // other looking sufficient. Without the stretch the zone still ends at the last
+  // card; with it but with the composer still holding the foot, the zone stops a
+  // composer's height short — and the finger in these cases is below both. The
+  // cases that end at the height they started are unaffected by either, so each
+  // arm runs only the two that can see it.
+  const lowCases = DRAG_CASES.filter((c) => c.low === true);
+  const belowTheCards = (probe) =>
+    runDragCases(probe, { mustPass: false, include: (c) => c.low === true });
+
+  failed += await runRegression(
+    regression('unstretched-zone', [
+      [
+        "const dropFill = $derived(taskDragging ? 'flex-1' : '');",
+        "const dropFill = $derived('');",
+      ],
+    ]),
+    lowCases.map(dragName),
+    belowTheCards
+  );
+
+  failed += await runRegression(
+    regression('composer-holds-the-foot', [
+      [`class="shrink-0 {taskDragging ? 'hidden' : ''}"`, 'class="shrink-0"'],
+    ]),
+    lowCases.map(dragName),
+    belowTheCards
   );
 
   // ...and the scroll phase on the board being able to tell its own suspension of
