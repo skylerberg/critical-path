@@ -66,6 +66,15 @@ export interface QueuedOp {
    * change to Fix login couldn't be saved" and eight separate failures.
    */
   entityId: string;
+  /**
+   * The card this op belongs to, when that is not `entityId` itself. A checklist
+   * item and a comment are their own entities and are edited through their own
+   * ids, but the person who typed them was working on one card and asks about
+   * that card — so a per-card indicator that read `entityId` alone would call a
+   * card saved while its checklist row was still in the queue. Set only where
+   * the two differ; every reader wants `entityId` back when it is absent.
+   */
+  taskId?: string;
   semantics: OpSemantics;
   /** Written at submit, when the call site still knows what the user did. */
   label: string;

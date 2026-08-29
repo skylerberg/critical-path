@@ -96,6 +96,7 @@ export class BoardComments {
     const result = await this.#board.sendOrFail<TaskComment>(
       {
         entityId: commentId,
+        taskId,
         label: 'Edited a comment',
         request: {
           method: 'PATCH',
@@ -122,6 +123,7 @@ export class BoardComments {
     await this.#board.sendOrFail(
       {
         entityId: commentId,
+        taskId,
         label: 'Deleted a comment',
         request: { method: 'DELETE', path: '/api/comments/{id}', pathParams: { id: commentId } },
       },

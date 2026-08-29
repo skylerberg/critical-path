@@ -356,6 +356,58 @@ describe('when a replayed change cannot be applied', () => {
   });
 });
 
+// A checklist row and a comment are written through their own ids, so the card
+// they were typed on is only knowable if the op carries it. Without this the open
+// card's indicator reads its own row, finds nothing waiting, and says "Saved"
+// over a checklist edit sitting in the queue.
+describe('work written through a sub-entity of a card', () => {
+  const ITEM_ID = testUuid('item');
+
+  function checklistEdit(): SubmitInput {
+    return {
+      projectId: PROJECT_ID,
+      entityId: ITEM_ID,
+      taskId: TASK_ID,
+      label: 'Checked “Ship it”',
+      request: {
+        method: 'PATCH',
+        path: '/api/checklist-items/{id}',
+        pathParams: { id: ITEM_ID },
+        body: { checked: true },
+      },
+    };
+  }
+
+  it('counts as pending against the card it was typed on', async () => {
+    unreachable();
+
+    await outbox.submit(checklistEdit());
+
+    expect(outbox.isPending(TASK_ID)).toBe(true);
+    expect(outbox.isPending(OTHER_ID)).toBe(false);
+  });
+
+  it('reports a failure against that card too', async () => {
+    unreachable();
+    await outbox.submit(checklistEdit());
+
+    fetchMock.mockReset();
+    alwaysRespond(422, { error: 'No such item' });
+    await outbox.drain();
+
+    expect(outbox.hasIssue(TASK_ID)).toBe(true);
+    expect(outbox.hasIssue(OTHER_ID)).toBe(false);
+  });
+
+  it('leaves an op that writes a card directly attributed to that card', async () => {
+    unreachable();
+
+    await outbox.submit(edit());
+
+    expect(outbox.isPending(TASK_ID)).toBe(true);
+  });
+});
+
 describe('replaying a move made offline', () => {
   const AFTER_ID = testUuid('after');
   const BEFORE_ID = testUuid('before');

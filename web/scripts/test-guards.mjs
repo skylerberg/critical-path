@@ -1443,4 +1443,28 @@ export const guards = [
     replace: '{#if true}',
     tests: ['src/components/Nav.test.ts'],
   },
+  {
+    // A checklist row and a comment are written through their own ids, so the
+    // card they belong to is only knowable from the op. Read `entityId` alone and
+    // the open card finds nothing waiting on its own row and says "Saved" over a
+    // checklist edit still in the queue — the one claim the indicator must not make.
+    name: 'work queued through a sub-entity counts against the card it was typed on',
+    testName: 'counts as pending against the card it was typed on',
+    file: 'src/lib/outbox.svelte.ts',
+    find: '      const key = op.taskId ?? op.entityId;',
+    replace: '      const key = op.entityId;',
+    tests: ['src/lib/outbox.test.ts'],
+  },
+  {
+    // Answering from the whole queue is what the global indicator at the bottom
+    // of the screen already does. Doing it here too makes an untouched card
+    // report unsaved because some other card is waiting, which is the reading
+    // that sends someone hunting for a Save button on the wrong card.
+    name: 'the card indicator answers for its own card and not for the queue',
+    testName: 'is not moved by work queued against a different card',
+    file: 'src/components/TaskDetail.svelte',
+    find: '      queued: outbox.isPending(taskId),',
+    replace: '      queued: outbox.count > 0,',
+    tests: ['src/components/TaskDetail.test.ts'],
+  },
 ];

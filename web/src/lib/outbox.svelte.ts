@@ -58,6 +58,8 @@ export interface OutboxIssue {
 export interface SubmitInput {
   projectId: string;
   entityId: string;
+  /** See `QueuedOp.taskId`: only where the card is not the entity being written. */
+  taskId?: string;
   label: string;
   request: SerializedRequest;
   semantics?: QueuedOp['semantics'];
@@ -146,18 +148,30 @@ class OutboxStore {
     return this.#unsent.length;
   }
 
-  #pendingByEntity = $derived.by(() => {
+  // Keyed by the card rather than by the entity written, so a queued checklist
+  // row or comment edit counts against the card it was typed on. `entityId` is
+  // already the card id for every op that writes one directly, which is why the
+  // fallback is not a special case.
+  #pendingByTask = $derived.by(() => {
     const counts = new SvelteMap<string, number>();
     for (const op of this.#unsent) {
-      counts.set(op.entityId, (counts.get(op.entityId) ?? 0) + 1);
+      const key = op.taskId ?? op.entityId;
+      counts.set(key, (counts.get(key) ?? 0) + 1);
     }
     return counts;
   });
 
-  // Drives the per-card marker, so pending state is visible at the point of the
-  // work rather than only in a global banner.
-  isPending(entityId: string): boolean {
-    return this.#pendingByEntity.has(entityId);
+  // Drives the per-card marker and the open card's own save indicator, so pending
+  // state is visible at the point of the work rather than only in a global banner.
+  isPending(taskId: string): boolean {
+    return this.#pendingByTask.has(taskId);
+  }
+
+  // Changes to one card that are over rather than waiting. Counted the same way
+  // `isPending` is, so a rejected comment edit is reported on the card it was
+  // written on and not only in the global panel.
+  hasIssue(taskId: string): boolean {
+    return this.#issues.some((issue) => (issue.taskId ?? issue.entityId) === taskId);
   }
 
   get oldestQueuedAt(): string | null {
@@ -193,6 +207,7 @@ class OutboxStore {
       userId: session.user?.id ?? '',
       projectId: input.projectId,
       entityId: input.entityId,
+      taskId: input.taskId,
       semantics: input.semantics ?? 'plain',
       label: input.label,
       request: input.request,
@@ -703,9 +718,13 @@ class OutboxStore {
         label: op.label,
         projectId: op.projectId,
         entityId: op.entityId,
+        taskId: op.taskId,
         queuedAt: op.queuedAt,
         at: new Date().toISOString(),
         request: op.request,
+        // Last, so the conflict path's explicit taskId wins over the op's: that
+        // one names the card the resolver has to open, which is the same card
+        // here but is the reason the field existed before this did.
         ...issue,
       },
     ];

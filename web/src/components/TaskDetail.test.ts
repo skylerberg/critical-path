@@ -8,7 +8,9 @@ import TaskDetailRouteHost from './TaskDetailRouteHost.svelte';
 import { board } from '../lib/board.svelte';
 import { realtimeEvent } from '../lib/realtime-test-events';
 import { conflictDrafts } from '../lib/conflictDrafts.svelte';
+import { connectivity } from '../lib/connectivity.svelte';
 import { drafts } from '../lib/drafts.svelte';
+import { outbox } from '../lib/outbox.svelte';
 import { projects } from '../lib/projects.svelte';
 import { byRank } from '../lib/ranks';
 import { router } from '../lib/router.svelte';
@@ -149,6 +151,10 @@ beforeEach(() => {
   shortcuts.reset();
   drafts.clearAll();
   conflictDrafts.clearAll();
+  // The card's own save indicator reads both, so a test that parks work in the
+  // queue must not leave the next card reporting it.
+  outbox.reset();
+  connectivity.resetForTests();
   projects.reset();
   users.reset();
   session.user = me;
@@ -1142,6 +1148,161 @@ describe('TaskDetail', () => {
 
     expect(redirect).not.toHaveBeenCalled();
     expect(screen.getByRole('dialog')).toBeInTheDocument();
+  });
+
+  // The ✕ is a scroll away on any card with content in it, which is why people
+  // reached the end of one looking for a Save button and found nothing.
+  describe('the way out at the end of the card', () => {
+    it('closes from the row Duplicate and Archive are in', async () => {
+      const redirect = vi.spyOn(router, 'redirect').mockImplementation(() => {});
+      renderDetail({ taskId: T1, closePath: BOARD_PATH });
+
+      await fireEvent.click(screen.getByRole('button', { name: 'Close task' }));
+
+      expect(redirect).toHaveBeenCalledWith(BOARD_PATH);
+    });
+
+    // Pressing it is what people were hunting for a Save button to do, so it has
+    // to send the field that has not committed itself yet.
+    it('commits an uncommitted title edit on the way out', async () => {
+      vi.spyOn(router, 'redirect').mockImplementation(() => {});
+      renderDetail({ taskId: T1, closePath: BOARD_PATH });
+      await fireEvent.input(screen.getByLabelText('Task title'), {
+        target: { value: 'Design cards v2' },
+      });
+
+      await fireEvent.click(screen.getByRole('button', { name: 'Close task' }));
+
+      await waitFor(() => expect(taskPatches()).toHaveLength(1));
+      expect(await taskPatches()[0]!.json()).toMatchObject({ title: 'Design cards v2' });
+    });
+
+    // Two buttons doing one thing, and a screen reader hears the list rather
+    // than the layout: one word twice would be two identical entries in it.
+    it('names the two ways out distinctly', () => {
+      renderDetail({ taskId: T1, closePath: BOARD_PATH });
+
+      expect(screen.getByRole('button', { name: 'Close' })).toHaveTextContent('✕');
+      expect(screen.getByRole('button', { name: 'Close task' })).toHaveTextContent('Close');
+    });
+
+    it('gives a reader the way out and nothing to save', () => {
+      renderDetail({ taskId: T1, ...publicView });
+
+      expect(screen.getByRole('button', { name: 'Close task' })).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Archive' })).toBeNull();
+      expect(screen.queryByTestId('card-save-status')).toBeNull();
+    });
+
+    // The status is not a live region — the description already has one — so
+    // reaching the button is what reads it out.
+    it('describes the Close button with the status beside it', () => {
+      renderDetail({ taskId: T1, closePath: BOARD_PATH });
+
+      const status = screen.getByTestId('card-save-status');
+      expect(status.id).not.toBe('');
+      expect(screen.getByRole('button', { name: 'Close task' })).toHaveAttribute(
+        'aria-describedby',
+        status.id
+      );
+    });
+  });
+
+  describe('the save indicator beside it', () => {
+    const ITEM_ID = testUuid('item');
+
+    function saveStatus(): string {
+      return screen.getByTestId('card-save-status').textContent?.trim() ?? '';
+    }
+
+    // Queued without going through a mutation, so the state under test is the
+    // queue holding work rather than whichever endpoint happened to be stubbed.
+    // Offline first: a submit with the server reachable would send instead.
+    async function queueChecklistEditAgainst(taskId: string): Promise<void> {
+      connectivity.noteUnreachable();
+      const result = await outbox.submit({
+        projectId: PROJECT_ID,
+        entityId: ITEM_ID,
+        taskId,
+        label: 'Checked an item',
+        request: {
+          method: 'PATCH',
+          path: '/api/checklist-items/{id}',
+          pathParams: { id: ITEM_ID },
+          body: { checked: true },
+        },
+      });
+      expect(result.status).toBe('queued');
+    }
+
+    it('says the card is saved when nothing is outstanding', () => {
+      renderDetail({ taskId: T1, closePath: BOARD_PATH });
+
+      expect(saveStatus()).toBe('Saved');
+    });
+
+    it('follows the description from saving back to saved', async () => {
+      vi.useFakeTimers();
+      try {
+        const { container } = renderDetail({ taskId: T1, closePath: BOARD_PATH });
+        await tick();
+
+        descriptionEditor(container).commands.insertContent('Draft text');
+        await tick();
+        expect(saveStatus()).toBe('Saving…');
+
+        await vi.advanceTimersByTimeAsync(800);
+        await tick();
+        expect(taskPatches()).toHaveLength(1);
+        expect(saveStatus()).toBe('Saved');
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    // The title commits on blur rather than on a timer, so text still in the
+    // field really has not been sent — and saying so is what points at the
+    // button beside it, which sends it.
+    it('does not call a title still sitting in the field saved', async () => {
+      renderDetail({ taskId: T1, closePath: BOARD_PATH });
+
+      await fireEvent.input(screen.getByLabelText('Task title'), {
+        target: { value: 'Design cards v2' },
+      });
+
+      expect(saveStatus()).toBe('Not saved yet');
+    });
+
+    // The claim the whole indicator exists to avoid making.
+    it('does not call the card saved while a change to it waits in the queue', async () => {
+      renderDetail({ taskId: T1, closePath: BOARD_PATH });
+      await waitFor(() => expect(saveStatus()).toBe('Saved'));
+
+      await queueChecklistEditAgainst(T1);
+
+      await waitFor(() => expect(saveStatus()).toBe('Not saved yet'));
+    });
+
+    // The card is scoped to itself on purpose: the global indicator at the
+    // bottom of the screen is what speaks for the rest of the board.
+    it('is not moved by work queued against a different card', async () => {
+      renderDetail({ taskId: T1, closePath: BOARD_PATH });
+      await waitFor(() => expect(saveStatus()).toBe('Saved'));
+
+      await queueChecklistEditAgainst(T2);
+
+      await tick();
+      expect(saveStatus()).toBe('Saved');
+    });
+
+    it('reports a card whose save was refused as needing attention', async () => {
+      mockConflict();
+      renderDetail({ taskId: T1, closePath: BOARD_PATH });
+
+      await editTitle('Design cards v2');
+
+      await waitFor(() => expect(saveStatus()).toBe('Not saved — needs attention'));
+    });
   });
 
   it('does not re-send a committed title when the overlay then closes', async () => {

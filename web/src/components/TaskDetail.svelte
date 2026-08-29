@@ -2,10 +2,12 @@
   import { tick, untrack } from 'svelte';
   import { board, type TaskUpdateOutcome } from '../lib/board.svelte';
   import type { BoardTask } from '../lib/board-types';
+  import { cardSaveState } from '../lib/card-save-state';
   import { baseOf, CardWriteSessions, type CardWriteSession } from '../lib/card-write-session';
   import { conflictDrafts, type TaskVersion } from '../lib/conflictDrafts.svelte';
   import { formatFullDate, isCalendarDate } from '../lib/dates';
   import { currentProjectMentionCandidates } from '../lib/mentions';
+  import { outbox } from '../lib/outbox.svelte';
   import { router } from '../lib/router.svelte';
   import { crossProjectTotal } from '../lib/cross-project-counts';
   import { crossProjectDeps } from '../lib/crossProjectDeps.svelte';
@@ -23,6 +25,7 @@
   import TaskHistory from './TaskHistory.svelte';
   import TaskLabels from './TaskLabels.svelte';
   import TaskQuickActions from './TaskQuickActions.svelte';
+  import CardSaveStatus from './CardSaveStatus.svelte';
   import Announcer from './ui/Announcer.svelte';
   import { announcer } from '../lib/announcer.svelte';
   import Button from './ui/Button.svelte';
@@ -48,6 +51,13 @@
   // stream, the history and the timestamps; a public reader has none of that and
   // is served a payload whose identity and timestamp fields are placeholders.
   const anonymous = $derived(board.readonly);
+  // Everything the footer's Duplicate, Archive and save indicator depend on. A
+  // reader still gets Close: they scroll to the bottom of a card for the same
+  // reason anyone else does.
+  const editable = $derived(!anonymous && !readonly);
+
+  const uid = $props.id();
+  const saveStatusId = `${uid}-save-status`;
 
   const cross = $derived(crossProjectDeps.get(taskId)?.deps ?? null);
   // The same idiom as TaskAttachments: the card already knows how many rows are
@@ -155,6 +165,21 @@
   // it promises is safe, so they cannot disagree, and neither dies with the overlay.
   const draft = $derived(conflictDrafts.get(taskId));
   const conflicted = $derived(draft !== null);
+
+  // What the footer indicator says, for this card alone. The editor reports
+  // 'saving' from the moment the document changes, so its debounce is already
+  // covered; the title is not, because it commits on blur, which is what
+  // `titleDraft` being set means and why it reads as unsent rather than as a
+  // save in progress.
+  const saveState = $derived(
+    cardSaveState({
+      failed: conflicted || card.descriptionSaveState === 'error' || outbox.hasIssue(taskId),
+      queued: outbox.isPending(taskId),
+      draining: outbox.draining,
+      saving: card.descriptionSaveState === 'saving',
+      dirty: card.titleDraft !== null,
+    })
+  );
 
   // byId, not displayFor — see the note on byId.
   const storedAuthorId = $derived(task === undefined ? null : contentAuthorAt(task.updated_at));
@@ -756,8 +781,15 @@
         </details>
       {/if}
 
-      {#if !anonymous && !readonly}
-        <div class="flex gap-2 border-t border-edge pt-4">
+      <!-- The way out, at the end of the card, because that is where people go
+           looking for one — the ✕ is a scroll away by the time a card has a
+           description, a checklist and a stream of comments. The status sits
+           beside it because the same trip is what they came to settle: the
+           question behind hunting for a Save button is whether it is safe to
+           leave yet. Named "Close task" rather than "Close" so it and the ✕ are
+           two distinct things to a screen reader rather than one word twice. -->
+      <div class="flex flex-wrap items-center gap-2 border-t border-edge pt-4">
+        {#if editable}
           <Button
             variant="secondary"
             disabled={card.duplicating}
@@ -766,8 +798,19 @@
             Duplicate
           </Button>
           <Button variant="secondary" onclick={() => void handleArchive()}>Archive</Button>
-        </div>
-      {/if}
+        {/if}
+        <Button
+          variant="secondary"
+          aria-label="Close task"
+          aria-describedby={editable ? saveStatusId : undefined}
+          onclick={close}
+        >
+          Close
+        </Button>
+        {#if editable}
+          <CardSaveStatus id={saveStatusId} state={saveState} />
+        {/if}
+      </div>
 
       <!-- Last, so the card's own editor stays the first one in the document: the
            resolver renders read-only copies of the same component. -->
