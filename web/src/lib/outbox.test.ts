@@ -2,6 +2,7 @@ import { fetchMock, jsonResponse } from '../api/testUtils';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { connectivity } from './connectivity.svelte';
 import { conflictDrafts } from './conflictDrafts.svelte';
+import { newId } from './ids';
 import { outbox, type SubmitInput } from './outbox.svelte';
 import { resetConnectionForTests, writeOp } from './offline-db';
 import { session } from './session.svelte';
@@ -42,7 +43,7 @@ const user = {
 function edit(overrides: Partial<SubmitInput> = {}): SubmitInput {
   return {
     projectId: PROJECT_ID,
-    entityId: TASK_ID,
+    subject: { kind: 'task', id: TASK_ID },
     label: 'Renamed a card',
     request: {
       method: 'PATCH',
@@ -74,7 +75,7 @@ function alwaysRespond(status: number, body: unknown = {}): void {
 function otherTaskEdit(label: string): SubmitInput {
   return edit({
     label,
-    entityId: OTHER_ID,
+    subject: { kind: 'task', id: OTHER_ID },
     request: {
       method: 'PATCH',
       path: '/api/tasks/{id}',
@@ -256,7 +257,13 @@ describe('when a replayed change cannot be applied', () => {
       mine: version('mine'),
     });
     expect(outbox.issues).toHaveLength(1);
-    expect(outbox.issues[0]).toMatchObject({ reason: 'conflict', taskId: TASK_ID });
+    // The card the resolver has to open comes off the subject now, rather than
+    // from a field only this one path filled in.
+    expect(outbox.issues[0]).toMatchObject({
+      reason: 'conflict',
+      subject: { kind: 'task', id: TASK_ID },
+    });
+    expect(outbox.hasIssue(TASK_ID)).toBe(true);
     expect(outbox.count).toBe(0);
   });
 
@@ -366,8 +373,7 @@ describe('work written through a sub-entity of a card', () => {
   function checklistEdit(): SubmitInput {
     return {
       projectId: PROJECT_ID,
-      entityId: ITEM_ID,
-      taskId: TASK_ID,
+      subject: { kind: 'checklistItem', id: ITEM_ID, taskId: TASK_ID },
       label: 'Checked “Ship it”',
       request: {
         method: 'PATCH',
@@ -406,6 +412,90 @@ describe('work written through a sub-entity of a card', () => {
 
     expect(outbox.isPending(TASK_ID)).toBe(true);
   });
+
+  // A card that is gone takes its checklist and its comments with it, so their
+  // queued edits are decided by the same 404. Grouped on the row alone they were
+  // left behind to fail one at a time, each filing its own report — the pile the
+  // grouping exists to prevent, one level down from where it was looking.
+  it('is doomed with the card it is on, and reported once', async () => {
+    unreachable();
+    await outbox.submit(edit());
+    await outbox.submit(checklistEdit());
+    expect(outbox.count).toBe(2);
+
+    fetchMock.mockReset();
+    alwaysRespond(404, { error: 'No such task' });
+    await outbox.drain();
+
+    expect(outbox.count).toBe(0);
+    expect(outbox.issues).toHaveLength(1);
+    expect(outbox.issues[0]).toMatchObject({ reason: 'gone' });
+    expect(outbox.issues[0]?.detail).toContain('2 of your changes');
+  });
+
+  // The other direction, which must not follow: one checklist row going missing
+  // says nothing about the card or about anything else on it.
+  it('does not doom the card when only its own row is gone', async () => {
+    unreachable();
+    await outbox.submit(checklistEdit());
+    await outbox.submit(edit());
+
+    fetchMock.mockReset();
+    fetchMock.mockImplementation((input) => {
+      const request = input as Request;
+      return Promise.resolve(
+        new URL(request.url).pathname.startsWith('/api/checklist-items')
+          ? jsonResponse(404, { error: 'No such item' })
+          : jsonResponse(200, { id: TASK_ID, updated_at: 'now' })
+      );
+    });
+    await outbox.drain();
+
+    expect(outbox.count).toBe(0);
+    expect(outbox.issues).toHaveLength(1);
+    // Singular: only the row that went missing, and the card's own edit went out.
+    expect(outbox.issues[0]?.detail).toContain('your change could not be applied');
+  });
+});
+
+// One request, many cards. Travelling as the first id in the set meant the other
+// nineteen showed no unsent marker and a refusal doomed none of their work.
+describe('a change that names more than one card', () => {
+  function bulkArchive(ids: string[]): SubmitInput {
+    return {
+      projectId: PROJECT_ID,
+      subject: { kind: 'tasks', ids },
+      label: `Archived ${String(ids.length)} cards`,
+      request: {
+        method: 'POST',
+        path: '/api/tasks/bulk-archive',
+        body: { project_id: PROJECT_ID, task_ids: ids },
+      },
+    };
+  }
+
+  it('marks every card it names as pending, not only the first', async () => {
+    unreachable();
+
+    await outbox.submit(bulkArchive([TASK_ID, OTHER_ID]));
+
+    expect(outbox.isPending(TASK_ID)).toBe(true);
+    expect(outbox.isPending(OTHER_ID)).toBe(true);
+  });
+
+  it('dooms work queued against any card it names', async () => {
+    unreachable();
+    await outbox.submit(bulkArchive([TASK_ID, OTHER_ID]));
+    await outbox.submit(otherTaskEdit('Renamed the second card'));
+
+    fetchMock.mockReset();
+    alwaysRespond(403, { error: 'No access' });
+    await outbox.drain();
+
+    expect(outbox.count).toBe(0);
+    expect(outbox.issues).toHaveLength(1);
+    expect(outbox.issues[0]).toMatchObject({ reason: 'forbidden' });
+  });
 });
 
 describe('replaying a move made offline', () => {
@@ -435,7 +525,7 @@ describe('replaying a move made offline', () => {
 
   function moveOf(taskId: string, afterId: string, beforeId: string, label: string): SubmitInput {
     return edit({
-      entityId: taskId,
+      subject: { kind: 'task', id: taskId },
       semantics: 'move',
       label,
       move: { kind: 'task' as const, columnId: COLUMN_ID, afterId, beforeId },
@@ -659,7 +749,7 @@ describe('replaying a move made offline', () => {
     unreachable();
     await outbox.submit(
       edit({
-        entityId: COLUMN_ID,
+        subject: { kind: 'column', id: COLUMN_ID },
         semantics: 'move',
         label: 'Moved column',
         move: { kind: 'column' as const, afterId: AFTER_ID, beforeId: BEFORE_ID },
@@ -702,7 +792,7 @@ describe('replaying a move made offline', () => {
     unreachable();
     await outbox.submit(
       edit({
-        entityId: OTHER_ID,
+        subject: { kind: 'checklistItem', id: OTHER_ID, taskId: TASK_ID },
         semantics: 'move',
         label: 'Reordered a checklist item',
         move: {
@@ -774,7 +864,7 @@ describe('replaying a move made offline', () => {
     await outbox.submit(
       edit({
         projectId: OTHER_PROJECT,
-        entityId: OTHER_ID,
+        subject: { kind: 'task', id: OTHER_ID },
         semantics: 'move',
         label: 'Moved there',
         move: {
@@ -864,7 +954,7 @@ describe('the bounds the queue enforces', () => {
       seq: 1,
       userId: user.id,
       projectId: PROJECT_ID,
-      entityId: TASK_ID,
+      subject: { kind: 'task', id: TASK_ID },
       semantics: 'move',
       label: 'Moved by an older build',
       // Deliberately the old shape, cast in: this is what is actually at rest.
@@ -914,6 +1004,90 @@ describe('the bounds the queue enforces', () => {
     expect(outbox.issues).toHaveLength(0);
   });
 
+  // The same problem one field over: a queue written before `subject` replaced
+  // `entityId`. The request replays either way — all that is recovered here is
+  // which row and which card to report it against, and the path is the only
+  // thing stored that still says which it was.
+  async function storeLegacy(fields: Record<string, unknown>): Promise<void> {
+    await writeOp({
+      id: newId(),
+      seq: 1,
+      userId: user.id,
+      projectId: PROJECT_ID,
+      semantics: 'plain',
+      label: 'Queued by an older build',
+      queuedAt: new Date().toISOString(),
+      attempts: 0,
+      ...fields,
+    } as never);
+    unreachable();
+    await outbox.hydrate();
+  }
+
+  it('reads a stored checklist row back onto the card it travelled with', async () => {
+    await storeLegacy({
+      entityId: testUuid('item'),
+      taskId: TASK_ID,
+      request: {
+        method: 'PATCH',
+        path: '/api/checklist-items/{id}',
+        pathParams: { id: testUuid('item') },
+        body: { checked: true },
+      },
+    });
+
+    expect(outbox.count).toBe(1);
+    expect(outbox.isPending(TASK_ID)).toBe(true);
+  });
+
+  it('reads a stored task row back as its own card', async () => {
+    await storeLegacy({
+      entityId: TASK_ID,
+      request: {
+        method: 'PATCH',
+        path: '/api/tasks/{id}',
+        pathParams: { id: TASK_ID },
+        body: { title: 'new' },
+      },
+    });
+
+    expect(outbox.isPending(TASK_ID)).toBe(true);
+  });
+
+  // Written before the card travelled at all. Claiming one would mark the wrong
+  // card unsaved, so it claims none — which is exactly what was true of it then.
+  it('claims no card for a stored row whose card was never recorded', async () => {
+    await storeLegacy({
+      entityId: testUuid('item'),
+      request: {
+        method: 'PATCH',
+        path: '/api/checklist-items/{id}',
+        pathParams: { id: testUuid('item') },
+        body: { checked: true },
+      },
+    });
+
+    expect(outbox.count).toBe(1);
+    expect(outbox.isPending(TASK_ID)).toBe(false);
+    expect(outbox.isPending(testUuid('item'))).toBe(false);
+  });
+
+  // `/api/tasks/{id}/labels` is a task write whose path contains the word, so the
+  // test that separates the two has to read the prefix and not search for it.
+  it('reads a stored label change on a card back as that card', async () => {
+    await storeLegacy({
+      entityId: TASK_ID,
+      request: {
+        method: 'PUT',
+        path: '/api/tasks/{id}/labels',
+        pathParams: { id: TASK_ID },
+        body: { label_ids: [] },
+      },
+    });
+
+    expect(outbox.isPending(TASK_ID)).toBe(true);
+  });
+
   // A row stored by some other build, or one that got mangled on the way back
   // out. Whatever it is, a timestamp that cannot be read is not evidence that the
   // work behind it is stale.
@@ -923,7 +1097,7 @@ describe('the bounds the queue enforces', () => {
       seq: 1,
       userId: user.id,
       projectId: PROJECT_ID,
-      entityId: TASK_ID,
+      subject: { kind: 'task', id: TASK_ID },
       semantics: 'plain',
       label: 'read back from another build',
       request: {

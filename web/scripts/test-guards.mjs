@@ -943,7 +943,7 @@ export const guards = [
     name: 'a replayed move is ranked against where the move before it landed',
     testName: 'rekeys a move against where the move before it just landed',
     file: 'src/lib/outbox.svelte.ts',
-    find: '              applyMoveLocally(board, op.entityId, op.move, request, lists);\n',
+    find: '              applyMoveLocally(board, movedRowId(op.subject), op.move, request, lists);\n',
     replace: '',
     tests: ['src/lib/outbox.test.ts'],
   },
@@ -1445,15 +1445,38 @@ export const guards = [
   },
   {
     // A checklist row and a comment are written through their own ids, so the
-    // card they belong to is only knowable from the op. Read `entityId` alone and
-    // the open card finds nothing waiting on its own row and says "Saved" over a
-    // checklist edit still in the queue — the one claim the indicator must not make.
+    // card they belong to is only knowable from the subject. Lose it and the open
+    // card finds nothing waiting on its own row and says "Saved" over a checklist
+    // edit still in the queue — the one claim the indicator must not make.
     name: 'work queued through a sub-entity counts against the card it was typed on',
     testName: 'counts as pending against the card it was typed on',
-    file: 'src/lib/outbox.svelte.ts',
-    find: '      const key = op.taskId ?? op.entityId;',
-    replace: '      const key = op.entityId;',
+    file: 'src/lib/outbox-ops.ts',
+    find: '      return [subject.taskId];',
+    replace: '      return [];',
     tests: ['src/lib/outbox.test.ts'],
+  },
+  {
+    // Grouping a 404 on the row alone leaves a deleted card's checklist edits
+    // behind to fail one at a time, each filing its own report — the pile of
+    // separate failures the grouping was written to prevent, one level down from
+    // where it was looking.
+    name: 'a verdict on a card settles the rows sitting on it',
+    testName: 'is doomed with the card it is on, and reported once',
+    file: 'src/lib/outbox-ops.ts',
+    find: '  return [...rowsOf(queued), ...cardsOf(queued)].some((id) => gone.has(id));',
+    replace: '  return rowsOf(queued).some((id) => gone.has(id));',
+    tests: ['src/lib/outbox.test.ts'],
+  },
+  {
+    // Knowing which card a failure is on is not the same as having somewhere to
+    // send the user. Gated on the card instead of the reason, every refusal
+    // offers to open a card that has nothing in it to merge.
+    name: 'only a conflict offers the card as somewhere to go',
+    testName: 'offers no merge link for a failure that is not a conflict',
+    file: 'src/components/UnsyncedChangesPanel.svelte',
+    find: "    if (issue.reason !== 'conflict') {\n      return null;\n    }\n",
+    replace: '',
+    tests: ['src/components/UnsyncedChangesPanel.test.ts'],
   },
   {
     // Answering from the whole queue is what the global indicator at the bottom

@@ -26,7 +26,7 @@ function op(seq: number, overrides: Partial<QueuedOp> = {}): QueuedOp {
     seq,
     userId: ADA,
     projectId: testUuid('p1'),
-    entityId: testUuid('t1'),
+    subject: { kind: 'task', id: testUuid('t1') },
     semantics: 'plain',
     label: `Change ${String(seq)}`,
     request: { method: 'PATCH', path: '/api/tasks/{id}', pathParams: { id: testUuid('t1') } },

@@ -1,6 +1,7 @@
 <script lang="ts">
   import { board } from '../lib/board.svelte';
-  import { outbox } from '../lib/outbox.svelte';
+  import { outbox, type OutboxIssue } from '../lib/outbox.svelte';
+  import { cardsOf } from '../lib/outbox-ops';
   import { formatExactTime, formatRelativeTime } from '../lib/relativeTime';
   import { link } from '../lib/router.svelte';
   import { taskHref } from '../lib/short-links';
@@ -20,9 +21,16 @@
   const stale = $derived(isQueueStale(outbox.oldestQueuedAt));
 
   // Only a conflict has somewhere to go: the card holds the resolution UI, with
-  // the user's version already waiting in it.
-  function conflictHref(taskId: string): string | null {
-    const task = board.tasks.find((candidate) => candidate.id === taskId);
+  // the user's version already waiting in it. Gated on the reason and not on
+  // whether the issue knows a card, which is a different question and stopped
+  // being the same answer once every issue started carrying its card — a refusal
+  // would then offer to open a card with nothing in it to merge.
+  function mergeHref(issue: OutboxIssue): string | null {
+    if (issue.reason !== 'conflict') {
+      return null;
+    }
+    const [cardId] = cardsOf(issue.subject);
+    const task = board.tasks.find((candidate) => candidate.id === cardId);
     return task === undefined ? null : taskHref(task.id, task.title);
   }
 </script>
@@ -47,10 +55,10 @@
               <p class="font-medium text-ink">{issue.label}</p>
               <p class="mt-1 text-muted">{issue.detail}</p>
               <div class="mt-2 flex flex-wrap items-center gap-2">
-                {#if issue.taskId !== undefined && conflictHref(issue.taskId) !== null}
+                {#if mergeHref(issue) !== null}
                   <a
                     use:link
-                    href={conflictHref(issue.taskId)}
+                    href={mergeHref(issue)}
                     class="inline-flex min-h-11 items-center rounded-md px-3 text-accent hover:bg-accent-soft"
                     onclick={onclose}
                   >

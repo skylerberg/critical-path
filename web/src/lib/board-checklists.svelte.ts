@@ -65,7 +65,7 @@ export class BoardChecklists {
     this.replace(taskId, (items) => [...items, optimistic]);
     this.setCounts(taskId, ({ total, done }) => ({ total: total + 1, done }));
     const result = await this.#board.send<ChecklistItem>({
-      entityId: taskId,
+      subject: { kind: 'task', id: taskId },
       label: `New checklist item “${truncateTitle(text)}”`,
       semantics: 'create',
       request: {
@@ -160,8 +160,7 @@ export class BoardChecklists {
     move?: MoveIntent
   ): Promise<void> {
     const result = await this.#board.send<ChecklistItem>({
-      entityId: itemId,
-      taskId,
+      subject: { kind: 'checklistItem', id: itemId, taskId },
       label,
       semantics: move === undefined ? undefined : 'move',
       move,
@@ -193,8 +192,7 @@ export class BoardChecklists {
     }));
     await this.#board.sendOrFail(
       {
-        entityId: itemId,
-        taskId,
+        subject: { kind: 'checklistItem', id: itemId, taskId },
         label: `Deleted checklist item “${truncateTitle(removed?.text ?? '')}”`,
         request: {
           method: 'DELETE',
@@ -228,7 +226,7 @@ export class BoardChecklists {
       optimisticTask(id, parent.column_id, item.text, placement),
     ]);
     const result = await this.#board.send<BoardTask>({
-      entityId: id,
+      subject: { kind: 'task', id },
       label: `Promoted “${truncateTitle(item.text)}” to a card`,
       semantics: 'create',
       request: {

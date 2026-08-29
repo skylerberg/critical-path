@@ -35,7 +35,7 @@ function version(title: string) {
 function contentEdit(title: string, expected: string, base: string): SubmitInput {
   return {
     projectId: PROJECT_ID,
-    entityId: TASK_ID,
+    subject: { kind: 'task', id: TASK_ID },
     label: `Renamed to ${title}`,
     semantics: 'contentEdit',
     conflict: { taskId: TASK_ID, base: version(base), mine: version(title) },
@@ -48,15 +48,15 @@ function contentEdit(title: string, expected: string, base: string): SubmitInput
   };
 }
 
-function plainEdit(label: string, entityId: string): SubmitInput {
+function plainEdit(label: string, taskId: string): SubmitInput {
   return {
     projectId: PROJECT_ID,
-    entityId,
+    subject: { kind: 'task', id: taskId },
     label,
     request: {
       method: 'PATCH',
       path: '/api/tasks/{id}',
-      pathParams: { id: entityId },
+      pathParams: { id: taskId },
       body: { title: label },
     },
   };

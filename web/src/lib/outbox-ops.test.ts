@@ -19,7 +19,7 @@ function op(overrides: Partial<QueuedOp> = {}): QueuedOp {
     seq: 1,
     userId: testUuid('u1'),
     projectId: testUuid('p1'),
-    entityId: TASK_ID,
+    subject: { kind: 'task', id: TASK_ID },
     semantics: 'plain',
     label: 'Renamed a card',
     request: {

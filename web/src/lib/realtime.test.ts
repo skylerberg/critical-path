@@ -1093,7 +1093,7 @@ describe('reconnect', () => {
     fetchMock.mockRejectedValue(new TypeError('Failed to fetch'));
     await outbox.submit({
       projectId: 'p1',
-      entityId: 't1',
+      subject: { kind: 'task', id: 't1' },
       label: 'Renamed a card',
       request: {
         method: 'PATCH',

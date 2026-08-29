@@ -724,7 +724,7 @@ class BoardStore {
     const placement = append(this.tasksInColumn(columnId));
     this.tasks = [...this.tasks, optimisticTask(id, columnId, title, placement)];
     const result = await this.#sendOrFail<BoardTask>({
-      entityId: id,
+      subject: { kind: 'task', id },
       label: `New card “${truncateTitle(title)}”`,
       semantics: 'create',
       request: {
@@ -762,7 +762,7 @@ class BoardStore {
     const result = await this.#sendOrFail<BulkTasksResponse>({
       // The batch is all-or-nothing on a duplicate id, so replaying it either
       // creates every card or reports that they are already there — never half.
-      entityId: created[0]!.id,
+      subject: { kind: 'tasks', ids: created.map((task) => task.id) },
       label: `${String(created.length)} new cards`,
       semantics: 'create',
       request: {
@@ -813,7 +813,7 @@ class BoardStore {
     };
     this.tasks = [...this.tasks, optimistic];
     const result = await this.#sendOrFail<BoardTask>({
-      entityId: id,
+      subject: { kind: 'task', id },
       label: `Duplicated “${truncateTitle(source.title)}”`,
       semantics: 'create',
       request: {
@@ -882,7 +882,7 @@ class BoardStore {
     );
     const title = this.tasks.find((task) => task.id === taskId)?.title ?? '';
     await this.#sendOrFail({
-      entityId: taskId,
+      subject: { kind: 'task', id: taskId },
       label: `Moved “${truncateTitle(title)}”`,
       semantics: 'move',
       move: { kind: 'task', columnId, ...neighborIds(intent) },
@@ -955,7 +955,7 @@ class BoardStore {
     const guarded = expectedUpdatedAt !== undefined && base !== undefined;
     const title = this.tasks.find((task) => task.id === taskId)?.title ?? '';
     const result = await this.#send<BoardTask>({
-      entityId: taskId,
+      subject: { kind: 'task', id: taskId },
       label: `Edited “${truncateTitle(title)}”`,
       semantics: guarded ? 'contentEdit' : 'plain',
       conflict: guarded ? { taskId, base, mine: mergeVersion(base, patch) } : undefined,
@@ -1009,7 +1009,7 @@ class BoardStore {
     this.#discardArchivedLoad();
     this.archivedTasks = this.archivedTasks.filter((task) => task.id !== taskId);
     await this.#sendOrFail({
-      entityId: taskId,
+      subject: { kind: 'task', id: taskId },
       label: `Deleted “${truncateTitle(title)}”`,
       request: { method: 'DELETE', path: '/api/tasks/{id}', pathParams: { id: taskId } },
     });
@@ -1028,7 +1028,7 @@ class BoardStore {
       ...this.archivedTasks,
     ];
     const result = await this.#send<ArchivedTask>({
-      entityId: taskId,
+      subject: { kind: 'task', id: taskId },
       label: `Archived “${truncateTitle(task.title)}”`,
       request: { method: 'POST', path: '/api/tasks/{id}/archive', pathParams: { id: taskId } },
     });
@@ -1047,7 +1047,7 @@ class BoardStore {
     this.#discardArchivedLoad();
     this.archivedTasks = this.archivedTasks.filter((t) => t.id !== taskId);
     const result = await this.#sendOrFail<BoardTask>({
-      entityId: taskId,
+      subject: { kind: 'task', id: taskId },
       label: `Restored “${truncateTitle(archived?.title ?? '')}”`,
       request: { method: 'POST', path: '/api/tasks/{id}/restore', pathParams: { id: taskId } },
     });
@@ -1081,7 +1081,7 @@ class BoardStore {
     const placement = append(this.columns);
     this.columns = [...this.columns, { id, name, ...placement, is_done: false }];
     await this.#sendOrFail({
-      entityId: id,
+      subject: { kind: 'column', id },
       label: `New column “${truncateTitle(name)}”`,
       semantics: 'create',
       request: {
@@ -1097,7 +1097,7 @@ class BoardStore {
       column.id === columnId ? { ...column, name } : column
     );
     await this.#sendOrFail({
-      entityId: columnId,
+      subject: { kind: 'column', id: columnId },
       label: `Renamed a column to “${truncateTitle(name)}”`,
       request: {
         method: 'PATCH',
@@ -1114,7 +1114,7 @@ class BoardStore {
       .sort(byRank);
     const name = this.columns.find((column) => column.id === columnId)?.name ?? '';
     await this.#sendOrFail({
-      entityId: columnId,
+      subject: { kind: 'column', id: columnId },
       label: `Moved column “${truncateTitle(name)}”`,
       semantics: 'move',
       move: { kind: 'column', ...neighborIds(intent) },
@@ -1135,7 +1135,7 @@ class BoardStore {
     const is_done = !column.is_done;
     this.columns = this.columns.map((c) => (c.id === columnId ? { ...c, is_done } : c));
     await this.#sendOrFail({
-      entityId: columnId,
+      subject: { kind: 'column', id: columnId },
       label: `Marked “${truncateTitle(column.name)}” as ${is_done ? 'done' : 'not done'}`,
       request: {
         method: 'PATCH',
@@ -1164,7 +1164,7 @@ class BoardStore {
       { id, name: source.name, ...placement, is_done: source.is_done },
     ].sort(byRank);
     const result = await this.#sendOrFail<DuplicatedColumnResponse>({
-      entityId: id,
+      subject: { kind: 'column', id },
       label: `Duplicated column “${truncateTitle(source.name)}”`,
       semantics: 'create',
       request: {
@@ -1230,7 +1230,7 @@ class BoardStore {
       this.archivedTasks = this.archivedTasks.filter((task) => task.column_id !== columnId);
     }
     const result = await this.#sendOrFail<MovedTasksResponse | undefined>({
-      entityId: columnId,
+      subject: { kind: 'column', id: columnId },
       label: `Deleted column “${truncateTitle(name)}”`,
       request: {
         method: 'DELETE',
@@ -1274,7 +1274,7 @@ class BoardStore {
       return placement === undefined ? task : { ...task, column_id: targetColumnId, ...placement };
     });
     const result = await this.#sendOrFail<MovedTasksResponse>({
-      entityId: columnId,
+      subject: { kind: 'column', id: columnId },
       label: `Moved ${String(moved.length)} cards to another column`,
       request: {
         method: 'POST',
@@ -1325,7 +1325,7 @@ class BoardStore {
       return sortKey === undefined ? task : { ...task, sort_key: sortKey };
     });
     const result = await this.#sendOrFail<MovedTasksResponse>({
-      entityId: columnId,
+      subject: { kind: 'column', id: columnId },
       label: 'Sorted a column',
       request: {
         method: 'POST',
@@ -1357,7 +1357,7 @@ class BoardStore {
       ...this.archivedTasks,
     ];
     const result = await this.#send<ArchivedTasksResponse>({
-      entityId: columnId,
+      subject: { kind: 'column', id: columnId },
       label: `Archived ${String(archivingIds.length)} cards in a column`,
       request: {
         method: 'POST',
@@ -1398,7 +1398,7 @@ class BoardStore {
       return placement === undefined ? task : { ...task, column_id: columnId, ...placement };
     });
     const result = await this.#sendOrFail<BulkMovedTasksResponse>({
-      entityId: columnId,
+      subject: { kind: 'tasks', ids: [...taskIds] },
       label: `Moved ${String(taskIds.length)} cards`,
       request: {
         method: 'POST',
@@ -1442,7 +1442,7 @@ class BoardStore {
       ...this.archivedTasks,
     ];
     const result = await this.#send<BulkArchivedTasksResponse>({
-      entityId: taskIds[0]!,
+      subject: { kind: 'tasks', ids: [...taskIds] },
       label: `Archived ${String(taskIds.length)} cards`,
       request: {
         method: 'POST',
@@ -1512,7 +1512,7 @@ class BoardStore {
           : { ...task, assignee_ids: next(task.assignee_ids) }
     );
     const result = await this.#sendOrFail<BulkRelationsResponse>({
-      entityId: taskIds[0]!,
+      subject: { kind: 'tasks', ids: [...taskIds] },
       label: send.label,
       request: {
         method: 'POST',
@@ -1580,7 +1580,7 @@ class BoardStore {
     this.labels = [...this.labels, { id, name, color }];
     await this.#sendOrFail(
       {
-        entityId: id,
+        subject: { kind: 'label', id },
         label: `New label “${truncateTitle(name)}”`,
         semantics: 'create',
         request: {
@@ -1600,7 +1600,7 @@ class BoardStore {
     const name = this.labels.find((label) => label.id === labelId)?.name ?? '';
     await this.#sendOrFail(
       {
-        entityId: labelId,
+        subject: { kind: 'label', id: labelId },
         label: `Edited label “${truncateTitle(name)}”`,
         request: {
           method: 'PATCH',
@@ -1625,7 +1625,7 @@ class BoardStore {
       labelIds: this.filterLabelIds.filter((id) => id !== labelId),
     });
     await this.#sendOrFail({
-      entityId: labelId,
+      subject: { kind: 'label', id: labelId },
       label: 'Deleted a label',
       request: { method: 'DELETE', path: '/api/labels/{id}', pathParams: { id: labelId } },
     });
@@ -1635,7 +1635,7 @@ class BoardStore {
     this.tasks = patchById(this.tasks, taskId, (task) => ({ ...task, label_ids: labelIds }));
     const title = this.tasks.find((task) => task.id === taskId)?.title ?? '';
     await this.#sendOrFail({
-      entityId: taskId,
+      subject: { kind: 'task', id: taskId },
       label: `Changed labels on “${truncateTitle(title)}”`,
       request: {
         method: 'PUT',
@@ -1651,7 +1651,7 @@ class BoardStore {
     this.tasks = patchById(this.tasks, taskId, (task) => ({ ...task, assignee_ids: userIds }));
     const title = this.tasks.find((task) => task.id === taskId)?.title ?? '';
     await this.#sendOrFail({
-      entityId: taskId,
+      subject: { kind: 'task', id: taskId },
       label: `Changed assignees on “${truncateTitle(title)}”`,
       request: {
         method: 'PUT',
@@ -1711,7 +1711,7 @@ class BoardStore {
     }
     this.tasks = next;
     const result = await this.#send({
-      entityId: taskId,
+      subject: { kind: 'task', id: taskId },
       label: `Added a blocker to “${truncateTitle(target.title)}”`,
       request: {
         method: 'POST',
@@ -1736,7 +1736,7 @@ class BoardStore {
     );
     const title = this.tasks.find((task) => task.id === taskId)?.title ?? '';
     await this.#sendOrFail({
-      entityId: taskId,
+      subject: { kind: 'task', id: taskId },
       label: `Removed a blocker from “${truncateTitle(title)}”`,
       request: {
         method: 'DELETE',
