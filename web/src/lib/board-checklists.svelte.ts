@@ -161,6 +161,7 @@ export class BoardChecklists {
   ): Promise<void> {
     const result = await this.#board.send<ChecklistItem>({
       entityId: itemId,
+      taskId,
       label,
       semantics: move === undefined ? undefined : 'move',
       move,
@@ -193,6 +194,7 @@ export class BoardChecklists {
     await this.#board.sendOrFail(
       {
         entityId: itemId,
+        taskId,
         label: `Deleted checklist item “${truncateTitle(removed?.text ?? '')}”`,
         request: {
           method: 'DELETE',
