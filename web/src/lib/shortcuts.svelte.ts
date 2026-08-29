@@ -26,6 +26,29 @@ function isEditableTarget(): boolean {
   return (el as HTMLElement).isContentEditable;
 }
 
+// Enter and Space are how a focused button, link or summary is clicked, and the
+// browser synthesizes that click from the keydown this keymap sees first — so
+// claiming one of them does not merely add a second behaviour, its
+// preventDefault cancels the click outright. Tabbing from the quick-add
+// composer's field to its submit button and pressing Enter therefore opened
+// whichever card the cursor sat on and added no task at all.
+//
+// Matched on the roles too: a div carrying role="button" is activated by the
+// same keys, and the keymap cannot see which of them its own handler binds.
+const ACTIVATION_KEYS = new Set(['Enter', ' ']);
+const ACTIVATABLE =
+  'button, summary, a[href], area[href], [role="button"], [role="link"], [role="menuitem"],' +
+  ' [role="menuitemcheckbox"], [role="menuitemradio"], [role="checkbox"], [role="switch"],' +
+  ' [role="radio"], [role="option"], [role="tab"]';
+
+function focusOwnsActivation(event: KeyboardEvent): boolean {
+  if (!ACTIVATION_KEYS.has(event.key)) {
+    return false;
+  }
+  const el = document.activeElement;
+  return el !== null && el.matches(ACTIVATABLE);
+}
+
 // Only marked dialogs own the keymap; the task overlay is an unmarked <dialog>
 // whose keys must stay live.
 function modalOwnsKeymap(): boolean {
@@ -114,8 +137,9 @@ class ShortcutController {
       return;
     }
 
-    // A focused text field must own the keystroke instead of the shortcut layer.
-    if (isEditableTarget()) {
+    // A focused text field must own the keystroke instead of the shortcut layer,
+    // and so must a focused control whose own activation key this is.
+    if (isEditableTarget() || focusOwnsActivation(event)) {
       return;
     }
 
