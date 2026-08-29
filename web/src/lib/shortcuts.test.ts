@@ -174,6 +174,24 @@ describe('shortcut focus guards', () => {
     expect(shortcuts.quickAddColumn).toBeNull();
   });
 
+  // Enter on a focused button is the browser's own click, and this keymap runs on
+  // window ahead of it: claiming the key here also cancels that click. Tabbing from
+  // the quick-add composer's field to its submit button and pressing Enter opened
+  // the hovered card instead of adding the task.
+  it('leaves the activation keys to a focused button', () => {
+    const navigate = vi.spyOn(router, 'navigate').mockImplementation(() => {});
+    const button = document.createElement('button');
+    document.body.append(button);
+    button.focus();
+    selection.set(TASK_1);
+
+    for (const key of ['Enter', ' ']) {
+      expect(press(key).defaultPrevented).toBe(false);
+    }
+
+    expect(navigate).not.toHaveBeenCalled();
+  });
+
   it('ignores keys while a modal dialog is open', () => {
     const dialog = document.createElement('dialog');
     dialog.setAttribute('data-modal', '');

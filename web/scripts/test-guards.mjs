@@ -864,6 +864,18 @@ export const guards = [
     tests: ['src/lib/shortcuts.test.ts'],
   },
   {
+    // The keymap runs on window, ahead of the click Enter synthesizes for a
+    // focused button — so claiming the key also cancelled that click. Tabbing
+    // from the quick-add field to its submit button opened the hovered card and
+    // added nothing.
+    name: 'the keymap leaves a focused button its own activation keys',
+    testName: 'leaves the activation keys to a focused button',
+    file: 'src/lib/shortcuts.svelte.ts',
+    find: '    if (isEditableTarget() || focusOwnsActivation(event)) {',
+    replace: '    if (isEditableTarget()) {',
+    tests: ['src/lib/shortcuts.test.ts'],
+  },
+  {
     // Cmd+G/Ctrl+G is find-next: claiming it also armed the chord, so the next
     // key navigated off the board.
     name: 'a modified g is find-next and arms no chord',
