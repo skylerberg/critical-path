@@ -33,7 +33,7 @@ board.project = {
 board.columns = [
   { id: COLUMN_ID, name: 'Todo', sort_key: 'V0', is_done: false },
 ] as unknown as typeof board.columns;
-board.tasks = TASKS as unknown as typeof board.tasks;
+board.tasks = TASKS;
 
 const props = switchableProps(FIRST_TASK_ID);
 const app = mount(TaskDetail, { target: document.getElementById('app')!, props });

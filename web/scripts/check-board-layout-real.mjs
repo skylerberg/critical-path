@@ -947,12 +947,20 @@ const DRAG_PROBE = `(async (c) => {
     const r = s.getBoundingClientRect();
     return getComputedStyle(s).visibility === 'visible' && r.height > 0 && r.width > 0;
   });
+  // Where in its column that place sits, to be compared against where the card
+  // actually ends up. Only meaningful because the probe seeds real sort keys —
+  // an unkeyed card re-stacks to the top of the column whatever the drop said.
+  const held = drawn[0] && drawn[0].closest('[data-task-id]');
+  const placeholderIndex = held
+    ? [...held.closest('[data-task-list]').querySelectorAll('[data-task-id]')].indexOf(held)
+    : null;
   const at = {
     armed,
     origin,
     taskId,
     toY,
     footRoom,
+    placeholderIndex,
     skeletonIn: drawn.map((s) => s.closest('[data-task-list]').dataset.taskList),
     columnAtFinger: colAt(c.toX, toY),
     underFinger: under(c.toX, toY),
@@ -968,6 +976,9 @@ const DRAG_PROBE = `(async (c) => {
   return {
     ...at,
     landed: el ? el.closest('[data-task-list]').dataset.taskList : null,
+    landedIndex: el
+      ? [...el.closest('[data-task-list]').querySelectorAll('[data-task-id]')].indexOf(el)
+      : null,
     // The column the board asked the server for, not the one a stub was told to
     // remember: this is the real moveTask, placement and all, so a drop that
     // lands right on screen but writes the wrong column still fails here.
@@ -1006,6 +1017,14 @@ function checkDrag(d) {
     if (d.skeletonIn.length !== 1 || d.skeletonIn[0] !== d.columnAtFinger)
       f.push(
         `the held card's place is drawn in [${d.skeletonIn.join(',')}] (want just ${d.columnAtFinger})`
+      );
+    // ...and the card lands in it, rather than merely in the right column. This is
+    // the one assertion the probe could not make until it seeded real sort keys:
+    // `byRank` ordered an unkeyed card ahead of every keyed one, so a drop that
+    // committed the right placement still re-rendered at the top of the column.
+    if (d.landedIndex !== d.placeholderIndex)
+      f.push(
+        `the card landed at index ${d.landedIndex} with its place drawn at ${d.placeholderIndex}`
       );
   }
   // The reach under a column's cards may not be bought by drawing the column to
@@ -1186,6 +1205,26 @@ if (SELFTEST) {
     regression('undrawn-placeholder', [['  {#if isDragShadow(task)}', '  {#if false}']]),
     DRAG_CASES.map(dragName),
     (probe) => runDragCases(probe, { mustPass: false })
+  );
+
+  // ...and the seed the whole drop-index assertion rests on. This arm names the
+  // PROBE rather than the board, because that is where the defect lived: an
+  // `unknown`-valued seed accepted a `position` field nothing reads and dropped
+  // the `sort_key` everything orders by, so a card that committed the right
+  // placement re-rendered at the top of its column and no case could tell. Take
+  // the key away again and every case must fail on the index — the column, the
+  // request and the drawn place are all still right, which is exactly why this
+  // went unnoticed. Only the two low cases can see it: the others release at the
+  // height they grabbed at, which puts the placeholder at index 0 — where an
+  // unkeyed card re-stacks to anyway, so they agree for the wrong reason.
+  failed += await runRegression(
+    regression(
+      'unkeyed-seed',
+      [['      sort_key: taskKeys[t]!,', '      sort_key: undefined as unknown as string,']],
+      'scripts/board-probe.ts'
+    ),
+    lowCases.map(dragName),
+    belowTheCards
   );
 
   // ...and the same outline asked for by the placeholder id instead of by the
