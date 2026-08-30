@@ -50,7 +50,7 @@ function task(id: string, title: string): BoardTask {
 function edit(taskId: string, label: string): SubmitInput {
   return {
     projectId: PROJECT_ID,
-    entityId: taskId,
+    subject: { kind: 'task', id: taskId },
     label,
     request: { method: 'PATCH', path: '/api/tasks/{id}', pathParams: { id: taskId }, body: {} },
   };
@@ -165,6 +165,35 @@ describe('UnsyncedChangesPanel', () => {
       'href',
       taskHref(ON_BOARD_ID, 'Design cards')
     );
+  });
+
+  // Knowing which card a failure belongs to is not the same as having somewhere
+  // to send the user: only a conflict leaves a version waiting to be merged. A
+  // refusal leaves the card exactly as it was, so the offer would open an
+  // ordinary card and there would be nothing there to do.
+  it('offers no merge link for a failure that is not a conflict', async () => {
+    unreachable();
+    await outbox.submit({
+      projectId: PROJECT_ID,
+      subject: { kind: 'checklistItem', id: testUuid('item'), taskId: ON_BOARD_ID },
+      label: 'Checked “Ship it”',
+      request: {
+        method: 'PATCH',
+        path: '/api/checklist-items/{id}',
+        pathParams: { id: testUuid('item') },
+        body: { checked: true },
+      },
+    });
+    fetchMock.mockReset();
+    fetchMock.mockImplementation(() =>
+      Promise.resolve(jsonResponse(422, { error: 'That item is gone' }))
+    );
+    await outbox.drain();
+
+    panel();
+
+    expect(screen.getByTestId('outbox-issue')).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Open the card to merge' })).toBeNull();
   });
 
   it('offers no link for a conflict on a card the board does not hold', async () => {

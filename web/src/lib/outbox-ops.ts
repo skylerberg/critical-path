@@ -46,6 +46,107 @@ export type MoveIntent =
   | { kind: 'column'; afterId: string | null; beforeId: string | null }
   | { kind: 'checklist'; taskId: string; afterId: string | null; beforeId: string | null };
 
+/**
+ * What the op is about, tagged.
+ *
+ * This replaces a bare `entityId`, which was a name for the *type* of the value
+ * — an id, of something — rather than for its role, and so ended up serving four
+ * of them: group a doomed row's siblings, find the edit to coalesce with, name
+ * the row a move re-ranks, and answer which card a change belongs to. Two of
+ * those need it to be a task and could not say so; one needed to know which of
+ * three things it was and got that by reading `move.kind` next door, which is
+ * the tell that the tag was always required and merely stored elsewhere.
+ *
+ * Orthogonal to `OpSemantics`, deliberately and permanently: that says how a
+ * reply is to be read at replay, this says what was written. A `create` can be a
+ * task or a checklist item, so collapsing the two would multiply out.
+ *
+ * Read it through `rowsOf` and `cardsOf` rather than by hand. Every question the
+ * queue asks of a subject is one of those two, and a `switch` at a call site is
+ * a third definition waiting to disagree with them.
+ */
+export type Subject =
+  | { kind: 'task'; id: string }
+  // One request, many cards. A bulk archive used to travel as the first id in
+  // the set, which meant nineteen of twenty cards showed no unsent marker and a
+  // refusal doomed none of their queued work.
+  | { kind: 'tasks'; ids: string[] }
+  | { kind: 'column'; id: string }
+  | { kind: 'label'; id: string }
+  | { kind: 'checklistItem'; id: string; taskId: string }
+  | { kind: 'comment'; id: string; taskId: string }
+  /**
+   * A row read back from a queue written before subjects existed, whose card is
+   * genuinely not recoverable — the id is the row's own and nothing stored says
+   * whose card it was on. It replays exactly as it always did; only the card it
+   * would have been reported against is missing, which is what was true of it
+   * before this type as well. Never constructed by a submit.
+   */
+  | { kind: 'legacyRow'; id: string };
+
+/**
+ * The rows this request writes. What a 404 or a 403 is a verdict on, and what a
+ * move re-ranks against its siblings.
+ */
+export function rowsOf(subject: Subject): string[] {
+  return subject.kind === 'tasks' ? subject.ids : [subject.id];
+}
+
+/**
+ * The cards this op shows up on — for the per-card unsent marker and the open
+ * card's own save indicator. Empty for the things that are not on a card at all;
+ * a column reorder is not a card's business and must not make one look unsaved.
+ */
+export function cardsOf(subject: Subject): string[] {
+  switch (subject.kind) {
+    case 'task':
+      return [subject.id];
+    case 'tasks':
+      return subject.ids;
+    case 'checklistItem':
+    case 'comment':
+      return [subject.taskId];
+    case 'column':
+    case 'label':
+    case 'legacyRow':
+      return [];
+  }
+}
+
+/** The single row a move re-ranks. Moves are never bulk, so this is total. */
+export function movedRowId(subject: Subject): string {
+  return rowsOf(subject)[0]!;
+}
+
+/**
+ * The same row of the same kind. The kind is compared and not only the id
+ * because these ids are client-generated and nothing stops a checklist item and
+ * a task sharing one; two writes to different things must not coalesce, and a
+ * checklist reply's `updated_at` must not retire a task's precondition.
+ */
+export function sameRow(a: Subject, b: Subject): boolean {
+  if (a.kind !== b.kind) {
+    return false;
+  }
+  const left = rowsOf(a);
+  const right = rowsOf(b);
+  return left.length === right.length && left.every((id, index) => id === right[index]);
+}
+
+/**
+ * Whether a verdict on `failed` also settles `queued`.
+ *
+ * A 404 or a 403 is about the rows the failed request named. Anything writing
+ * one of those rows is finished for the same reason — and so is anything sitting
+ * *on* one of them, because a card that is gone takes its checklist and its
+ * comments with it. Both directions come out of the same intersection: a card's
+ * own ops have it in `rowsOf`, its children have it in `cardsOf`.
+ */
+export function doomedWith(queued: Subject, failed: Subject): boolean {
+  const gone = new Set(rowsOf(failed));
+  return [...rowsOf(queued), ...cardsOf(queued)].some((id) => gone.has(id));
+}
+
 export interface ConflictContext {
   taskId: string;
   mine: TaskVersion;
@@ -60,21 +161,13 @@ export interface QueuedOp {
   userId: string;
   projectId: string;
   /**
-   * The board entity this op is about. When one op fails for good — the card was
-   * deleted, access was lost — every other queued op on the same entity is
-   * doomed too, and reporting them as one item is the difference between "your
-   * change to Fix login couldn't be saved" and eight separate failures.
+   * What this op is about. When one op fails for good — the card was deleted,
+   * access was lost — everything else queued against the same row, and against a
+   * card that row *is*, is doomed too; reporting that as one item is the
+   * difference between "your change to Fix login couldn't be saved" and eight
+   * separate failures.
    */
-  entityId: string;
-  /**
-   * The card this op belongs to, when that is not `entityId` itself. A checklist
-   * item and a comment are their own entities and are edited through their own
-   * ids, but the person who typed them was working on one card and asks about
-   * that card — so a per-card indicator that read `entityId` alone would call a
-   * card saved while its checklist row was still in the queue. Set only where
-   * the two differ; every reader wants `entityId` back when it is absent.
-   */
-  taskId?: string;
+  subject: Subject;
   semantics: OpSemantics;
   /** Written at submit, when the call site still knows what the user did. */
   label: string;

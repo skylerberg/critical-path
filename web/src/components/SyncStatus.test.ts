@@ -24,7 +24,7 @@ const TASK_ID = testUuid('t1');
 function edit(label: string): SubmitInput {
   return {
     projectId: testUuid('p1'),
-    entityId: TASK_ID,
+    subject: { kind: 'task', id: TASK_ID },
     label,
     request: { method: 'PATCH', path: '/api/tasks/{id}', pathParams: { id: TASK_ID }, body: {} },
   };

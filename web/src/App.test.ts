@@ -191,7 +191,7 @@ describe('App chrome', () => {
     fetchMock.mockRejectedValueOnce(new TypeError('Failed to fetch'));
     await outbox.submit({
       projectId: PROJECT_ID,
-      entityId: TASK_ID,
+      subject: { kind: 'task', id: TASK_ID },
       label: 'Renamed a card',
       request: {
         method: 'PATCH',

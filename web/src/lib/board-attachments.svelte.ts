@@ -172,7 +172,7 @@ export class BoardAttachments {
       )
     );
     await this.#board.sendOrFail({
-      entityId: taskId,
+      subject: { kind: 'task', id: taskId },
       label: image === null ? 'Removed a cover image' : 'Set a cover image',
       request: {
         method: 'PUT',

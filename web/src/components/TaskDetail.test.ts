@@ -1222,8 +1222,7 @@ describe('TaskDetail', () => {
       connectivity.noteUnreachable();
       const result = await outbox.submit({
         projectId: PROJECT_ID,
-        entityId: ITEM_ID,
-        taskId,
+        subject: { kind: 'checklistItem', id: ITEM_ID, taskId },
         label: 'Checked an item',
         request: {
           method: 'PATCH',

@@ -62,7 +62,7 @@ async function queueAWriteFor(taskId: string): Promise<void> {
   connectivity.noteUnreachable();
   await outbox.submit({
     projectId: PROJECT_ID,
-    entityId: taskId,
+    subject: { kind: 'task', id: taskId },
     label: 'Renamed a card',
     request: {
       method: 'PATCH',

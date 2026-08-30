@@ -5,12 +5,17 @@ import { conflictDrafts, mergeVersion, type TaskVersion } from './conflictDrafts
 import { newId } from './ids';
 import { deleteOps, readQueue, writeOp } from './offline-db';
 import {
+  cardsOf,
+  doomedWith,
   isAlreadyApplied,
+  movedRowId,
+  sameRow,
   sendRequest,
   type QueuedOp,
   type MoveIntent,
   type ConflictContext,
   type SerializedRequest,
+  type Subject,
 } from './outbox-ops';
 import { byRank, neighborsFromIds, placeBetweenNeighbors, type Keyed } from './ranks';
 import { session } from './session.svelte';
@@ -48,8 +53,7 @@ export interface OutboxIssue {
   reason: IssueReason;
   severity: 'failed' | 'adjusted';
   projectId: string;
-  entityId: string;
-  taskId?: string;
+  subject: Subject;
   queuedAt: string;
   at: string;
   request: SerializedRequest;
@@ -57,9 +61,7 @@ export interface OutboxIssue {
 
 export interface SubmitInput {
   projectId: string;
-  entityId: string;
-  /** See `QueuedOp.taskId`: only where the card is not the entity being written. */
-  taskId?: string;
+  subject: Subject;
   label: string;
   request: SerializedRequest;
   semantics?: QueuedOp['semantics'];
@@ -68,7 +70,7 @@ export interface SubmitInput {
 }
 
 type RaisedIssue = Pick<OutboxIssue, 'reason' | 'severity' | 'detail'> &
-  Partial<Pick<OutboxIssue, 'taskId' | 'request'>>;
+  Partial<Pick<OutboxIssue, 'request'>>;
 
 export type SubmitResult<T> =
   | { status: 'sent'; data: T }
@@ -148,15 +150,15 @@ class OutboxStore {
     return this.#unsent.length;
   }
 
-  // Keyed by the card rather than by the entity written, so a queued checklist
-  // row or comment edit counts against the card it was typed on. `entityId` is
-  // already the card id for every op that writes one directly, which is why the
-  // fallback is not a special case.
-  #pendingByTask = $derived.by(() => {
+  // Keyed by card, which for a bulk op is every card it names and for a checklist
+  // row or a comment is the card it was typed on. A column or a label reorder
+  // contributes nothing: `cardsOf` is what decides, in one place.
+  #pendingByCard = $derived.by(() => {
     const counts = new SvelteMap<string, number>();
     for (const op of this.#unsent) {
-      const key = op.taskId ?? op.entityId;
-      counts.set(key, (counts.get(key) ?? 0) + 1);
+      for (const cardId of cardsOf(op.subject)) {
+        counts.set(cardId, (counts.get(cardId) ?? 0) + 1);
+      }
     }
     return counts;
   });
@@ -164,14 +166,14 @@ class OutboxStore {
   // Drives the per-card marker and the open card's own save indicator, so pending
   // state is visible at the point of the work rather than only in a global banner.
   isPending(taskId: string): boolean {
-    return this.#pendingByTask.has(taskId);
+    return this.#pendingByCard.has(taskId);
   }
 
-  // Changes to one card that are over rather than waiting. Counted the same way
+  // Changes to one card that are over rather than waiting. Scoped the same way
   // `isPending` is, so a rejected comment edit is reported on the card it was
   // written on and not only in the global panel.
   hasIssue(taskId: string): boolean {
-    return this.#issues.some((issue) => (issue.taskId ?? issue.entityId) === taskId);
+    return this.#issues.some((issue) => cardsOf(issue.subject).includes(taskId));
   }
 
   get oldestQueuedAt(): string | null {
@@ -206,8 +208,7 @@ class OutboxStore {
       seq: ++this.#seq,
       userId: session.user?.id ?? '',
       projectId: input.projectId,
-      entityId: input.entityId,
-      taskId: input.taskId,
+      subject: input.subject,
       semantics: input.semantics ?? 'plain',
       label: input.label,
       request: input.request,
@@ -275,7 +276,7 @@ class OutboxStore {
       return null;
     }
     const existing = this.#ops.find(
-      (queued) => queued.semantics === 'contentEdit' && queued.entityId === op.entityId
+      (queued) => queued.semantics === 'contentEdit' && sameRow(queued.subject, op.subject)
     );
     if (existing === undefined || existing.conflict === undefined) {
       return null;
@@ -344,7 +345,7 @@ class OutboxStore {
     // drain is at that moment sending.
     const claimed = this.#inflight?.id;
     const ops = claimed === undefined ? stored : stored.filter((op) => op.id !== claimed);
-    this.#ops = ops.map(withMoveKind);
+    this.#ops = ops.map(withMoveKind).map(withSubject);
     this.#enforceBounds();
     // Work read back from a previous load is owed a send as much as work queued
     // in this one.
@@ -401,7 +402,7 @@ class OutboxStore {
           if (outcome.kind === 'ok' || isAlreadyApplied(op, outcome)) {
             applied += 1;
             if (board !== null && op.move !== undefined) {
-              applyMoveLocally(board, op.entityId, op.move, request, lists);
+              applyMoveLocally(board, movedRowId(op.subject), op.move, request, lists);
             }
             // Reported only once the move has landed. `adjusted` claims the change
             // was applied somewhere other than where it was aimed, which a placement
@@ -489,7 +490,8 @@ class OutboxStore {
         // What is true in every case that gets here is that theirs landed first.
         detail:
           'Someone else edited this before your change was sent. Your version is kept — open the card to merge.',
-        taskId: op.conflict.taskId,
+        // No card of its own to carry: a contentEdit's subject is the card, and
+        // the panel reads it from there like every other issue.
       });
       this.#forget([op]);
       return 'next';
@@ -501,7 +503,7 @@ class OutboxStore {
       return 'retry-fresh';
     }
     if (error.status === 404 || error.status === 403) {
-      const doomed = this.#unsent.filter((queued) => queued.entityId === op.entityId);
+      const doomed = this.#unsent.filter((queued) => doomedWith(queued.subject, op.subject));
       this.#raise(op, {
         reason: error.status === 404 ? 'gone' : 'forbidden',
         severity: 'failed',
@@ -511,8 +513,11 @@ class OutboxStore {
             : `You no longer have access, so ${countPhrase(doomed.length)} could not be applied.`,
         request,
       });
-      // Everything else queued against this card is doomed for the same reason,
-      // and saying so once is the honest way to report it.
+      // Everything else queued against this row — and, when the row is a card,
+      // everything queued against that card — is doomed for the same reason, and
+      // saying so once is the honest way to report it. Grouping on the row alone
+      // left a deleted card's checklist edits behind to 404 one at a time, each
+      // filing its own report, which is the pile this exists to prevent.
       this.#forget(doomed);
       return 'next';
     }
@@ -551,7 +556,7 @@ class OutboxStore {
       return null;
     }
     const { placement, exact } = placeBetweenNeighbors(
-      siblings.filter((row) => row.id !== op.entityId).sort(byRank),
+      siblings.filter((row) => row.id !== movedRowId(op.subject)).sort(byRank),
       neighborsFromIds(move.afterId, move.beforeId)
     );
     const body = { ...(op.request.body as Record<string, unknown>), ...placement };
@@ -675,12 +680,12 @@ class OutboxStore {
    * conflict with nobody that coalescing avoids while both are still queued, and
    * that nothing avoids once the first is on the wire.
    *
-   * Narrow on purpose. `entityId` is a task id for comment, attachment and
-   * checklist submits too, and their responses carry a different row's
-   * `updated_at`; advancing on any successful op would write that value into a
-   * task's precondition. Both ends are therefore checked for `contentEdit`, and
-   * the field is read defensively because this same branch serves a replay the
-   * server answers with no body at all.
+   * Narrow on purpose, and now narrow by construction: `sameRow` compares the
+   * rows written rather than two ids that might belong to different kinds of
+   * thing, so a comment or checklist reply — which carries a different row's
+   * `updated_at` — can no longer be written into a task's precondition. Both ends
+   * are still checked for `contentEdit`, and the field is read defensively
+   * because this same branch serves a replay the server answers with no body.
    */
   #advancePreconditions(op: QueuedOp, data: unknown): void {
     if (op.semantics !== 'contentEdit') {
@@ -693,7 +698,7 @@ class OutboxStore {
     this.#ops = this.#ops.map((queued) => {
       const body = asRecord(queued.request.body);
       if (
-        queued.entityId !== op.entityId ||
+        !sameRow(queued.subject, op.subject) ||
         queued.semantics !== 'contentEdit' ||
         !('expected_updated_at' in body)
       ) {
@@ -717,14 +722,10 @@ class OutboxStore {
         id: newId(),
         label: op.label,
         projectId: op.projectId,
-        entityId: op.entityId,
-        taskId: op.taskId,
+        subject: op.subject,
         queuedAt: op.queuedAt,
         at: new Date().toISOString(),
         request: op.request,
-        // Last, so the conflict path's explicit taskId wins over the op's: that
-        // one names the card the resolver has to open, which is the same card
-        // here but is the reason the field existed before this did.
         ...issue,
       },
     ];
@@ -808,9 +809,52 @@ function withMoveKind(op: QueuedOp): QueuedOp {
   return { ...op, move: { kind: 'task', ...legacy } };
 }
 
+/**
+ * The same treatment for an op stored before `subject` replaced `entityId`.
+ *
+ * The service worker updates the app without the running page's cooperation, so
+ * this build meets queues the last one wrote — and unsent work is migrated, never
+ * dropped for being old. The request replays byte-for-byte either way; all that
+ * is being recovered here is which row and which card to *report* it against.
+ *
+ * The path is what says which it was, because the id alone never did. Where the
+ * card is not recoverable — a checklist or comment row queued before the card
+ * travelled with it — `legacyRow` says exactly that rather than guessing at a
+ * card and marking the wrong one unsaved.
+ */
+function withSubject(op: QueuedOp): QueuedOp {
+  if ((op as { subject?: unknown }).subject !== undefined) {
+    return op;
+  }
+  const legacy = op as unknown as { entityId?: unknown; taskId?: unknown };
+  const id = typeof legacy.entityId === 'string' ? legacy.entityId : '';
+  const taskId = typeof legacy.taskId === 'string' ? legacy.taskId : null;
+  return { ...op, subject: legacySubject(op.request.path, id, taskId) };
+}
+
+function legacySubject(path: string, id: string, taskId: string | null): Subject {
+  if (path.startsWith('/api/checklist-items')) {
+    return taskId === null ? { kind: 'legacyRow', id } : { kind: 'checklistItem', id, taskId };
+  }
+  if (path.startsWith('/api/comments')) {
+    return taskId === null ? { kind: 'legacyRow', id } : { kind: 'comment', id, taskId };
+  }
+  if (path.startsWith('/api/columns')) {
+    return { kind: 'column', id };
+  }
+  if (path.startsWith('/api/labels')) {
+    return { kind: 'label', id };
+  }
+  // Everything left writes a task — `/api/tasks/{id}/labels` included, which is
+  // why the label test above reads the whole prefix and not the word. The bulk
+  // endpoints named only their first card back then, and that is the shape this
+  // keeps rather than inventing a set the stored op does not carry.
+  return { kind: 'task', id };
+}
+
 function applyMoveLocally(
   board: BoardTasks,
-  entityId: string,
+  rowId: string,
   move: MoveIntent,
   request: SerializedRequest,
   lists: Map<string, Keyed[]>
@@ -820,20 +864,20 @@ function applyMoveLocally(
     return;
   }
   if (move.kind === 'column') {
-    const column = board.columns.find((candidate) => candidate.id === entityId);
+    const column = board.columns.find((candidate) => candidate.id === rowId);
     if (column !== undefined) {
       column.sort_key = sortKey;
     }
     return;
   }
   if (move.kind === 'checklist') {
-    const item = lists.get(move.taskId)?.find((candidate) => candidate.id === entityId);
+    const item = lists.get(move.taskId)?.find((candidate) => candidate.id === rowId);
     if (item !== undefined) {
       item.sort_key = sortKey;
     }
     return;
   }
-  const task = board.tasks.find((candidate) => candidate.id === entityId);
+  const task = board.tasks.find((candidate) => candidate.id === rowId);
   if (task === undefined) {
     return;
   }

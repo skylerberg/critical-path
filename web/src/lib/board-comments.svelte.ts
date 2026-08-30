@@ -56,7 +56,7 @@ export class BoardComments {
     this.setCount(taskId, (count) => count + 1);
     const result = await this.#board.sendOrFail<TaskComment>(
       {
-        entityId: taskId,
+        subject: { kind: 'task', id: taskId },
         label: 'New comment',
         semantics: 'create',
         request: { method: 'POST', path: '/api/comments', body: { id, task_id: taskId, body } },
@@ -95,8 +95,7 @@ export class BoardComments {
     );
     const result = await this.#board.sendOrFail<TaskComment>(
       {
-        entityId: commentId,
-        taskId,
+        subject: { kind: 'comment', id: commentId, taskId },
         label: 'Edited a comment',
         request: {
           method: 'PATCH',
@@ -122,8 +121,7 @@ export class BoardComments {
     this.setCount(taskId, (count) => Math.max(0, count - 1));
     await this.#board.sendOrFail(
       {
-        entityId: commentId,
-        taskId,
+        subject: { kind: 'comment', id: commentId, taskId },
         label: 'Deleted a comment',
         request: { method: 'DELETE', path: '/api/comments/{id}', pathParams: { id: commentId } },
       },
