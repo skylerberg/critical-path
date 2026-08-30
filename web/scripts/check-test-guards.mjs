@@ -194,6 +194,29 @@ if (selftest && shard !== undefined) {
   );
 }
 
+// More shards than guards is the one way to ask for a selection that is empty by
+// arithmetic rather than by accident, and by hand it is always a typo: the total
+// is meant to be the guard count, and a count read off a listing that has header
+// lines in it comes out one high. `GUARD_SHARD=144/144` against 143 guards then
+// selects nothing, runs nothing, and reports "0 guard(s) caught their bug" with
+// exit 0 — a check passing because it looked at nothing, which is the whole of
+// what this script exists to catch, wearing this script's own face.
+//
+// Below that line every shard holds at least one guard, so this is also the
+// assertion that no shard is ever silently empty. CI shards 1/2 and 2/2, which
+// is nowhere near the bound.
+if (shard !== undefined && shard.total > selected.length) {
+  // console.error rather than a throw, matching the empty-filter case above: this
+  // is an operator's typo, and a stack trace buries the one line that fixes it.
+  console.error(
+    `check-test-guards — GUARD_SHARD asks for ${String(shard.total)} shards of ` +
+      `${String(selected.length)} guard(s), so some of them can only be empty. The total is the ` +
+      'guard count: take it from the closing line of `pnpm run check:test-guards:anchors`, not ' +
+      'from a line number.'
+  );
+  process.exit(1);
+}
+
 // Every nth, not a contiguous block. The list is grouped by the file each guard
 // mutates and the per-guard cost runs from ~3s to ~20s, so blocks put whole slow
 // neighbourhoods in one shard; strides interleave them. Deterministic either
@@ -203,10 +226,9 @@ const sharded =
     ? selected
     : selected.filter((_, index) => index % shard.total === shard.index - 1);
 
-// Only ever appended to the closing line: an empty shard is legitimate — there
-// are fewer guards than shards — but a run that says "0 guard(s) caught their
-// bug" with nothing else on the line is indistinguishable from a runner that
-// selected nothing by accident.
+// Only ever appended to the closing line, so that a small count is always read
+// against the size of the selection it came from rather than taken for the whole
+// list.
 const scope =
   shard === undefined ? '' : ` (shard ${shard.index}/${shard.total} of ${selected.length})`;
 
