@@ -825,12 +825,17 @@ failed += await runScrollCases(PROBE, { mustPass: true });
 // asymmetry the bug lives in — the center trails the finger — and a mid-card grab
 // would pass either way.
 //
-// `low` asks the other half of the same question: the finger ends just above the
-// FOOT of the column rather than at the height it started, which for a column of
-// three cards is far below the last of them. A zone that ends at its last card is
-// one that point is not inside, so the drop bounces back and the only way into a
-// short column is to drag up to its cards first. Also invisible to jsdom, and to
-// the fixture check, which lays out no drag at all.
+// `low` asks the other half of the same question: the finger ends in the strip
+// under the destination column's last card rather than at the height it started.
+// A zone that ends at its last card is one that point is not inside, so the drop
+// bounces back and the only way into a short column is to drag up to its cards
+// first. Also invisible to jsdom, and to the fixture check, which lays out no drag
+// at all.
+//
+// Every case also reads what the board looks like while the card is in flight: no
+// column drawn to the foot of the board, and the held card's place drawn where it
+// would land. The reach used to be bought by stretching every column to the foot
+// of the screen, which is a drop that works on a board nobody wants to look at.
 const DRAG_PROBE = `(async (c) => {
   const pause = (ms) => new Promise((r) => setTimeout(r, ms));
   const span = (el) => { const r = el.getBoundingClientRect(); return { l: Math.round(r.left), r: Math.round(r.right) }; };
@@ -864,11 +869,20 @@ const DRAG_PROBE = `(async (c) => {
   const taskId = card.dataset.taskId;
   const grabX = Math.round(cr.right - 16);
   const grabY = Math.round(cr.top + cr.height / 2);
-  // The foot of the column, read off the full-height wrapper rather than off the
-  // panel: the panel is what the drag is supposed to stretch, so measuring it
-  // would move the target with the fix and ask nothing.
-  const footY = Math.round(originList.closest('[data-column-id]').getBoundingClientRect().bottom - 8);
-  const toY = c.low ? footY : grabY;
+  // Where the destination column's cards stop, read BEFORE the press and off the
+  // cards themselves: the strip below them is what the drag is supposed to open,
+  // so a target read off the zone would move with the fix and ask nothing. 28px is
+  // clear of the 8px of padding a resting zone ends with and well inside a strip a
+  // card tall, so the same number answers both directions.
+  const destList = [...document.querySelectorAll('[data-task-list]')].find((l) => {
+    const r = l.closest('[data-column-id]').getBoundingClientRect();
+    return c.toX >= r.left && c.toX <= r.right;
+  });
+  const destCards = destList ? [...destList.querySelectorAll('[data-task-id]')] : [];
+  const lastCard = destCards[destCards.length - 1];
+  const toY = c.low && lastCard
+    ? Math.round(lastCard.getBoundingClientRect().bottom + 28)
+    : grabY;
 
   const touch = (target, type, x, y) => {
     const t = new Touch({ identifier: 1, target: card, clientX: x, clientY: y });
@@ -894,10 +908,23 @@ const DRAG_PROBE = `(async (c) => {
   if (c.pointer === 'touch') await pause(320);
   const armed = !!document.getElementById('dnd-action-dragged-el') || c.pointer === 'mouse';
 
-  const steps = Math.max(1, Math.round(Math.max(Math.abs(c.toX - grabX), Math.abs(toY - grabY)) / 12));
-  for (let i = 1; i <= steps; i++) {
-    move(Math.round(grabX + ((c.toX - grabX) * i) / steps), Math.round(grabY + ((toY - grabY) * i) / steps));
-    await pause(24);
+  // The low cases go DOWN the origin column first and only then ACROSS, so the
+  // finger arrives in the destination column through the strip under its cards
+  // rather than over them. A straight diagonal crosses those cards on the way,
+  // which moves the placeholder in — and a zone holding the placeholder is a card
+  // taller than it was, so the release point ends up inside it whether or not the
+  // strip exists. Measured: with the strip taken away that path still passed.
+  const legs = c.low ? [{x: grabX, y: toY}, {x: c.toX, y: toY}] : [{x: c.toX, y: toY}];
+  let fromX = grabX;
+  let fromY = grabY;
+  for (const leg of legs) {
+    const steps = Math.max(1, Math.round(Math.max(Math.abs(leg.x - fromX), Math.abs(leg.y - fromY)) / 12));
+    for (let i = 1; i <= steps; i++) {
+      move(Math.round(fromX + ((leg.x - fromX) * i) / steps), Math.round(fromY + ((leg.y - fromY) * i) / steps));
+      await pause(24);
+    }
+    fromX = leg.x;
+    fromY = leg.y;
   }
   // The drop zone is re-decided on a poll (~160ms at this flip duration), not per
   // move, and the drop commits to whatever that poll last said. Holding still for
@@ -906,11 +933,27 @@ const DRAG_PROBE = `(async (c) => {
 
   const dragged = document.getElementById('dnd-action-dragged-el');
   const dr = dragged && dragged.getBoundingClientRect();
+  // The room every column still leaves below itself while the card is in flight,
+  // measured against the full-height wrapper the board's geometry is read off. A
+  // column drawn to the foot of the board leaves none.
+  const footRoom = Math.min(...[...document.querySelectorAll('[data-column-panel]')].map(
+    (p) => Math.round(p.closest('[data-column-id]').getBoundingClientRect().bottom - p.getBoundingClientRect().bottom)
+  ));
+  // The column drawing the held card's place, and only where it is actually
+  // painted: svelte-dnd-action hides the element it renders for the placeholder,
+  // so an outline that has not taken its own visibility back is in the DOM and on
+  // screen nowhere.
+  const drawn = [...document.querySelectorAll('[data-drop-skeleton]')].filter((s) => {
+    const r = s.getBoundingClientRect();
+    return getComputedStyle(s).visibility === 'visible' && r.height > 0 && r.width > 0;
+  });
   const at = {
     armed,
     origin,
     taskId,
     toY,
+    footRoom,
+    skeletonIn: drawn.map((s) => s.closest('[data-task-list]').dataset.taskList),
     columnAtFinger: colAt(c.toX, toY),
     underFinger: under(c.toX, toY),
     cardCenter: dr && Math.round((dr.left + dr.right) / 2),
@@ -957,7 +1000,22 @@ function checkDrag(d) {
       f.push(
         `board moved the task to [${d.moved.join(',')}] (want one PATCH, to ${d.columnAtFinger})`
       );
+    // Where the card would land, drawn in the column the finger is over. Exactly
+    // one, because the placeholder is one item: a second means a column kept the
+    // one it gave up.
+    if (d.skeletonIn.length !== 1 || d.skeletonIn[0] !== d.columnAtFinger)
+      f.push(
+        `the held card's place is drawn in [${d.skeletonIn.join(',')}] (want just ${d.columnAtFinger})`
+      );
   }
+  // The reach under a column's cards may not be bought by drawing the column to
+  // the foot of the board. Every case holds three cards, so every column ends far
+  // above it; 120px is the same floor the layout phase holds a resting short
+  // column to.
+  if (!(d.footRoom >= 120))
+    f.push(
+      `a column reaches the foot of the board while a card is in flight (${d.footRoom}px left)`
+    );
   if (d.other.length) f.push(`a drop made requests beyond its own move (${d.other.join(', ')})`);
   return f;
 }
@@ -970,9 +1028,9 @@ const DRAG_CASES = [
   { w: 768, h: 900, cols: 4, tasks: 3, pointer: 'touch', toX: 350, hold: 400 }, // two columns fully visible, no auto-scroll
   { w: 390, h: 844, cols: 4, tasks: 3, pointer: 'touch', toX: 370, hold: 260 }, // phone: release over the next column's sliver
   { w: 1280, h: 800, cols: 4, tasks: 3, pointer: 'mouse', toX: 600, hold: 400 }, // same rule for a mouse
-  // The two that end at the foot of the column instead. Both are cases the edge
-  // band does not reach, because a board scrolling under a parked finger changes
-  // which column is there and that is a different question.
+  // The two that end in the strip under the destination column's cards instead.
+  // Both are cases the edge band does not reach, because a board scrolling under a
+  // parked finger changes which column is there and that is a different question.
   { w: 768, h: 900, cols: 4, tasks: 3, pointer: 'touch', toX: 350, low: true, hold: 400 },
   { w: 1280, h: 800, cols: 4, tasks: 3, pointer: 'mouse', toX: 600, low: true, hold: 400 },
 ];
@@ -1084,34 +1142,67 @@ if (SELFTEST) {
     (probe) => runDragCases(probe, { mustPass: false })
   );
 
-  // The drop below the cards rests on two edits that each give the zone part of
-  // the column, and each is worth its own arm because either one alone leaves the
-  // other looking sufficient. Without the stretch the zone still ends at the last
-  // card; with it but with the composer still holding the foot, the zone stops a
-  // composer's height short — and the finger in these cases is below both. The
-  // cases that end at the height they started are unaffected by either, so each
-  // arm runs only the two that can see it.
+  // The drop below the cards is the strip and nothing else, so take the strip
+  // away and the two cases that release into it must fail. The cases that end at
+  // the height they started are unaffected by it, and run in the arms below
+  // instead.
   const lowCases = DRAG_CASES.filter((c) => c.low === true);
   const belowTheCards = (probe) =>
     runDragCases(probe, { mustPass: false, include: (c) => c.low === true });
 
   failed += await runRegression(
-    regression('unstretched-zone', [
-      [
-        "const dropFill = $derived(taskDragging ? 'flex-1' : '');",
-        "const dropFill = $derived('');",
-      ],
+    regression('no-landing-strip', [
+      ["const dropPad = $derived(taskDragging ? 'pb-14' : '');", "const dropPad = $derived('');"],
     ]),
     lowCases.map(dragName),
     belowTheCards
   );
 
+  // ...and buying that reach the way it was bought before — every column drawn to
+  // the foot of the board and its zone filling it — must fail every case, on the
+  // room left below the columns rather than on the drop, which still works. Both
+  // halves in one arm because either alone grows nothing: the panel is what
+  // reaches the foot, the zone inside it is what fills the panel.
   failed += await runRegression(
-    regression('composer-holds-the-foot', [
-      [`class="shrink-0 {taskDragging ? 'hidden' : ''}"`, 'class="shrink-0"'],
+    regression('columns-drawn-to-the-foot', [
+      [
+        "const dropPad = $derived(taskDragging ? 'pb-14' : '');",
+        "const dropPad = $derived(taskDragging ? 'flex-1' : '');",
+      ],
+      [
+        'class="flex min-h-0 flex-col rounded-lg border border-edge bg-surface"',
+        'class="flex min-h-0 flex-col rounded-lg border border-edge bg-surface {dropPad}"',
+      ],
     ]),
-    lowCases.map(dragName),
-    belowTheCards
+    DRAG_CASES.map(dragName),
+    (probe) => runDragCases(probe, { mustPass: false })
+  );
+
+  // ...and the placeholder left as the blank gap svelte-dnd-action renders it as.
+  // The drop is unaffected, which is the point of the arm: the gap is the right
+  // size and in the right place either way, and only a board someone is looking at
+  // can tell the two apart.
+  failed += await runRegression(
+    regression('undrawn-placeholder', [['  {#if isDragShadow(task)}', '  {#if false}']]),
+    DRAG_CASES.map(dragName),
+    (probe) => runDragCases(probe, { mustPass: false })
+  );
+
+  // ...and the same outline asked for by the placeholder id instead of by the
+  // marker on the item. This one is here rather than beside the unit test because
+  // it is invisible from there: a fixture hands the zone an item carrying both, so
+  // the two readings agree for the whole of a jsdom drag. In a real one the library
+  // trades that id back for the card's own a frame in, and the outline is drawn for
+  // one render and then for none.
+  failed += await runRegression(
+    regression('placeholder-by-id', [
+      [
+        '    return item[SHADOW_ITEM_MARKER_PROPERTY_NAME] === true;',
+        '    return task.id === SHADOW_PLACEHOLDER_ITEM_ID;',
+      ],
+    ]),
+    DRAG_CASES.map(dragName),
+    (probe) => runDragCases(probe, { mustPass: false })
   );
 
   // ...and the scroll phase on the board being able to tell its own suspension of
