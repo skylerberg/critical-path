@@ -6,6 +6,10 @@
 // stub needs them too and must not import the board to get them: the api client
 // captures window.fetch as it initialises, and pulling the board in from the stub
 // would run that capture before the stub is installed.
+// Type-only, so nothing here reaches the board at runtime: the constraint above
+// is about the module graph the stub pulls in, and an `import type` is erased.
+import type { BoardTask } from '../src/lib/board-types';
+
 export const probeId = (n: number): string =>
   `00000000-0000-4000-8000-${n.toString(16).padStart(12, '0')}`;
 
@@ -15,7 +19,7 @@ export const COLUMN_ID = probeId(20);
 export const FIRST_TASK_ID = probeId(10);
 export const SECOND_TASK_ID = probeId(11);
 
-function paragraph(text: string): Record<string, unknown> {
+function paragraph(text: string): NonNullable<BoardTask['description']> {
   return { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text }] }] };
 }
 
@@ -23,7 +27,7 @@ function paragraph(text: string): Record<string, unknown> {
 // leaving one card for the other with unsaved words in the editor, and neither a
 // single card nor an empty editor can produce it — which is why the description
 // paths were unreachable from the browser tier for as long as they were.
-export const TASKS = [
+export const TASKS: BoardTask[] = [
   {
     id: FIRST_TASK_ID,
     column_id: COLUMN_ID,

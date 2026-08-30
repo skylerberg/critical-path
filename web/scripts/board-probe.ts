@@ -8,7 +8,9 @@ import './board-probe-net';
 import { mount } from 'svelte';
 import '../src/app.css';
 import { board } from '../src/lib/board.svelte';
+import type { BoardColumn, BoardProject, BoardTask } from '../src/lib/board-types';
 import { selection } from '../src/lib/selection.svelte';
+import { testSortKeys } from '../src/lib/test-ids';
 import { users } from '../src/lib/users.svelte';
 import { session } from '../src/lib/session.svelte';
 import { viewport } from '../src/lib/viewport.svelte';
@@ -44,6 +46,9 @@ function taskId(column: number, index: number): string {
 
 const PROJECT_ID = probeId(1);
 const USER_ID = probeId(2);
+// One timestamp for everything seeded. Fixed rather than `now`, so nothing the
+// board renders from a date can differ between two runs of the same case.
+const SEEDED_AT = '2026-01-01T00:00:00Z';
 board.currentProjectId = PROJECT_ID;
 // Signed in as the project's creator, which is what makes the set mutable — every
 // selection mutator no-ops on a board the user cannot edit.
@@ -55,23 +60,49 @@ session.user = {
   email_verified: true,
 };
 users.users = [{ id: USER_ID, name: 'Probe Person', avatar_url: null }];
-// Minimal project: the board only needs project to be non-null for derived state.
-(board as unknown as { project: unknown }).project = {
+// The seeds carry their real types, and that is load-bearing rather than tidy.
+// The assignments below reach past the store's own API — `project`, `columns` and
+// `tasks` are not settable from outside it — so the cast on each is what makes
+// seeding possible at all. Naming the element type is what keeps that cast from
+// also waiving the shape: an `unknown`-valued seed took `position` and
+// `image_count`, neither of which is a field of anything, while omitting the
+// `sort_key` the whole board orders by, which cost `check:layout:real` any way of
+// asking where a dropped card landed.
+const PROJECT: BoardProject = {
   id: PROJECT_ID,
   name: 'Probe project',
+  description: '',
+  created_at: SEEDED_AT,
   created_by: USER_ID,
+  archived_at: null,
+  color: null,
+  is_public: false,
   member_ids: [],
   members: [],
 };
+(board as unknown as { project: BoardProject }).project = PROJECT;
 
-(board as unknown as { columns: unknown[] }).columns = Array.from({ length: COLS }, (_, c) => ({
+// One ascending run, reused per column: a sort key orders a card within its own
+// column and is compared against no other, so the columns are independent.
+// Generated rather than written out, because `ranks.ts` drives
+// `fractional-indexing` with BASE_62_DIGITS and that digit set rejects most
+// hand-made keys as INPUT — the throw arrives from inside the library, on the
+// first drag that has to rank a card between two of them. `src/lib/test-ids.ts`
+// carries the long version.
+const taskKeys = testSortKeys(TASKS);
+// Two spare, one at each end, for the column `__addColumn` below puts outside the
+// board's own: a key is what decides where an arriving column lands now that the
+// seeds carry them.
+const columnKeys = testSortKeys(COLS + 2);
+
+(board as unknown as { columns: BoardColumn[] }).columns = Array.from({ length: COLS }, (_, c) => ({
   id: `c${c}`,
   name: `Column ${c + 1}`,
-  position: c * 1000,
+  sort_key: columnKeys[c + 1]!,
   is_done: c === COLS - 1,
 }));
 
-const tasks: { id: string; [field: string]: unknown }[] = [];
+const tasks: BoardTask[] = [];
 for (let c = 0; c < COLS; c++) {
   for (let t = 0; t < TASKS; t++) {
     tasks.push({
@@ -79,16 +110,23 @@ for (let c = 0; c < COLS; c++) {
       column_id: `c${c}`,
       title: `Task ${t + 1} in column ${c + 1}`,
       description: null,
-      position: t * 1000,
-      created_at: '',
-      updated_at: '',
+      sort_key: taskKeys[t]!,
+      created_at: SEEDED_AT,
+      updated_at: SEEDED_AT,
+      column_since: SEEDED_AT,
       label_ids: [],
       assignee_ids: ASSIGNEES ? [USER_ID] : [],
       blocker_ids: [],
-      image_count: 0,
+      open_cross_project_blocker_count: 0,
+      // Every count zero, so the card keeps the height the layout cases are
+      // calibrated against — each of these draws a badge row the moment it is
+      // not. `assignees` above is the one that opts in, and says so.
+      attachment_count: 0,
+      comment_count: 0,
+      checklist_item_count: 0,
+      checklist_done_count: 0,
       cover_image_url: null,
       due_date: null,
-      comment_count: 0,
     });
   }
 }
@@ -98,7 +136,7 @@ for (let c = 0; c < COLS; c++) {
 if (new Set(tasks.map((task) => task.id)).size !== tasks.length) {
   throw new Error(`board-probe seeded duplicate task ids (cols=${COLS}, tasks=${TASKS})`);
 }
-(board as unknown as { tasks: unknown[] }).tasks = tasks;
+(board as unknown as { tasks: BoardTask[] }).tasks = tasks;
 
 // Shell mirrors App.svelte (fixed mobile nav + wrapper) and Project.svelte
 // (height container + header). Board mounts directly into the flex-col container
@@ -140,14 +178,14 @@ mount(Board, {
 // uses this to append a column mid-board — a teammate's, arriving over the wire —
 // and measure whether the board a user is reading moves under them.
 (window as unknown as { __addColumn: (where: 'start' | 'end') => void }).__addColumn = (where) => {
-  const columns = (board as unknown as { columns: unknown[] }).columns;
-  const arrived = {
+  const columns = (board as unknown as { columns: BoardColumn[] }).columns;
+  const arrived: BoardColumn = {
     id: `c-arrived-${where}`,
     name: 'Arrived',
-    position: where === 'start' ? -1000 : COLS * 1000,
+    sort_key: where === 'start' ? columnKeys[0]! : columnKeys[COLS + 1]!,
     is_done: false,
   };
-  (board as unknown as { columns: unknown[] }).columns =
+  (board as unknown as { columns: BoardColumn[] }).columns =
     where === 'start' ? [arrived, ...columns] : [...columns, arrived];
 };
 
