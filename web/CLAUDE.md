@@ -380,7 +380,12 @@ locally at 57.9s and 73.9s against 140.0s whole. An environment variable rather
 than a flag because pnpm's argument forwarding is a documented trap here, and a
 silently dropped shard looks exactly like a passing run. It refuses to combine with
 `--selftest`: the five controls are one argument about the runner, and a shard
-of them proves nothing about the shards that did not run them.
+of them proves nothing about the shards that did not run them. It also refuses a
+total larger than the number of guards selected, which is the last way left to
+ask for a run of nothing and be told it passed — under that bound every shard
+holds at least one guard, so no shard is ever silently empty. Take the total from
+the closing line of a listing rather than counting its rows: the run that found
+this gap counted line numbers, came out one high, and reported a clean zero.
 `check:test-guards:anchors` is still worth running mid-refactor because it is
 sub-second, but it is no longer what CI proves — it checks that every `find`
 still resolves and stops there, which cannot tell a guard that catches its bug
