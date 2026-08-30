@@ -542,15 +542,15 @@ describe('Board snapping', () => {
     expect(panel?.lastElementChild).toHaveAttribute('data-quick-add');
   });
 
-  // ...for exactly as long as no card is in flight. svelte-dnd-action picks a zone
-  // by its bounding rect, so a list that ends at its last card is one a pointer
-  // below it is not in, and a two-card column could be reached only by dragging up
-  // to the cards first. The heights are jsdom-invisible and `check:layout:real`
-  // drives the drop itself; what is asserted here is the arrangement that produces
-  // them — the growth on the panel AND on the zone inside it, since either alone
-  // stretches nothing, and the composer out of the way so the zone reaches the
-  // panel's foot rather than stopping a composer's height above it.
-  it('stretches the column and its task zone to the board while a card is in flight', async () => {
+  // ...and a card in flight opens a strip under the cards rather than an exception
+  // to any of it. svelte-dnd-action picks a zone by its bounding rect, so a list
+  // that ends at its last card is one a pointer below it is not in, and a two-card
+  // column could be reached only by dragging up to the cards first. The heights are
+  // jsdom-invisible and `check:layout:real` drives the drop itself; what is
+  // asserted here is the arrangement that produces them — the padding that opens
+  // the strip, the composer out of the way so the strip stands where it was, and
+  // nothing on the panel that would grow it past its cards.
+  it('opens a landing strip under the cards while one is in flight, growing nothing else', async () => {
     render(Board, { props: { projectId: PROJECT_ID } });
     await screen.findByText('plain one');
     const panel = (): Element | null => column().firstElementChild;
@@ -559,15 +559,17 @@ describe('Board snapping', () => {
     pickUp(T1);
     await tick();
 
-    expect(panel()).toHaveClass('flex-1');
-    expect(taskList()).toHaveClass('flex-1');
+    expect(taskList()).toHaveClass('pb-14');
     expect(composer()).toHaveClass('hidden');
+    for (const grows of ['flex-1', 'h-full', 'max-h-full']) {
+      expect(panel()).not.toHaveClass(grows);
+      expect(taskList()).not.toHaveClass(grows);
+    }
 
     drop(T1, board.tasksInColumn('c1'));
     await tick();
 
-    expect(panel()).not.toHaveClass('flex-1');
-    expect(taskList()).not.toHaveClass('flex-1');
+    expect(taskList()).not.toHaveClass('pb-14');
     expect(composer()).not.toHaveClass('hidden');
   });
 });
@@ -957,6 +959,34 @@ describe('Board drag placeholder', () => {
 
     expect(renderedTaskIds()).toEqual([SHADOW_PLACEHOLDER_ITEM_ID, T2, T3, T4]);
     expect(cardTitles()).toEqual(['plain one', 'match a', 'plain two', 'match b']);
+  });
+
+  // The gap that placeholder leaves is drawn, so a card being dragged under a
+  // column shows where it would land instead of opening a blank space. It is
+  // overlaid on the still-rendered card rather than replacing it, because the card
+  // is what gives the gap the height of the one being dropped — and it is found by
+  // the marker svelte-dnd-action puts on the item rather than by the placeholder
+  // id, which the library trades back for the real one a frame into the drag.
+  it('draws the place the held card would land, over the card that sizes it', async () => {
+    render(Board, { props: { projectId: PROJECT_ID } });
+    await screen.findByText('plain one');
+
+    pickUp(T1);
+    await tick();
+
+    const drawn = document.querySelectorAll('[data-drop-skeleton]');
+    expect(drawn).toHaveLength(1);
+    const held = drawn[0]?.closest('[data-task-id]');
+    expect(held).toHaveAttribute('data-task-id', SHADOW_PLACEHOLDER_ITEM_ID);
+    expect(held).toHaveClass('relative');
+    // The card is still under it, which is the whole reason the outline is an
+    // overlay: swap it for a bare box and the gap stops being the card's height.
+    expect(held).toHaveTextContent('plain one');
+
+    drop(T1, board.tasksInColumn('c1'));
+    await tick();
+
+    expect(document.querySelectorAll('[data-drop-skeleton]')).toHaveLength(0);
   });
 
   it('still commits the move made during that drag', async () => {

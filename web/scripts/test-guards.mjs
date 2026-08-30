@@ -610,25 +610,38 @@ export const guards = [
     tests: ['src/routes/Board.test.ts'],
   },
   {
-    // Both halves of the stretch are one guard each, because either one alone
-    // grows nothing: the panel is what reaches the foot of the board, and the
-    // zone inside it is what fills the panel. A zone that ends at its last card
-    // is one a pointer below it is not in, which is the whole of the bug.
-    name: 'a card in flight stretches the column and its task zone to the board',
-    testName: 'stretches the column and its task zone to the board while a card is in flight',
+    // A zone that ends at its last card is one a pointer below it is not in, which
+    // is the whole of the bug the strip closes. Its height is jsdom-invisible, so
+    // what fails here is the padding going missing rather than the drop; the drop
+    // itself is `check:layout:real`'s.
+    name: "a card in flight opens a landing strip under a column's cards",
+    testName: 'opens a landing strip under the cards while one is in flight',
     file: 'src/routes/Board.svelte',
-    find: "  const dropFill = $derived(taskDragging ? 'flex-1' : '');",
-    replace: "  const dropFill = $derived('');",
+    find: "  const dropPad = $derived(taskDragging ? 'pb-14' : '');",
+    replace: "  const dropPad = $derived('');",
     tests: ['src/routes/Board.test.ts'],
   },
   {
-    // The band a stretched column would otherwise leave to the composer is
-    // exactly where a finger dragging along the foot of the screen sits.
-    name: 'the composer gives up the foot of the column while a card is in flight',
-    testName: 'stretches the column and its task zone to the board while a card is in flight',
+    // The composer holding its band for the length of a drag is what would make
+    // the strip an extra card of height in every column rather than a swap for the
+    // room "+ Add task" was using.
+    name: 'the composer gives up its band while a card is in flight',
+    testName: 'opens a landing strip under the cards while one is in flight',
     file: 'src/routes/Board.svelte',
     find: `class="shrink-0 {taskDragging ? 'hidden' : ''}"`,
     replace: 'class="shrink-0"',
+    tests: ['src/routes/Board.test.ts'],
+  },
+  {
+    // The gap the placeholder leaves is drawn rather than left blank. Only that it
+    // is drawn at all is asked here: whether it is drawn for the whole drag turns
+    // on the marker-versus-id reading, and a fixture that sets both cannot tell
+    // those apart — `check:layout:real` runs a real drag and can.
+    name: 'the place the held card would land is drawn',
+    testName: 'draws the place the held card would land',
+    file: 'src/routes/Board.svelte',
+    find: '  {#if isDragShadow(task)}',
+    replace: '  {#if false}',
     tests: ['src/routes/Board.test.ts'],
   },
   {
