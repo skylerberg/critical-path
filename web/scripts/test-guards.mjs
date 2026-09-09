@@ -611,22 +611,23 @@ export const guards = [
   },
   {
     // A zone that ends at its last card is one a pointer below it is not in, which
-    // is the whole of the bug the strip closes. Its height is jsdom-invisible, so
-    // what fails here is the padding going missing rather than the drop; the drop
-    // itself is `check:layout:real`'s.
-    name: "a card in flight opens a landing strip under a column's cards",
-    testName: 'opens a landing strip under the cards while one is in flight',
+    // is the whole of the bug the reach closes, and a reach of nothing is a zone
+    // that ends at its last card. The heights are jsdom-invisible, so what fails
+    // here is the number going missing rather than the drop; the drop itself is
+    // `check:layout:real`'s.
+    name: "a card in flight reaches a column's list to the foot of the column",
+    testName: 'reaches the card list to the foot of the column while one is in flight',
     file: 'src/routes/Board.svelte',
-    find: "  const dropPad = $derived(taskDragging ? 'pb-14' : '');",
-    replace: "  const dropPad = $derived('');",
+    find: '      dropReach.set(columnId, Math.max(0, Math.round(room)));',
+    replace: '      dropReach.set(columnId, 0);',
     tests: ['src/routes/Board.test.ts'],
   },
   {
-    // The composer holding its band for the length of a drag is what would make
-    // the strip an extra card of height in every column rather than a swap for the
-    // room "+ Add task" was using.
+    // The composer holding its band for the length of a drag would leave the reach
+    // starting below it — the one part of a column a finger dragging along the foot
+    // of the screen is most likely to be over.
     name: 'the composer gives up its band while a card is in flight',
-    testName: 'opens a landing strip under the cards while one is in flight',
+    testName: 'reaches the card list to the foot of the column while one is in flight',
     file: 'src/routes/Board.svelte',
     find: `class="shrink-0 {taskDragging ? 'hidden' : ''}"`,
     replace: 'class="shrink-0"',

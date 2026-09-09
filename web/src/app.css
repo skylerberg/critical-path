@@ -139,6 +139,39 @@
   -webkit-touch-callout: none;
 }
 
+/* A board column's card list, and the reach a live card drag gives it under its
+   cards. svelte-dnd-action picks a zone by its bounding rect, so a list that ends
+   at its last card is one a pointer below it is simply not in: a two-card column
+   could be reached only by dragging up to its cards first, which on a phone is up
+   from wherever the thumb already is, every time.
+
+   `--cp-drop-reach` is the room between where the column is drawn to and the foot
+   of the board, set per column by src/routes/Board.svelte while a card is in
+   flight and absent at rest. The three declarations are one mechanism:
+
+   A transparent BORDER rather than padding, because a border sits outside the
+   padding box: it grows the box the library hit-tests without growing the
+   scrollable area. Padding would make a short column's list scrollable over its
+   own empty reach, and the library auto-scrolls whatever is scrollable under the
+   finger.
+
+   A negative MARGIN of the same size, because a flex parent sizes an item by its
+   OUTER height: giving back what the border took leaves the column drawn to its
+   cards. Without it every column on screen is drawn to the foot of the board for
+   the length of every drag, which is the board this reach replaces.
+
+   A FLOOR that moves with the reach, because `min-height` is measured against the
+   border box. A bare 4rem would be met by the border alone in a column holding one
+   card or none, and that column's panel would shrink by the difference mid-drag.
+
+   What the library draws on this zone cannot be an outline, which traces the
+   border box and so would ring the reach: src/lib/dnd.ts carries that half. */
+@utility drop-reach {
+  min-height: calc(4rem + var(--cp-drop-reach, 0px));
+  border-bottom: var(--cp-drop-reach, 0px) solid transparent;
+  margin-bottom: calc(-1 * var(--cp-drop-reach, 0px));
+}
+
 /* The one focus indicator, so a control cannot pick up `outline-none` and be left
    with a border-colour swap as its only focused state — which is what most of the
    text fields here had, and what the permanently-border-accent ones had instead of

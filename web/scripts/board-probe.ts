@@ -21,6 +21,11 @@ const params = new URLSearchParams(location.search);
 const COLS = Number(params.get('cols') ?? '4');
 const TASKS = Number(params.get('tasks') ?? '12');
 const READONLY = params.get('readonly') === '1';
+// How many of the columns, counting back from the last, are seeded with no cards
+// at all. An empty column is the one whose card list is nothing but the reach a
+// drag opens under it, so it is the only shape that can say whether that reach is
+// swallowed by the list's own floor.
+const EMPTY = Number(params.get('empty') ?? '0');
 const SELECTED = Number(params.get('selected') ?? '0');
 // Off by default: the badge row it adds changes card height, and the layout
 // checks measure that. The a11y check turns it on, because an unassigned board
@@ -104,7 +109,7 @@ const columnKeys = testSortKeys(COLS + 2);
 
 const tasks: BoardTask[] = [];
 for (let c = 0; c < COLS; c++) {
-  for (let t = 0; t < TASKS; t++) {
+  for (let t = 0; t < (c >= COLS - EMPTY ? 0 : TASKS); t++) {
     tasks.push({
       id: taskId(c, t),
       column_id: `c${c}`,

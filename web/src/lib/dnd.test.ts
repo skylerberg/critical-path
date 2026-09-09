@@ -1,7 +1,7 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { DROP_TARGET_STYLE, flipDuration } from './dnd';
+import { DROP_TARGET_STYLE, flipDuration, INSET_DROP_TARGET_STYLE } from './dnd';
 import { motion } from './motion.svelte';
 
 const SRC = resolve(import.meta.dirname, '..');
@@ -40,19 +40,40 @@ describe('drop target style', () => {
   // svelte-dnd-action falls back to its own red DEFAULT_DROP_TARGET_STYLE when a
   // zone names none, and a zone that spells its own out is how the four here came
   // to hold three copies of one object. Either way the new zone is the odd one
-  // out, and nothing else in the suite renders a drag.
-  it('is the shared object on every zone', () => {
+  // out, and nothing else in the suite renders a drag. Anchored on the whole
+  // identifier, because one of the two shapes is the other's name with a prefix.
+  it('is one of the two shared objects on every zone', () => {
     const zones = zoneOptions();
     expect(zones.length).toBeGreaterThan(0);
     for (const { file, options } of zones) {
-      expect(`${file}: ${options}`).toContain('dropTargetStyle: DROP_TARGET_STYLE');
+      expect(`${file}: ${options}`).toMatch(/dropTargetStyle: (?:INSET_)?DROP_TARGET_STYLE,/);
     }
   });
 
-  // The curve is the outline's, which takes it from the element: the zones are
-  // transparent containers, so this is the only thing rounding the highlight.
+  // The board's task zone is the one whose box is bigger than what the ring should
+  // trace: `drop-reach` in app.css carries its reach under a column's cards as a
+  // transparent bottom border, and an outline traces the border box. Asked of that
+  // zone by name, because the rule above is satisfied by either shape.
+  it('is the inset shape on the zone that reaches past its cards', () => {
+    const task = zoneOptions().find(({ options }) => options.includes("type: 'task'"));
+    expect(task?.file).toBe('routes/Board.svelte');
+    expect(task?.options).toContain('dropTargetStyle: INSET_DROP_TARGET_STYLE,');
+  });
+
+  // ...which holds only while the ring is drawn inside the padding box: that is the
+  // box that still ends where the cards do, now that the border box reaches the
+  // foot of the board.
+  it('draws the inset shape inside the padding box', () => {
+    expect(INSET_DROP_TARGET_STYLE.boxShadow).toMatch(/^inset /);
+    expect(INSET_DROP_TARGET_STYLE).not.toHaveProperty('outline');
+  });
+
+  // The curve is the ring's, which takes it from the element: the zones are
+  // transparent containers, so this is the only thing rounding either shape.
   it('rounds the highlight it draws', () => {
-    expect(DROP_TARGET_STYLE.borderRadius).toMatch(/^[\d.]+(?:rem|px)$/);
+    for (const shape of [DROP_TARGET_STYLE, INSET_DROP_TARGET_STYLE]) {
+      expect(shape.borderRadius).toMatch(/^[\d.]+(?:rem|px)$/);
+    }
   });
 });
 
