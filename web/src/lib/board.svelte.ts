@@ -423,7 +423,7 @@ class BoardStore {
       projects.adoptMembership(data.project);
       this.columns = [...data.columns].sort(byRank);
       this.tasks = data.tasks;
-      this.labels = data.labels;
+      this.labels = [...data.labels].sort(byRank);
       this.error = null;
       this.errorStatus = null;
       // Now that the label set is known, drop any the incoming URL named but this
@@ -485,7 +485,7 @@ class BoardStore {
     this.project = cached.payload.project;
     this.columns = [...cached.payload.columns].sort(byRank);
     this.tasks = cached.payload.tasks;
-    this.labels = cached.payload.labels;
+    this.labels = [...cached.payload.labels].sort(byRank);
     this.error = null;
     this.errorStatus = null;
     this.syncedAt = cached.savedAt;
@@ -1577,9 +1577,9 @@ class BoardStore {
       return;
     }
     const id = newId();
-    // Unkeyed until the label_created echo lands with the real one; a null key
-    // sorts last under byRank, which is where the server appends too.
-    this.labels = [...this.labels, { id, name, color, sort_key: null }];
+    // A null key sorts last under byRank, which is where the server appends
+    // too; the label_created echo then lands with the real key.
+    this.labels = [...this.labels, { id, name, color, sort_key: null }].sort(byRank);
     await this.#sendOrFail(
       {
         subject: { kind: 'label', id },
@@ -1593,6 +1593,25 @@ class BoardStore {
       },
       (error) => this.#labelConflictOrFail(error)
     );
+  }
+
+  async moveLabel(labelId: string, placement: Placement, intent: Neighbors): Promise<void> {
+    this.labels = this.labels
+      .map((label) => (label.id === labelId ? { ...label, ...placement } : label))
+      .sort(byRank);
+    const name = this.labels.find((label) => label.id === labelId)?.name ?? '';
+    await this.#sendOrFail({
+      subject: { kind: 'label', id: labelId },
+      label: `Moved label “${truncateTitle(name)}”`,
+      semantics: 'move',
+      move: { kind: 'label', ...neighborIds(intent) },
+      request: {
+        method: 'PATCH',
+        path: '/api/labels/{id}',
+        pathParams: { id: labelId },
+        body: { ...placement },
+      },
+    });
   }
 
   async updateLabel(labelId: string, patch: { name?: string; color?: string }): Promise<void> {
@@ -2307,7 +2326,7 @@ class BoardStore {
       case 'label_created':
       case 'label_updated': {
         const label = event.data;
-        this.labels = upsertById(this.labels, label);
+        this.labels = upsertById(this.labels, label, byRank);
         break;
       }
       case 'label_deleted': {

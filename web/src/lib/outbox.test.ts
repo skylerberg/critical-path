@@ -502,6 +502,7 @@ describe('replaying a move made offline', () => {
   const AFTER_ID = testUuid('after');
   const BEFORE_ID = testUuid('before');
   const COLUMN_ID = testUuid('c1');
+  const LABEL_ID = testUuid('l1');
 
   function boardWith(tasks: { id: string; sort_key: string }[]) {
     return {
@@ -776,6 +777,49 @@ describe('replaying a move made offline', () => {
             { id: BEFORE_ID, sort_key: NEXT_TO_ANCHOR },
           ],
           labels: [],
+          tasks: [],
+        })
+      );
+    });
+    await outbox.drain();
+
+    const keys = await replayedSortKeys();
+    expect(keys[0]).not.toBe(OFFLINE_KEY);
+    expect(keys[0]! > ANCHOR && keys[0]! < NEXT_TO_ANCHOR).toBe(true);
+    expect(outbox.issues).toHaveLength(0);
+  });
+
+  it("rekeys a queued label move against the board's labels", async () => {
+    unreachable();
+    await outbox.submit(
+      edit({
+        subject: { kind: 'label', id: LABEL_ID },
+        semantics: 'move',
+        label: 'Moved label',
+        move: { kind: 'label' as const, afterId: AFTER_ID, beforeId: BEFORE_ID },
+        request: {
+          method: 'PATCH',
+          path: '/api/labels/{id}',
+          pathParams: { id: LABEL_ID },
+          body: { sort_key: OFFLINE_KEY },
+        },
+      })
+    );
+    fetchMock.mockReset();
+    fetchMock.mockImplementation((input: RequestInfo | URL) => {
+      const request = input as Request;
+      if (request.method !== 'GET') {
+        return Promise.resolve(jsonResponse(200, {}));
+      }
+      // The anchors moved while the queue waited, so the offline key is stale.
+      return Promise.resolve(
+        jsonResponse(200, {
+          project: { id: PROJECT_ID },
+          columns: [],
+          labels: [
+            { id: AFTER_ID, name: 'art', color: '#ff0000', sort_key: ANCHOR },
+            { id: BEFORE_ID, name: 'code', color: '#00ff00', sort_key: NEXT_TO_ANCHOR },
+          ],
           tasks: [],
         })
       );
