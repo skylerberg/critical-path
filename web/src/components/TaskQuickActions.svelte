@@ -227,11 +227,11 @@
 {/snippet}
 
 <div class="relative flex flex-wrap gap-1">
+  {@render action('column', columnName, columnIcon, () => toggle('column'))}
   {@render action('checklist', 'Checklist', checklistIcon, () => reveal('checklist'))}
   {@render action('dates', 'Dates', datesIcon, () => toggle('dates'))}
   {@render action('assign', 'Assign', assignIcon, () => toggle('assign'))}
   {@render action('labels', 'Labels', labelsIcon, () => toggle('labels'))}
-  {@render action('column', columnName, columnIcon, () => toggle('column'))}
   {@render action('attach', 'Attach', attachIcon, () => toggle('attach'))}
   {@render action('depends', 'Dependencies', dependsIcon, () => toggle('depends'))}
 
