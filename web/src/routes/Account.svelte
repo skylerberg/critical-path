@@ -187,6 +187,10 @@
     }
   }
 
+  function logout(): void {
+    void session.logout();
+  }
+
   async function submitPassword(event: SubmitEvent): Promise<void> {
     event.preventDefault();
     if (currentPassword === '') {
@@ -370,6 +374,18 @@
       you do and can be revoked one at a time.
     </p>
     <PersonalAccessTokens />
+  </section>
+
+  <section class="flex flex-col gap-3 rounded-lg border border-edge bg-surface p-6">
+    <h2 class="text-lg font-semibold">Log out</h2>
+    <p class="text-sm text-muted">
+      Ends this browser's session and clears what this device has cached — boards, changes still
+      queued to send, and images. Other devices stay signed in; end those from “Where you're signed
+      in” above.
+    </p>
+    <div class="flex justify-end">
+      <Button variant="secondary" onclick={logout}>Log out</Button>
+    </div>
   </section>
 
   <section class="flex flex-col gap-3 rounded-lg border border-edge bg-surface p-6">

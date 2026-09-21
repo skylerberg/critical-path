@@ -1,9 +1,10 @@
 import { fetchMock, jsonResponse } from '../api/testUtils';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/svelte';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/svelte';
 import Account from './Account.svelte';
 import { projects, type Project } from '../lib/projects.svelte';
 import { realtime } from '../lib/realtime.svelte';
+import { router } from '../lib/router.svelte';
 import { session } from '../lib/session.svelte';
 import { projectHref } from '../lib/short-links';
 import { testUuid } from '../lib/test-ids';
@@ -139,7 +140,9 @@ beforeEach(async () => {
   projects.reset();
   localStorage.clear();
   sessionStorage.clear();
-  window.history.replaceState(null, '', '/account');
+  // Through the router rather than history alone: sign-out is a no-op when the
+  // router still believes it is on /login, which is where an earlier test left it.
+  router.navigate('/account', { replace: true });
   await session.init();
   await loginAs();
 });
@@ -844,6 +847,23 @@ describe('Account', () => {
 
     expect(screen.getByRole('button', { name: 'Delete account' })).toBeEnabled();
     expect(screen.queryByText('Shared Ledger')).not.toBeInTheDocument();
+  });
+
+  // The only way out of the app from inside it, now that neither nav bar draws
+  // one. Driven through the button rather than by calling the store, which is the
+  // half that has been missing — the store's own test passes with the handler
+  // dropped.
+  it('signs this browser out and drops what it cached', async () => {
+    mockRoutes(204);
+    render(Account);
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Log out' }));
+
+    await waitFor(() => expect(session.status).toBe('anon'));
+    expect(session.user).toBeNull();
+    expect(pathsRequested()).toContain('/api/auth/logout');
+    expect(cacheDelete.mock.calls.flat()).toEqual(['api-images', 'api-avatars']);
+    expect(window.location.pathname).toBe('/login');
   });
 
   it('flags a confirmation mismatch', async () => {

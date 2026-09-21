@@ -605,27 +605,25 @@ describe('Nav unseen changes dot', () => {
   });
 });
 
-// The only way out of the app from inside it, and one that is drawn twice: the
-// sidebar on a wide screen, the bottom bar on a phone. Driven through the button
-// rather than by calling the store, which is the half that has been missing —
-// the store's own test passes with either handler dropped.
+// Signing out lives on the account page now, and the nav's job is to be the way
+// there. Asserted in both bars because the button used to be drawn in both, so a
+// revert that restored one of them would otherwise pass.
 describe('Nav sign-out', () => {
   const bars: [string, number][] = [
     ['the sidebar', 0],
     ['the bottom bar', 1],
   ];
 
-  it.each(bars)('signs out from %s', async (_name, index) => {
-    fetchMock.mockResolvedValue(jsonResponse(204));
+  it.each(bars)('routes to the account page instead of signing out from %s', (_name, index) => {
     render(Nav);
     const bar = screen.getAllByRole('navigation', { name: 'Primary' })[index]!;
 
-    await fireEvent.click(within(bar).getByRole('button', { name: 'Log out' }));
-
-    await waitFor(() => expect(session.status).toBe('anon'));
-    expect(session.user).toBeNull();
-    expect(new URL(requestAt(0).url).pathname).toBe('/api/auth/logout');
-    expect(window.location.pathname).toBe('/login');
+    expect(within(bar).queryByRole('button', { name: 'Log out' })).toBeNull();
+    expect(
+      within(bar)
+        .getAllByRole('link')
+        .filter((anchor) => anchor.getAttribute('href') === '/account')
+    ).toHaveLength(1);
   });
 });
 

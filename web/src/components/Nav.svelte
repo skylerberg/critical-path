@@ -57,10 +57,6 @@
       );
     }
   }
-
-  function logout(): void {
-    void session.logout();
-  }
 </script>
 
 <SyncStatus />
@@ -129,23 +125,6 @@
     aria-hidden="true"
   >
     <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-  </svg>
-{/snippet}
-
-{#snippet logoutIcon()}
-  <svg
-    class="size-5"
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    stroke-width="2"
-    stroke-linecap="round"
-    stroke-linejoin="round"
-    aria-hidden="true"
-  >
-    <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
-    <polyline points="16 17 21 12 16 7" />
-    <line x1="21" y1="12" x2="9" y2="12" />
   </svg>
 {/snippet}
 
@@ -267,14 +246,6 @@
       {@render feedbackIcon()}
       Send feedback
     </button>
-    <button
-      type="button"
-      onclick={logout}
-      class="flex min-h-11 cursor-pointer items-center gap-3 rounded-md px-3 text-sm font-medium text-muted hover:bg-accent-soft hover:text-ink"
-    >
-      {@render logoutIcon()}
-      Log out
-    </button>
   </div>
 </nav>
 
@@ -331,14 +302,6 @@
         <span class="max-w-24 truncate">{session.user.name}</span>
       </a>
     {/if}
-    <button
-      type="button"
-      onclick={logout}
-      class="flex min-h-14 flex-1 cursor-pointer flex-col items-center justify-center gap-0.5 text-xs font-medium text-muted"
-    >
-      {@render logoutIcon()}
-      Log out
-    </button>
   </nav>
 {/if}
 

@@ -490,22 +490,15 @@ export const guards = [
     tests: ['src/App.test.ts'],
   },
   {
-    name: 'the sidebar Log out button signs out',
-    testName: 'signs out from the sidebar',
-    file: 'src/components/Nav.svelte',
-    find: '      onclick={logout}\n      class="flex min-h-11 cursor-pointer',
-    replace: '      class="flex min-h-11 cursor-pointer',
-    tests: ['src/components/Nav.test.ts'],
-  },
-  {
-    // The phone-sized bar is a second copy of the same button, and the only way
-    // out of the app on a phone.
-    name: 'the bottom bar Log out button signs out',
-    testName: 'signs out from the bottom bar',
-    file: 'src/components/Nav.svelte',
-    find: '      onclick={logout}\n      class="flex min-h-14 flex-1 cursor-pointer',
-    replace: '      class="flex min-h-14 flex-1 cursor-pointer',
-    tests: ['src/components/Nav.test.ts'],
+    // The only way out of the app from inside it, on a phone as much as on a
+    // desktop — neither nav bar draws one any more. It replaces a pair of guards,
+    // one per bar, from when the button was drawn twice.
+    name: 'the account page Log out button signs out',
+    testName: 'signs this browser out and drops what it cached',
+    file: 'src/routes/Account.svelte',
+    find: '<Button variant="secondary" onclick={logout}>Log out</Button>',
+    replace: '<Button variant="secondary">Log out</Button>',
+    tests: ['src/routes/Account.test.ts'],
   },
   {
     // A takeover reloading the document on its own discards whatever was typed;
