@@ -312,6 +312,16 @@ committed file.
   claim each caller remembers to check, and it is reserved from the claims
   object at the type level. A new family is a new type string, and a token
   naming no type at all verifies for nobody.
+- Session expiry is idle-based. `SESSION_TTL_DAYS` (365, capped at 400) is what
+  a session gets from its last use, not from its creation: authenticating one
+  that is past the halfway mark of that window slides `expires_at` forward, on
+  the pool rather than the request's transaction and with the due check repeated
+  in the WHERE, exactly as `recordPersonalAccessTokenUse` does and for the
+  same reasons. Only the request that moved it re-issues the cookie, which is
+  why `AuthenticatedCredential` carries `renewed`. The cap is the browser's: a
+  cookie longer than 400 days is clamped silently, and `assertSessionConfig`
+  turns that into a boot failure instead. Personal access tokens do not slide —
+  theirs is an absolute `expires_at`, usually null.
 - Neither `change-password` nor `reset-password` revokes anything: both answer
   204 and leave every session and token signed in, so a change-password issues
   no replacement token. Sessions are revoked only from the sessions list

@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach, vi } from 'vitest';
-import { env } from '../../src/config/env';
+import { assertSessionConfig, env } from '../../src/config/env';
 
 afterEach(() => {
   vi.unstubAllEnvs();
@@ -38,5 +38,34 @@ describe('env.emailTokenSecret', () => {
     expect(() => env.passwordResetSecret).toThrow(
       'PASSWORD_RESET_SECRET is required in production'
     );
+  });
+});
+
+// Strict where most of these are lenient, because the session cookie carries the
+// same number and browsers clamp one over 400 days without a word. A longer TTL
+// would leave the cookie and the row it mirrors on different clocks, and the
+// only symptom is an <img> that 401s until some later read rebuilds the cookie —
+// which nobody would trace back to here.
+describe('env.sessionTtlDays', () => {
+  it('defaults to a year, and takes any lifetime a cookie can carry', () => {
+    vi.stubEnv('SESSION_TTL_DAYS', undefined);
+    expect(env.sessionTtlDays).toBe(365);
+
+    vi.stubEnv('SESSION_TTL_DAYS', '400');
+    expect(env.sessionTtlDays).toBe(400);
+  });
+
+  it('refuses a lifetime no cookie can carry, and anything that is not whole days', () => {
+    for (const raw of ['401', '4000', '0', '-1', '30.5', 'forever']) {
+      vi.stubEnv('SESSION_TTL_DAYS', raw);
+      expect(() => env.sessionTtlDays).toThrow('SESSION_TTL_DAYS must be a whole number of days');
+    }
+  });
+
+  it('is read at boot, so a bad value fails the deploy and not the first login', () => {
+    vi.stubEnv('SESSION_TTL_DAYS', '4000');
+    expect(() => {
+      assertSessionConfig();
+    }).toThrow('SESSION_TTL_DAYS');
   });
 });

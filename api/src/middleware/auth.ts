@@ -74,14 +74,19 @@ export async function authMiddleware(c: PublicContext, next: Next) {
   }
 
   // Backfills the cookie onto a session that predates it, so an already
-  // signed-in browser gains one on its next read rather than at its next login.
-  // Two constraints on when: session credentials only, because a personal access
+  // signed-in browser gains one on its next read rather than at its next login,
+  // and re-issues it on the request that slid that session's expiry forward, so
+  // the cookie and the row it mirrors go on measuring the same lifetime. Two
+  // constraints on when: session credentials only, because a personal access
   // token is the CLI's and a cookie would make it an ambient browser one; and
   // safe methods only, because logout manages this cookie itself and a backfill
   // would leave the response carrying two conflicting Set-Cookie headers for the
-  // same name.
+  // same name. A renewal landing on a mutation therefore leaves the cookie on
+  // its old expiry, which costs nothing it can reach: the row is the credential,
+  // and the backfill rebuilds the cookie from it on the next read.
   const safeMethod = c.req.method === 'GET' || c.req.method === 'HEAD';
-  if (safeMethod && credential.kind === 'session' && sessionCookieToken(c) === null) {
+  const refreshCookie = sessionCookieToken(c) === null || credential.renewed;
+  if (safeMethod && credential.kind === 'session' && refreshCookie) {
     setSessionCookie(c, token);
   }
 
