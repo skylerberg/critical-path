@@ -572,6 +572,9 @@ class OutboxStore {
     if (move.kind === 'column') {
       return board.columns;
     }
+    if (move.kind === 'label') {
+      return board.labels;
+    }
     if (move.kind === 'task') {
       return board.tasks.filter((task) => task.column_id === move.columnId);
     }
@@ -625,7 +628,15 @@ class OutboxStore {
       // the user's own until the queue has actually landed.
       return result.data === undefined
         ? null
-        : { tasks: [...result.data.tasks], columns: [...result.data.columns] };
+        : {
+            tasks: [...result.data.tasks],
+            columns: [...result.data.columns],
+            // A label a pre-sort_key pod wrote mid-deploy has no key and cannot
+            // anchor a replay; it sorts last on every client until it has one.
+            labels: result.data.labels.filter(
+              (label): label is Keyed & typeof label => label.sort_key !== null
+            ),
+          };
     } catch {
       return null;
     }
@@ -792,6 +803,7 @@ class OutboxStore {
 interface BoardTasks {
   tasks: (Keyed & { column_id: string })[];
   columns: Keyed[];
+  labels: Keyed[];
 }
 
 // Keeps the shadow board in step as moves land, so two queued moves into the
@@ -869,6 +881,13 @@ function applyMoveLocally(
     const column = board.columns.find((candidate) => candidate.id === rowId);
     if (column !== undefined) {
       column.sort_key = sortKey;
+    }
+    return;
+  }
+  if (move.kind === 'label') {
+    const label = board.labels.find((candidate) => candidate.id === rowId);
+    if (label !== undefined) {
+      label.sort_key = sortKey;
     }
     return;
   }

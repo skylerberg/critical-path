@@ -513,6 +513,23 @@ describe('board event application', () => {
     expect(board.filterLabelIds).toEqual([]);
   });
 
+  it('lands a label echo in rank order rather than at the end', () => {
+    board.labels = [
+      { id: 'l1', name: 'art', color: '#ff0000', sort_key: testSortKey(0) },
+      { id: 'l2', name: 'code', color: '#00ff00', sort_key: testSortKey(2) },
+    ];
+
+    board.applyRealtime(
+      realtimeEvent(
+        'label_created',
+        { id: 'l3', name: 'design', color: '#0000ff', sort_key: testSortKey(1) },
+        'p1'
+      )
+    );
+
+    expect(board.labels.map((label) => label.id)).toEqual(['l1', 'l3', 'l2']);
+  });
+
   it('clears the cover when attachment_deleted reports it is gone', () => {
     board.tasks = [{ ...task('t1'), cover_image_url: '/api/images/img2' }];
 

@@ -4,7 +4,7 @@ import { board, placementAfterDrop, type TaskAttachment, type TaskSeriesRef } fr
 import { noFilters, parseFilters } from './board-filters';
 import { byRank } from './ranks';
 import { connectivity } from './connectivity.svelte';
-import type { BoardPayload, BoardTask } from './board-types';
+import type { BoardLabel, BoardPayload, BoardTask } from './board-types';
 import { computeGraph } from './graph';
 import { clearOfflineCache } from './offline-cache';
 import { outbox } from './outbox.svelte';
@@ -1468,6 +1468,53 @@ describe('board store mutations', () => {
     expect(toasts.toasts.map((t) => t.message)).toEqual(['nope']);
     expect(requestAt(1).method).toBe('GET');
     expect(board.columns.map((c) => c.id)).toEqual(['c1', 'c2', 'c3']);
+  });
+
+  // The store is what keeps `labels` in rank order — LabelManager renders
+  // straight off it between drags — and the trailing sort is the only thing
+  // maintaining that after a drop.
+  it('moveLabel re-orders the labels before the response and PATCHes the new rank', async () => {
+    const labels: (BoardLabel & Keyed)[] = [
+      { id: 'l1', name: 'art', color: '#ff0000', sort_key: testSortKey(0) },
+      { id: 'l2', name: 'code', color: '#00ff00', sort_key: testSortKey(1) },
+      { id: 'l3', name: 'design', color: '#0000ff', sort_key: testSortKey(2) },
+    ];
+    board.labels = labels;
+    const drop = placementAfterDrop([labels[2]!, labels[0]!, labels[1]!], 'l3')!;
+
+    const pending = board.moveLabel('l3', drop.placement, drop.intent);
+
+    expect(board.labels.map((l) => l.id)).toEqual(['l3', 'l1', 'l2']);
+
+    await pending;
+
+    const request = requestAt(0);
+    expect(request.method).toBe('PATCH');
+    expect(new URL(request.url).pathname).toBe('/api/labels/l3');
+    expect(await request.json()).toEqual({ sort_key: drop.placement.sort_key });
+  });
+
+  it('moveLabel queues the labels it landed between, not just the key it computed', async () => {
+    const labels: (BoardLabel & Keyed)[] = [
+      { id: 'l1', name: 'art', color: '#ff0000', sort_key: testSortKey(0) },
+      { id: 'l2', name: 'code', color: '#00ff00', sort_key: testSortKey(1) },
+      { id: 'l3', name: 'design', color: '#0000ff', sort_key: testSortKey(2) },
+    ];
+    board.labels = labels;
+    const submit = vi.spyOn(outbox, 'submit');
+    const ordered = [...labels].sort(byRank);
+    const moved = ordered[2]!;
+    const items = [ordered[0]!, moved, ordered[1]!];
+    const drop = placementAfterDrop(items, moved.id)!;
+
+    await board.moveLabel(moved.id, drop.placement, drop.intent);
+
+    expect(submit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        semantics: 'move',
+        move: { kind: 'label', afterId: ordered[0]!.id, beforeId: ordered[1]!.id },
+      })
+    );
   });
 
   it('renameColumn renames the column and PATCHes the new name', async () => {
