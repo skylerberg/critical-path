@@ -40,4 +40,4 @@
 
 # Not infrastructure, but the same problem: the two-commit deploy rule and the
 # no-root-workspace rule live here and nowhere else, and nothing enforces either.
-/CLAUDE.md        @skylerberg
+/AGENTS.md        @skylerberg

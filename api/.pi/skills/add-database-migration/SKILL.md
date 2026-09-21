@@ -81,12 +81,12 @@ nothing. `scripts/codegen-types.ts` gets its connection settings from
 `.env.test`, then migrates a scratch database of its own from
 `src/db/migrations`, introspects that, and drops it, so the output follows from
 the migration you just wrote rather than from the state of any database you
-develop against. Handing it `critical_path` is the failure `CLAUDE.md` describes
+develop against. Handing it `critical_path` is the failure `AGENTS.md` describes
 under "Deploys and migrations".
 
 It rewrites `src/db/types.generated.ts`, which is the file to commit alongside
 the migration. `src/db/types.ts` is hand-written and is not regenerated; it only
-needs editing when a new ordering scope arrives, per `CLAUDE.md`.
+needs editing when a new ordering scope arrives, per `AGENTS.md`.
 
 ## 6. Check
 

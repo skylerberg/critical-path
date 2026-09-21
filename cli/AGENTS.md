@@ -5,7 +5,7 @@
 the package.
 
 This is one of four packages (`api/`, `web/`, `cli/`, `preview-edge/`). The root
-`CLAUDE.md` carries what is true across all of them, `api/CLAUDE.md` is the
+`AGENTS.md` carries what is true across all of them, `api/AGENTS.md` is the
 backend's manual, and this package is a consumer of that backend's contract and
 of nothing else.
 
@@ -113,7 +113,7 @@ interchangeable:
   generated client at all; the test above is for the ones that cannot.
 
 The `/ws` protocol is the other half of the contract and has no OpenAPI request
-or response to describe it — `api/CLAUDE.md`'s realtime conventions are where it
+or response to describe it — `api/AGENTS.md`'s realtime conventions are where it
 is specified, and `src/watch.ts` is written against them.
 
 # Style

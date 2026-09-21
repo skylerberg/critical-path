@@ -6,7 +6,7 @@ name: Codegen CI
 # Why this does not fight the two-commit deploy rule — read this before
 # "fixing" the check by making it skip api pull requests.
 #
-# The rule (root CLAUDE.md) is that an endpoint and the web code calling it
+# The rule (root AGENTS.md) is that an endpoint and the web code calling it
 # reach main in two separate merges, api first, because both production deploys
 # fire from one push and web ships ~2 minutes ahead of api. This check demands
 # the regenerated clients in the *same* commit as the api change, which sounds

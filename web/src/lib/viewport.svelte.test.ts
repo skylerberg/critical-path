@@ -3,7 +3,7 @@ import { Viewport } from './viewport.svelte';
 
 const LAYOUT_H = 800;
 
-// jsdom implements no VisualViewport at all (CLAUDE.md lists what else is
+// jsdom implements no VisualViewport at all (AGENTS.md lists what else is
 // missing), so the thing under test has to be handed one. An EventTarget with
 // the two fields the store reads is the whole of the API surface it uses.
 class FakeVisualViewport extends EventTarget {

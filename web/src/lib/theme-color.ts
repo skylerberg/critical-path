@@ -12,7 +12,7 @@ export class ThemeColor {
   #stop: (() => void) | null = null;
 
   init(): void {
-    // Absent under jsdom; see CLAUDE.md on what the runner does not implement.
+    // Absent under jsdom; see AGENTS.md on what the runner does not implement.
     if (typeof window.matchMedia === 'function') {
       const query = window.matchMedia(DARK_QUERY);
       const repaint = (): void => this.#paint();

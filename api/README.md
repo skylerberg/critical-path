@@ -2737,7 +2737,7 @@ whose committed clients are not what it produced.
 `cli/` is the sibling package that builds `cpath`, a command-line client
 covering this API's whole surface, `/ws` included. `cli/README.md` is its
 command reference — installing it, signing in, naming a card, the NDJSON event
-tap and the exit codes a script branches on. `cli/CLAUDE.md` is the manual for
+tap and the exit codes a script branches on. `cli/AGENTS.md` is the manual for
 changing it, and covers the one thing that surprises people working in this
 package: the CLI's tests are collected by `vitest.config.ts` here and run in
 `pnpm test`.

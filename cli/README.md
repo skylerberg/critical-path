@@ -5,7 +5,7 @@ dependencies and the realtime stream, from a terminal or a script.
 
 This is the `cli/` package of the Critical Path monorepo. It is a client of the
 `api/` package and of nothing else; `web/` is the other client. Each package
-installs on its own; there is no pnpm workspace. `CLAUDE.md` beside this file is
+installs on its own; there is no pnpm workspace. `AGENTS.md` beside this file is
 the manual for *changing* the CLI — everything below is for using it.
 
 ## Install
@@ -225,7 +225,7 @@ pnpm -C cli run check:all  # type-check, lint, format:check
 pnpm -C api test           # the CLI's own tests run in api's vitest, not here
 ```
 
-`CLAUDE.md` in this directory explains both — why the tests live in the api
+`AGENTS.md` in this directory explains both — why the tests live in the api
 package's suite, how the committed client under `src/api/` is regenerated, and
 which of this package's config files exist only because a config search that
 walks up out of `cli/` finds nothing.

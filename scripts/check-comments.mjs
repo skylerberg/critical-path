@@ -231,7 +231,7 @@ const IDENTIFIER = /`(#?[A-Za-z_$][A-Za-z0-9_$]*)(?:\(\))?`/g;
 // extensions stay narrower than REPO_PATH's, and the reason changed with the
 // merge rather than going away: a bare `openapi.json` is one of the two spec
 // dumps, a gitignored build product that exists only after a generator run, and
-// a bare `package.json`, `tsconfig.json` or `CLAUDE.md` names four different
+// a bare `package.json`, `tsconfig.json` or `AGENTS.md` names four different
 // files. A directory in front settles the four-of-a-kind ones, which is the
 // form REPO_PATH below checks; it does not settle the dumps, and GENERATED is
 // why.
@@ -324,7 +324,7 @@ const EXTERNAL = new Set([
 const GENERATED = new Set(['api/openapi.json', 'api/realtime-events.json']);
 
 // A path in prose resolves from the repository root, and then from the package
-// the prose lives in — web/CLAUDE.md says `src/lib/ranks.ts` and means
+// the prose lives in — web/AGENTS.md says `src/lib/ranks.ts` and means
 // `web/src/lib/ranks.ts`, while the same document says `api/src/index.ts` and
 // means it from the root. Only a first segment that names a real directory at
 // one of those two levels makes the string a claim at all, which is what keeps
@@ -645,29 +645,29 @@ if (SELFTEST) {
     ],
     [
       'a package-relative path resolves against the package the prose is in',
-      refs('web/CLAUDE.md', 'see src/elsewhere/real.ts here').length === 0,
+      refs('web/AGENTS.md', 'see src/elsewhere/real.ts here').length === 0,
     ],
     [
       'a package-relative path that is not there is reported',
-      refs('web/CLAUDE.md', 'see src/lib/gone.ts for this').length === 1,
+      refs('web/AGENTS.md', 'see src/lib/gone.ts for this').length === 1,
     ],
     [
       'a path into another package is resolved from the repository root',
-      refs('web/CLAUDE.md', 'the api holds api/src/there.ts now').length === 0,
+      refs('web/AGENTS.md', 'the api holds api/src/there.ts now').length === 0,
     ],
     [
       'a path into another package that does not exist is reported',
-      refs('web/CLAUDE.md', 'the api holds api/src/absent.ts now').length === 1,
+      refs('web/AGENTS.md', 'the api holds api/src/absent.ts now').length === 1,
     ],
     // The exemption and its control together. Without the second, GENERATED
     // widening to swallow every untracked path would still pass here.
     [
       'a path the tree generates but does not track is not reported',
-      refs('api/CLAUDE.md', 'both generators read api/openapi.json first').length === 0,
+      refs('api/AGENTS.md', 'both generators read api/openapi.json first').length === 0,
     ],
     [
       'a path that is merely absent is still reported',
-      refs('api/CLAUDE.md', 'both generators read api/nothing.json first').length === 1,
+      refs('api/AGENTS.md', 'both generators read api/nothing.json first').length === 1,
     ],
     [
       'a path rooted at a repository this one absorbed is a broken reference',
@@ -679,11 +679,11 @@ if (SELFTEST) {
     ],
     [
       'a url tail is not read as a path',
-      refs('CLAUDE.md', 'open localhost:5180/src/probe.html').length === 0,
+      refs('AGENTS.md', 'open localhost:5180/src/probe.html').length === 0,
     ],
     [
       'a glob is not read as a path',
-      refs('CLAUDE.md', 'tests live at src/**/*.test.ts here').length === 0,
+      refs('AGENTS.md', 'tests live at src/**/*.test.ts here').length === 0,
     ],
     ['markdown prose is read as blocks', proseBlocks(doc).length === 4],
     [
@@ -697,7 +697,7 @@ if (SELFTEST) {
     [
       'a doc paragraph duplicating a code comment is caught',
       findDuplicates([
-        { path: 'web/CLAUDE.md', blocks: [{ line: 1, text: shared }] },
+        { path: 'web/AGENTS.md', blocks: [{ line: 1, text: shared }] },
         { path: 'web/src/lib/a.ts', blocks: [{ line: 1, text: shared }] },
       ]).length === 1,
     ],
@@ -707,7 +707,7 @@ if (SELFTEST) {
     ],
     [
       'the walk reaches the prose of every package, docs/ and the root',
-      reaches(tree.docs, ['api/', 'web/', 'docs/', 'scripts/', 'README.md', 'CLAUDE.md']),
+      reaches(tree.docs, ['api/', 'web/', 'docs/', 'scripts/', 'README.md', 'AGENTS.md']),
     ],
     [
       'the walk indexes the manifests and workflows without reading them for prose',

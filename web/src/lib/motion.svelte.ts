@@ -5,7 +5,7 @@ export class MotionPreference {
   #stop: (() => void) | null = null;
 
   init(): void {
-    // Absent under jsdom; see CLAUDE.md on what the runner does not implement.
+    // Absent under jsdom; see AGENTS.md on what the runner does not implement.
     if (typeof window.matchMedia !== 'function') {
       return;
     }

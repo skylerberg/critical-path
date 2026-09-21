@@ -4,7 +4,7 @@ Shared tooling that belongs to no single package. **This directory is not a
 package** — no `package.json`, no `node_modules`, no lockfile — so anything here
 may import node builtins and its own siblings and nothing else. Bare specifiers
 resolve by walking up from the importing file, and the root has no
-`node_modules` and never will. See the root `CLAUDE.md`.
+`node_modules` and never will. See the root `AGENTS.md`.
 
 ## `bootstrap.sh`
 
@@ -118,7 +118,7 @@ a realtime payload, and commit `web/src/api/*.generated.ts` and
 `.github/workflows/codegen-ci.yaml` runs the same script and fails the build if
 the committed clients differ from what it produces — that workflow's header
 explains why committing them alongside the api change is compatible with the
-root `CLAUDE.md`'s two-commit deploy rule.
+root `AGENTS.md`'s two-commit deploy rule.
 
 It needs no `.env`, no database and no running server.
 

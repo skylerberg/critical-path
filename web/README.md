@@ -57,7 +57,7 @@ how they are produced. Because the schema and the client are now in one tree,
 regenerate in the same commit as the API change — `codegen-ci.yaml` fails the
 pull request otherwise. `ALLOW_REMOTE_SPEC=1` opts into the deployed API
 instead, for generating a client somewhere other than this repository; see
-CLAUDE.md.
+AGENTS.md.
 
 ## Checks
 

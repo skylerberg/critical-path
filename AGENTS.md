@@ -4,9 +4,9 @@ One repository, four packages, **no root package and no root `node_modules`**.
 
 | Package         | What it is                                       | Its docs                              |
 | --------------- | ------------------------------------------------ | ------------------------------------- |
-| `api/`          | Hono + Kysely + Postgres backend                 | `api/CLAUDE.md`, `api/README.md`       |
-| `web/`          | Svelte 5 (runes) + Vite SPA/PWA frontend         | `web/CLAUDE.md`, `web/README.md`       |
-| `cli/`          | `cpath`, a command-line client for the API       | `cli/CLAUDE.md`, `cli/README.md`       |
+| `api/`          | Hono + Kysely + Postgres backend                 | `api/AGENTS.md`, `api/README.md`       |
+| `web/`          | Svelte 5 (runes) + Vite SPA/PWA frontend         | `web/AGENTS.md`, `web/README.md`       |
+| `cli/`          | `cpath`, a command-line client for the API       | `cli/AGENTS.md`, `cli/README.md`       |
 | `preview-edge/` | the Cloud Run worker that serves PR previews     | `preview-edge/README.md`               |
 
 Each package's own docs are the operating manuals; this one holds only what is
@@ -103,7 +103,7 @@ types, so the web deploy they trigger ships a byte-identical bundle. It is the
 call sites that wait for the second merge. Do not "fix" that check by exempting
 api pull requests; its header comment carries the reasoning.
 
-This is the same constraint as the rolling-deploy discipline in `api/CLAUDE.md`'s
+This is the same constraint as the rolling-deploy discipline in `api/AGENTS.md`'s
 migration workflow: old and new have to interoperate across a window whose
 length you do not control. That section covers the database half of it; this
 covers the client half.
@@ -118,9 +118,9 @@ and web 245, and on one day it was api 6 and web 34. Ask about your own side:
 git fetch origin && git rev-list --count HEAD..origin/main -- api/   # or -- web/
 ```
 
-`api/CLAUDE.md`'s "Staying current with main" is the full version — three points
+`api/AGENTS.md`'s "Staying current with main" is the full version — three points
 to check, and two ways a stale base has already produced a wrong conclusion.
-`web/CLAUDE.md`'s section of that name is the frontend's half and defers to it.
+`web/AGENTS.md`'s section of that name is the frontend's half and defers to it.
 
 ## The root `scripts/` directory
 

@@ -32,7 +32,7 @@ pinned headless Chromium via `scripts/lib/browser.mjs`. First-time local setup:
   shape around one component rather than a whole route, and the closer model to
   copy for a new probe. It asks what jsdom cannot answer about focus.
 
-CLAUDE.md's "Checking what jsdom cannot model" is the owner of the engine
+AGENTS.md's "Checking what jsdom cannot model" is the owner of the engine
 differences and the traps a new probe hits; read it before writing one.
 
 ## Workflow for a board/layout bug
@@ -97,7 +97,7 @@ const b = await createBrowser({ engine: 'webkit' });
 
 Do it for anything touching focus, the on-screen keyboard, or what an unmount
 does to a focused field: the two engines disagree there, Chromium is the
-optimistic one, and a green Chromium run on its own is not an answer. CLAUDE.md's
+optimistic one, and a green Chromium run on its own is not an answer. AGENTS.md's
 "Checking what jsdom cannot model" has the specific difference and what it cost.
 
 ## Guardrails

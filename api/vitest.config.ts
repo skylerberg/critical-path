@@ -4,7 +4,7 @@ import { defineConfig } from 'vitest/config';
 import { baseDatabaseName, resolveTestDatabaseName } from './tests/setup/testDatabaseName';
 
 // Every way of starting the suite loads this file, including the single-file
-// command in CLAUDE.md, so this is the one place that can guarantee a checkout
+// command in AGENTS.md, so this is the one place that can guarantee a checkout
 // gets its own database. Agents work in parallel worktrees off one .env.test;
 // sharing the name meant one suite's opening TRUNCATE wiped another's rows
 // mid-run, or blocked behind its transactions until the statement timeout.

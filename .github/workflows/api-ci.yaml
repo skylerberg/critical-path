@@ -170,7 +170,7 @@ jobs:
           # match, so infra-ci.yaml is the whole of its CI and there is nothing
           # left here to subtract.
           #
-          # api/README.md and api/CLAUDE.md are deliberately absent from that
+          # api/README.md and api/AGENTS.md are deliberately absent from that
           # list. tests/unit/documentedLimits.test.ts and
           # tests/unit/eventCatalog.test.ts read both files and assert the
           # numbers and the event table in them against the code, so an edit to

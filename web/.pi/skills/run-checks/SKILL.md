@@ -11,7 +11,7 @@ description: Run the checks for the Critical Path web package (Svelte 5 + Vite).
 request has earned. `package.json` is where the list lives; nothing else should
 copy it.
 
-That workflow is not what branch protection requires. The root `CLAUDE.md`'s
+That workflow is not what branch protection requires. The root `AGENTS.md`'s
 "Git hooks and workflows" section describes the set once, for every package;
 read it there rather than trusting a per-package summary.
 
@@ -55,6 +55,6 @@ Then push and read the CI run.
   `svelteTesting()` is wired in `vite.config.ts` — do not remove it.
 - A stale `src/api/api.generated.ts` fails only under `pnpm run type-check`, never
   under `pnpm test`, so a green suite is not evidence after an API schema change.
-  CLAUDE.md covers regenerating; the command is `scripts/generate-clients.sh`.
+  AGENTS.md covers regenerating; the command is `scripts/generate-clients.sh`.
 - `vite.config.ts` and `eslint.config.js` keep linked worktrees out of scans
   launched from the main checkout. Don't remove those entries.

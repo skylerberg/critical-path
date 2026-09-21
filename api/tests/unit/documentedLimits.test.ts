@@ -27,7 +27,7 @@ import { MAX_SUBSCRIPTIONS_PER_SOCKET } from '../../src/services/realtime/state'
 // fragment naming the number is fixed, and rewording that fragment is the point
 // at which someone should be asked to update it.
 const readme = readFileSync(new URL('../../README.md', import.meta.url), 'utf8');
-const claudeMd = readFileSync(new URL('../../CLAUDE.md', import.meta.url), 'utf8');
+const agentsMd = readFileSync(new URL('../../AGENTS.md', import.meta.url), 'utf8');
 
 interface DocumentedLimit {
   what: string;
@@ -40,7 +40,7 @@ interface DocumentedLimit {
 const README_ONLY = [{ name: 'README.md', text: readme }];
 const BOTH = [
   { name: 'README.md', text: readme },
-  { name: 'CLAUDE.md', text: claudeMd },
+  { name: 'AGENTS.md', text: agentsMd },
 ];
 
 const LIMITS: DocumentedLimit[] = [
@@ -104,7 +104,7 @@ const LIMITS: DocumentedLimit[] = [
     what: 'sockets per account (agent-facing wording)',
     value: MAX_SOCKETS_PER_USER,
     phrase: (v) => `${String(v)} per account`,
-    documents: [{ name: 'CLAUDE.md', text: claudeMd }],
+    documents: [{ name: 'AGENTS.md', text: agentsMd }],
   },
   {
     what: 'subscriptions per socket',
@@ -130,7 +130,7 @@ const LIMITS: DocumentedLimit[] = [
     what: 'socket heartbeat interval (agent-facing wording)',
     value: HEARTBEAT_INTERVAL_MS,
     phrase: (v) => `heartbeat every ${String(v / 1000)}s`,
-    documents: [{ name: 'CLAUDE.md', text: claudeMd }],
+    documents: [{ name: 'AGENTS.md', text: agentsMd }],
   },
 ];
 

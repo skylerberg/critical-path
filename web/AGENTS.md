@@ -1,12 +1,12 @@
-# CLAUDE.md
+# AGENTS.md
 
 Critical Path frontend: Svelte 5 (runes) + Vite SPA/PWA. No SvelteKit. Tailwind CSS v4.
 TypeScript strict.
 
 This is `web/`, one package of four in a monorepo alongside `api/`, `cli/` and
-`preview-edge/`. The root `CLAUDE.md` holds what spans them — above all the
+`preview-edge/`. The root `AGENTS.md` holds what spans them — above all the
 **two-commit deploy rule**, which every change here that calls a new endpoint is
-half of. `api/CLAUDE.md` is the backend's manual.
+half of. `api/AGENTS.md` is the backend's manual.
 
 **Where commands run.** A bare `pnpm run …` or `pnpm test` in this file is a
 web-package command: run it from `web/`, or as `pnpm -C web run …` from the
@@ -66,7 +66,7 @@ for; `codegen-ci.yaml` re-runs it on every pull request and fails when a
 committed client does not match. Shipping them with the api change does not
 break the two-commit deploy rule, because a generated client declares types and
 no runtime values — only the *call sites* wait for the second merge.
-`api/CLAUDE.md` has the backend's conventions.
+`api/AGENTS.md` has the backend's conventions.
 
 **`API_PROXY_TARGET` moves that proxy**, for the dev and preview servers alike:
 
@@ -137,13 +137,13 @@ rebase conflicts or CI fails on a rule the base predates. `git fetch origin &&
 git rev-list --count HEAD..origin/main -- web/` before starting and before
 pushing; rebase onto `main` rather than merging, and re-run the checks
 afterwards rather than trusting the pre-rebase pass. Run `gh pr list` before
-starting too — the fix may already be open. `api/CLAUDE.md`
+starting too — the fix may already be open. `api/AGENTS.md`
 carries the longer version, including two ways a stale base has produced wrong
 conclusions.
 
 **Mind the pathspec.** One `main` now serves both projects, so the count without
 one is red nearly always and tells you nothing about your own base; the root
-`CLAUDE.md` measures how lopsided a single day can be. `-- web/` asks what the
+`AGENTS.md` measures how lopsided a single day can be. `-- web/` asks what the
 bare count used to ask. Ask `-- api/` as well
 when the change consumes a new endpoint, because that is the half that has to
 have landed first.
@@ -307,7 +307,7 @@ This package's own prose — this file, the README, the skills under `.pi/` and
 every comment in `src/` — is checked as well, by something that is deliberately
 not one of the checks above and no longer lives in this package.
 `scripts/check-comments.mjs` at the repository root reads all four packages in
-one pass, and `repo-ci.yaml` runs it on every pull request; the root `CLAUDE.md`
+one pass, and `repo-ci.yaml` runs it on every pull request; the root `AGENTS.md`
 says what it looks for and how to answer it. Run it here as
 `node scripts/check-comments.mjs` from the checkout root, not from `web/`.
 

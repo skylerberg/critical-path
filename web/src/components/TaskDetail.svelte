@@ -296,7 +296,7 @@
    * Plain, and deliberately NOT a field on the `$state` card, which is where it
    * used to live: a write to reactive state during teardown does not survive, so
    * the queue head reverted mid-unmount and stopped serialising the two flushes
-   * that race there. CLAUDE.md's Svelte conventions have the rule and what it
+   * that race there. AGENTS.md's Svelte conventions have the rule and what it
    * cost; `scripts/check-task-detail.mjs` is the guard.
    *
    * One queue per component rather than per card is also what the callers want:

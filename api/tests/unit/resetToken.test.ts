@@ -29,7 +29,7 @@ describe('createResetToken / verifyResetToken', () => {
 
   // The boundaries are literal rather than RESET_TOKEN_TTL_MS arithmetic: the
   // producer uses the same constant, so deriving them holds for any value and
-  // the 15 minutes README.md, CLAUDE.md and the mailed body all promise would be
+  // the 15 minutes README.md, AGENTS.md and the mailed body all promise would be
   // free to become 15 hours.
   it('expires fifteen minutes after it was minted', () => {
     const now = 1_700_000_000_000;

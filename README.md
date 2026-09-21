@@ -5,9 +5,9 @@ critical-path highlighting — in one repository with four packages.
 
 | Package         | What it is                                      | Its docs                         |
 | --------------- | ----------------------------------------------- | -------------------------------- |
-| `api/`          | TypeScript API: Hono + Kysely + PostgreSQL      | `api/README.md`, `api/CLAUDE.md` |
-| `web/`          | Svelte 5 SPA + PWA on Vite. No SvelteKit        | `web/README.md`, `web/CLAUDE.md` |
-| `cli/`          | `cpath`, a full command-line client for the API | `cli/README.md`, `cli/CLAUDE.md` |
+| `api/`          | TypeScript API: Hono + Kysely + PostgreSQL      | `api/README.md`, `api/AGENTS.md` |
+| `web/`          | Svelte 5 SPA + PWA on Vite. No SvelteKit        | `web/README.md`, `web/AGENTS.md` |
+| `cli/`          | `cpath`, a full command-line client for the API | `cli/README.md`, `cli/AGENTS.md` |
 | `preview-edge/` | the Cloud Run worker that serves PR previews    | `preview-edge/README.md`         |
 
 Two directories are not packages. `infra/terraform/` is the terraform for all of
@@ -17,7 +17,7 @@ about the product rather than about one package: `docs/feature-research.md`
 surveys the category and records the accepted/declined decision on all 251
 features, which is where the roadmap comes from.
 
-`CLAUDE.md` at the root is the working manual for anyone — human or agent —
+`AGENTS.md` at the root is the working manual for anyone — human or agent —
 changing code here. It is worth reading before the first pull request.
 
 ## Requirements
@@ -43,7 +43,7 @@ Underneath it, and worth knowing before the first one goes wrong:
 
 **This is not a pnpm workspace.** There is no root `package.json`, no root
 `node_modules` and no root `pnpm-workspace.yaml` — install each package where it
-lives, and never add a workspace file at the top. `CLAUDE.md` explains what
+lives, and never add a workspace file at the top. `AGENTS.md` explains what
 happens if you do, which is worse than it sounds: the install reports success.
 
 ```sh
@@ -168,6 +168,6 @@ web half. Deletions run in the opposite order. Two commits in one pull request
 do not satisfy this.
 
 This is the rule most likely to be broken by accident here, because nothing
-enforces it and nothing turns red when it is violated. `CLAUDE.md` has the
+enforces it and nothing turns red when it is violated. `AGENTS.md` has the
 measurements behind it, the reason the generated clients are exempt, and the
 matching discipline for database migrations.

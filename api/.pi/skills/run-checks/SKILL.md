@@ -21,7 +21,7 @@ pnpm -C ../cli run check:all   # CLI: type-check + lint + format:check
 Every one of them only reads. The fixers are `pnpm run format` and
 `pnpm run lint:fix`, and `.githooks/post-commit` is what runs them, so
 `format:check` failing on an edit you have not committed yet reports the absence
-of a commit rather than a problem with the code — `CLAUDE.md` in this package
+of a commit rather than a problem with the code — `AGENTS.md` in this package
 carries the rule and its consequences.
 
 `preview-edge/` is the one package none of the above reaches: it is outside
@@ -38,7 +38,7 @@ within its own filter: a pull request touching only `api/k8s/` or `api/docs/`
 reports green having run none of them, so read which jobs were skipped before
 treating a green run as evidence.
 
-It is not the required check. The root `CLAUDE.md`'s "Git hooks and workflows"
+It is not the required check. The root `AGENTS.md`'s "Git hooks and workflows"
 section is the single description of what the repository runs and of why
 `ci-gate.yaml` is the name branch protection holds.
 
@@ -68,5 +68,5 @@ this, once per package — it is at the repository root, not in this package's
 `pnpm test` also drives the CLI e2e suites: vitest.config.ts includes
 `../cli/tests/**/*.test.ts`, reaching out of this package into the sibling.
 
-`cli/CLAUDE.md` is that package's own manual, and covers what to assert after
+`cli/AGENTS.md` is that package's own manual, and covers what to assert after
 touching that include.

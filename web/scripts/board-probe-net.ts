@@ -7,7 +7,7 @@
 // with nothing on the API port the request never gets an answer, so the outbox
 // treats it as offline and queues it in IndexedDB, where it outlives the page
 // and drains into the next case; with the API running — which is what
-// CLAUDE.md tells everyone to do — it succeeds against a real database and the
+// AGENTS.md tells everyone to do — it succeeds against a real database and the
 // board resyncs to whatever that holds. Both stop measuring the board the probe
 // set up, and the second one only ever happens locally, so CI cannot catch it.
 //

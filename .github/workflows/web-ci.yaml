@@ -142,7 +142,7 @@ jobs:
           #                   `scripts/**/*.mjs` and the root configs, not here. The build is the only step an icon
           #                   can break, and `suite` is the only job that builds.
           #
-          #   web/CLAUDE.md   no job in this workflow opens a markdown file any
+          #   web/AGENTS.md   no job in this workflow opens a markdown file any
           #   web/README.md   more. The prose check that did was this package's
           #   web/.pi/**      `check:comments`, which became a repository-root
           #                   tool covering all four packages and now runs in
@@ -158,7 +158,7 @@ jobs:
           # `paths:` filter cannot see at all, so a change to them runs codegen-ci
           # and not this. That hole belongs to the filter, not to this job, and
           # widening the filter to close it is a separate decision.
-          prose='^web/(CLAUDE\.md|README\.md|\.pi/)'
+          prose='^web/(AGENTS\.md|README\.md|\.pi/)'
           assets='^web/public/'
 
           # `^web/` after the class filter, because the diff of a push to main

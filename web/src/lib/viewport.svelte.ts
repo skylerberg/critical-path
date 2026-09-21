@@ -40,7 +40,7 @@ export class Viewport {
 
   init(): void {
     const visual = window.visualViewport;
-    // Absent under jsdom; see CLAUDE.md on what the runner does not implement.
+    // Absent under jsdom; see AGENTS.md on what the runner does not implement.
     if (!visual) {
       return;
     }

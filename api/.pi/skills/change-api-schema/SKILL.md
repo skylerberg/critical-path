@@ -65,7 +65,7 @@ not evidence after a schema change.
 The api and web production deploys are independent and web is roughly two
 minutes faster, so a bundle that calls a new endpoint can go live before the
 pods that serve it. Land the API side in one commit and the web side that
-consumes it in the next — see the two-commit rule in the root `CLAUDE.md`.
+consumes it in the next — see the two-commit rule in the root `AGENTS.md`.
 
 The regenerated clients are **not** the part that waits: they declare types and
 no runtime values, so the web deploy they trigger ships a byte-identical bundle.

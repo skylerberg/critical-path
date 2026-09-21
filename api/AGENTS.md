@@ -4,9 +4,9 @@ Backend for "Critical Path". Plain
 Postgres + Kysely — no Supabase, no Docker, no OpenTelemetry.
 
 This is one package of four in a monorepo (`api/`, `web/`, `cli/`,
-`preview-edge/`). The root `CLAUDE.md` carries what is true across all of them —
+`preview-edge/`). The root `AGENTS.md` carries what is true across all of them —
 in particular the **two-commit deploy rule**, which this package's changes are
-half of. `web/CLAUDE.md` is the frontend's manual.
+half of. `web/AGENTS.md` is the frontend's manual.
 
 **Where commands run.** Unless it says otherwise, a bare `pnpm run …` or
 `pnpm test` in this file is an api-package command: run it from `api/`, or as
@@ -19,7 +19,7 @@ inside `api/` those are `pnpm -C ../cli …`.
 pnpm, pinned by `packageManager` in each package.json. **Four packages, four
 lockfiles, four `pnpm-workspace.yaml` files** — `api/`, `web/`, `cli/`,
 `preview-edge/` — and deliberately not one pnpm workspace, with **no root
-`pnpm-workspace.yaml` at all** (the root `CLAUDE.md` records what creating one
+`pnpm-workspace.yaml` at all** (the root `AGENTS.md` records what creating one
 does, and it exits 0 while doing it). Install each where it lives:
 `pnpm -C api install`, `pnpm -C web install`, `pnpm -C cli install`,
 `pnpm -C preview-edge install`. The separate lockfiles are what keep
@@ -69,7 +69,7 @@ scripts/generate-clients.sh
 this is not optional. Committing them beside the api change does not violate the
 two-commit deploy rule — the generated files declare types and no runtime
 values, so the web deploy they trigger ships an identical bundle; it is the
-*call sites* that wait for the second merge. Root `CLAUDE.md` has both halves.
+*call sites* that wait for the second merge. Root `AGENTS.md` has both halves.
 
 It needs no `pnpm run openapi:dump` first — every generator re-dumps before
 reading, because the dump is a pure function of `api/src/` (no database, no
@@ -86,7 +86,7 @@ package keeps only its own `openapi-typescript` dependency (which cannot be
 resolved from the root, where there is no `node_modules`) and the path it
 writes. Two copies had already drifted — only one of them pruned the schemas a
 deprecated operation orphaned — which is why the names, the filtering and the
-freshness check are now shared rather than duplicated. See `web/CLAUDE.md` for
+freshness check are now shared rather than duplicated. See `web/AGENTS.md` for
 the frontend's conventions.
 
 Realtime and webhook event types come from a second document,
@@ -332,7 +332,7 @@ committed file.
 # CLI
 
 `cli/` is a **sibling package** of this one (`critical-path-cli`, command
-`cpath`), and `cli/CLAUDE.md` is its operating manual. Three of its facts are
+`cpath`), and `cli/AGENTS.md` is its operating manual. Three of its facts are
 api-package facts and so belong here:
 
 - **Its tests run in this package's suite.** `vitest.config.ts` includes
@@ -368,7 +368,7 @@ git fetch origin && git rev-list --count HEAD..origin/main -- api/   # 0 means c
 
 **The pathspec is what makes that number mean anything now.** One `main` serves
 both projects, so the bare count is red almost always and says nothing about
-whether your base has moved; the root `CLAUDE.md` has the measured split.
+whether your base has moved; the root `AGENTS.md` has the measured split.
 `-- api/` asks the question the old bare count used to ask. Drop the pathspec deliberately when the change
 spans both packages, and read the answer as two numbers rather than one. Being
 behind on the *other* package is not a reason to rebase mid-change; it is a
@@ -536,7 +536,7 @@ against directly:
   running it from this directory is fine. A worktree made by hand and missing any
   of that fails the checks for reasons that have nothing to do with the change in
   it — an uninstalled `cli/` in particular fails only the CLI tests, deep into a
-  run. The root `CLAUDE.md` and `scripts/README.md` carry the rest.
+  run. The root `AGENTS.md` and `scripts/README.md` carry the rest.
 - A worktree that already exists but predates the script just needs `pnpm install`
   in each of the four package directories. It is cheap: pnpm hardlinks from one
   content-addressable store, so a second checkout costs inodes rather than
@@ -572,7 +572,7 @@ backward-compatible with the previous release (no dropping/renaming columns
 the running code still reads; do that in a follow-up release).
 
 **The same discipline now extends past the database to the web client — see the
-two-commit deploy rule in the root `CLAUDE.md`.** Both deploys fire from one
+two-commit deploy rule in the root `AGENTS.md`.** Both deploys fire from one
 push and web wins the race by roughly two minutes, so an endpoint this package
 adds must reach `main` in an earlier merge than the web code that calls it. The
 constraint is the one above in a different costume: something old is serving

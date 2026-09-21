@@ -108,7 +108,7 @@ export default ts.config(
     plugins: { 'import-x': importX },
     rules: {
       // Ranking api/testUtils ahead of the packages is what lets the tests take
-      // the rule at all — see the Tests section of CLAUDE.md for why it loads
+      // the rule at all — see the Tests section of AGENTS.md for why it loads
       // first. Without the pin the rule flags every test file that obeys that
       // convention, and the autofix "resolves" them by moving the stubs below
       // the packages they exist to precede.
