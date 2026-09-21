@@ -25,7 +25,7 @@ import { generateSpecs } from 'hono-openapi';
 import { deduplicateOpenAPISpec } from './spec/openapi-dedupe';
 import { assertUniqueOperationIds } from './spec/openapi-assert-unique-operation-ids';
 import { buildSchemaNameRegistry } from './spec/schema-registry';
-import { env, assertEmailConfig, assertProxyConfig } from './config/env';
+import { env, assertEmailConfig, assertProxyConfig, assertSessionConfig } from './config/env';
 import { buildInfo } from './config/buildInfo';
 import { APP_NAME } from './config/constants';
 import { corsMiddleware } from './middleware/cors';
@@ -273,6 +273,7 @@ app.route('/api/public', publicBoardsRouter);
 assertPublicRoutes(app.routes);
 assertProxyConfig();
 assertEmailConfig();
+assertSessionConfig();
 
 app.notFound((c) => {
   return c.json(

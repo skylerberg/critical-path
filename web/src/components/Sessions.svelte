@@ -137,7 +137,8 @@
             {/if}
           </p>
           <p class="text-sm text-muted">
-            Signed in {formatMoment(entry.created_at)} · expires {formatDate(entry.expires_at)}
+            Signed in {formatMoment(entry.created_at)} · expires {formatDate(entry.expires_at)} unless
+            used
           </p>
         </div>
         <Button

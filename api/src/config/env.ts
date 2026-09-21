@@ -28,11 +28,39 @@ function parseStrictHops(name: string, value: string | undefined, fallback: numb
   return Number(raw);
 }
 
+const DEFAULT_SESSION_TTL_DAYS = 365;
+
+// The session cookie carries the same lifetime, and browsers cap a cookie at
+// 400 days (RFC 6265bis; Chrome and Firefox enforce it) and clamp without
+// saying so. Past that the cookie and the row it mirrors keep different clocks,
+// and the only symptom is an <img> on a board that 401s until some later read
+// rebuilds the cookie — a fault that heals itself and that nobody would trace
+// back to this variable. Refused at boot instead, where it costs one line.
+const MAX_SESSION_TTL_DAYS = 400;
+
+function parseStrictDays(name: string, value: string | undefined, fallback: number): number {
+  const raw = value?.trim();
+  if (raw === undefined || raw === '') return fallback;
+  if (!/^\d+$/.test(raw) || Number(raw) < 1 || Number(raw) > MAX_SESSION_TTL_DAYS) {
+    throw new Error(
+      `${name} must be a whole number of days from 1 to ${MAX_SESSION_TTL_DAYS}, ` +
+        `not ${JSON.stringify(value)}`
+    );
+  }
+  return Number(raw);
+}
+
 // Reads both so a bad value fails at startup instead of on the first request
 // that happens to be rate limited.
 export function assertProxyConfig(): void {
   parseStrictBoolean('TRUST_PROXY', process.env.TRUST_PROXY, false);
   parseStrictHops('TRUST_PROXY_HOPS', process.env.TRUST_PROXY_HOPS, 1);
+}
+
+// Read at startup so a lifetime the cookie cannot carry fails the deploy rather
+// than the first login of it.
+export function assertSessionConfig(): void {
+  parseStrictDays('SESSION_TTL_DAYS', process.env.SESSION_TTL_DAYS, DEFAULT_SESSION_TTL_DAYS);
 }
 
 // Every send runs inside a post-commit hook, where a throw is caught and logged
@@ -91,8 +119,6 @@ export const env = {
 
   logFormat: process.env.LOG_FORMAT,
 
-  sessionTtlDays: parseIntOrDefault(process.env.SESSION_TTL_DAYS, 30),
-
   corsOrigins: (process.env.CORS_ORIGINS || 'http://localhost:5173')
     .split(',')
     .map((s) => s.trim())
@@ -105,6 +131,14 @@ export const env = {
 
   get trustProxyHops(): number {
     return parseStrictHops('TRUST_PROXY_HOPS', process.env.TRUST_PROXY_HOPS, 1);
+  },
+
+  get sessionTtlDays(): number {
+    return parseStrictDays(
+      'SESSION_TTL_DAYS',
+      process.env.SESSION_TTL_DAYS,
+      DEFAULT_SESSION_TTL_DAYS
+    );
   },
 
   get attachmentMaxBytes(): number {

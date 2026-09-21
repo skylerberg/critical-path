@@ -98,7 +98,7 @@ class SessionStore {
     this.status = 'unknown';
     this.#token = localStorage.getItem(TOKEN_KEY);
     if (this.#token === null) {
-      this.#clear();
+      this.#clear(false);
       return;
     }
     try {
@@ -106,7 +106,7 @@ class SessionStore {
       this.status = 'authed';
     } catch (error) {
       if (error instanceof ApiError && error.status === 401) {
-        this.#clear();
+        this.#clear(false);
         return;
       }
       // The server was unreachable, which says nothing about the token. Carry on
@@ -174,7 +174,7 @@ class SessionStore {
     } catch {
       // Best effort: the local session is cleared regardless.
     }
-    this.#clear();
+    this.#clear(true);
     clearMediaCaches();
     sessionStorage.removeItem(INTENDED_PATH_KEY);
     if (router.current.name !== 'login') {
@@ -200,7 +200,7 @@ class SessionStore {
   // No logout call: for the flows that reach here the server has already
   // destroyed every session for this account, so there is nothing to log out of.
   forget(): void {
-    this.#clear();
+    this.#clear(true);
     sessionStorage.removeItem(INTENDED_PATH_KEY);
   }
 
@@ -223,17 +223,26 @@ class SessionStore {
     localStorage.setItem(USER_KEY, JSON.stringify(user));
   }
 
-  #clear(): void {
+  // Two ways a session ends, and they part company over one thing: whether the
+  // account's cached board and unsent queue go with it. A sign-out, an account
+  // deletion or a revocation the user just performed takes them — they belong to
+  // whoever is leaving, and on a shared machine the board would otherwise be
+  // readable by whoever signs in next and the queue would replay one person's
+  // work as another's. A credential the server stopped accepting does not:
+  // nobody chose it, the same person is about to sign back in, and until they do
+  // the queue is the only copy of work that never reached the server. Dropping
+  // it there is silent, unrecoverable loss of their edits on what is usually an
+  // expiry. Sanitizing the device is not what that path was doing anyway — the
+  // media caches already outlive a 401, and `outbox.reset()` still takes the
+  // in-memory queue, so nothing is replayed until the account signs back in.
+  #clear(discardCache: boolean): void {
     const departing = this.user?.id;
     this.#token = null;
     localStorage.removeItem(TOKEN_KEY);
     localStorage.removeItem(USER_KEY);
     this.user = null;
     this.status = 'anon';
-    if (departing !== undefined) {
-      // The cached board and anything still queued belong to the account that is
-      // leaving. Left behind, the board would be readable by whoever signs in
-      // next and the queue would replay one person's work as another's.
+    if (discardCache && departing !== undefined) {
       void clearOfflineCache(departing).catch(() => {
         // Best effort, exactly as the media caches are: a storage layer that
         // refuses is not worth reporting to someone on their way out.
@@ -245,7 +254,7 @@ class SessionStore {
     if (this.status === 'anon') {
       return;
     }
-    this.#clear();
+    this.#clear(false);
     if (!isPublicRoute(router.current.name) && !isAuthOptionalRoute(router.current.name)) {
       rememberIntendedPath(router.path);
       router.redirect('/login');

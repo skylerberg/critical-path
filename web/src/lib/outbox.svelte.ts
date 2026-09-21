@@ -472,9 +472,10 @@ class OutboxStore {
   ): Promise<'halt' | 'retry' | 'retry-fresh' | 'next'> {
     // Nothing left in the queue can do better against a session the server is
     // rejecting, so stop rather than spending the rest of it on the same answer.
-    // The work does not outlive this: the client's 401 hook clears the session,
-    // which drops the durable copy with `clearOfflineCache` and this one with
-    // `reset()`. The drain below notices that through `#generation`.
+    // The work is not lost with it: the client's 401 hook clears the session,
+    // which takes this copy through `reset()` — the drain below notices that
+    // through `#generation` — but leaves the durable rows, so an expiry or a
+    // revocation finds the queue still there when the account signs back in.
     if (error.status === 401) {
       return 'halt';
     }
@@ -761,10 +762,11 @@ class OutboxStore {
    * name the cards it was about.
    *
    * The durable copy is not dropped here. `session` clears it through
-   * `clearOfflineCache` on every path that ends a session deliberately, and on
-   * the one path that does not — an unreachable server with no remembered
-   * account — the rows are meant to survive: `#hydrated` going back to false is
-   * what lets the next signed-in load read them again.
+   * `clearOfflineCache` on the paths that end a session deliberately, and on the
+   * ones that do not — a credential the server rejected, or an unreachable
+   * server with no remembered account — the rows are meant to survive:
+   * `#hydrated` going back to false is what lets the next signed-in load read
+   * them again.
    */
   reset(): void {
     this.#cancelWake();

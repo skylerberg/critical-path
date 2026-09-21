@@ -5,13 +5,18 @@ import {
   personalAccessTokenUseIsStale,
   recordPersonalAccessTokenUse,
 } from './personalAccessTokens';
-import { hashBearerToken } from './sessions';
+import { hashBearerToken, renewSession, sessionRenewalIsDue } from './sessions';
 
 export type CredentialKind = 'session' | 'personal_access_token';
 
 export interface AuthenticatedCredential {
   kind: CredentialKind;
   id: string;
+  // True only on the request whose authentication slid the session's expiry
+  // forward, which is the request that must also refresh the cookie mirroring
+  // it. Always false for a personal access token: those are renewed by the
+  // person who minted them or not at all.
+  renewed: boolean;
   user: {
     id: string;
     email: string;
@@ -52,6 +57,7 @@ async function authenticatePersonalAccessToken(
   return {
     kind: 'personal_access_token',
     id: row.credential_id,
+    renewed: false,
     user: {
       id: row.user_id,
       email: row.email,
@@ -94,6 +100,7 @@ async function authenticateSessionToken(
   return {
     kind: 'session',
     id: row.credential_id,
+    renewed: sessionRenewalIsDue(row.expires_at) ? await renewSession(row.credential_id) : false,
     user: {
       id: row.user_id,
       email: row.email,

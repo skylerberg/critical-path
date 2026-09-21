@@ -59,7 +59,7 @@ function day(value: string): string {
 }
 
 function detailLine(createdAt: string, expiresAt: string = EXPIRES): string {
-  return `Signed in ${moment(createdAt)} · expires ${day(expiresAt)}`;
+  return `Signed in ${moment(createdAt)} · expires ${day(expiresAt)} unless used`;
 }
 
 function subject(position: number, total: number, device: string, createdAt: string): string {
