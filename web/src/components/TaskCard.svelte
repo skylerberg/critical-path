@@ -9,6 +9,7 @@
   import { isDragPlaceholder, publicTaskHref, taskHref } from '../lib/short-links';
   import { selection } from '../lib/selection.svelte';
   import { isCalendarDate } from '../lib/dates';
+  import { isEmptyDoc } from '../lib/tiptap';
   import { motion } from '../lib/motion.svelte';
   import { outbox } from '../lib/outbox.svelte';
   import { TASK_TITLE_MAX_LENGTH, truncateTitle } from '../lib/titles';
@@ -50,6 +51,10 @@
   // Only while a set exists, so the default board is pixel-identical.
   const selecting = $derived(selection.count > 0 && !readonly && board.canEdit);
   const attachmentCount = $derived(task.attachment_count ?? 0);
+  // The doc itself rather than a flag, since the payload already carries it:
+  // `{type:'doc',content:[{type:'paragraph'}]}` is what a cleared editor stores,
+  // and that is not a description worth flagging.
+  const hasDescription = $derived(!isEmptyDoc(task.description));
   const unsent = $derived(outbox.isPending(task.id));
   const renaming = $derived(cardMenu.renamingTaskId === task.id);
   const shownTitle = $derived(truncateTitle(task.title));
@@ -303,13 +308,34 @@
       Not sent yet
     </p>
   {/if}
-  {#if dated || blockedCount > 0 || commentCount > 0 || attachmentCount > 0 || checklistTotal > 0 || assignees.length > 0}
+  {#if dated || blockedCount > 0 || hasDescription || commentCount > 0 || attachmentCount > 0 || checklistTotal > 0 || assignees.length > 0}
     <!-- Raised above the overlay link so the badges keep their hover tooltips and
          the pill stays clickable; with no offsets it moves nothing. The row itself
          stays transparent to the pointer and each child opts back in, so the blank
          space between badges still belongs to the link. -->
     <div class="pointer-events-none relative z-10 mt-2 flex flex-wrap items-center gap-x-3 gap-y-1">
       <DueDatePill {task} {done} {readonly} />
+      {#if hasDescription}
+        <span
+          class="pointer-events-auto inline-flex items-center text-xs text-muted"
+          title="Has a description"
+        >
+          <svg
+            class="size-3.5"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            aria-hidden="true"
+          >
+            <line x1="21" y1="6" x2="3" y2="6" />
+            <line x1="15" y1="12" x2="3" y2="12" />
+            <line x1="17" y1="18" x2="3" y2="18" />
+          </svg>
+          <span class="sr-only">Has a description</span>
+        </span>
+      {/if}
       {#if blockedCount > 0}
         <span
           class="pointer-events-auto inline-flex items-center gap-1 text-xs font-medium text-danger"

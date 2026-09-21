@@ -127,6 +127,37 @@ describe('TaskCard', () => {
     expect(screen.queryByTitle('Ada Lovelace')).not.toBeInTheDocument();
     expect(screen.queryByTitle(/Blocked by/)).not.toBeInTheDocument();
     expect(screen.queryByTitle(/comment/)).not.toBeInTheDocument();
+    expect(screen.queryByTitle('Has a description')).not.toBeInTheDocument();
+  });
+
+  it('shows the description badge only for a description with visible content', () => {
+    const { unmount } = render(TaskCard, {
+      task: {
+        ...task,
+        description: {
+          type: 'doc',
+          content: [
+            { type: 'paragraph', content: [{ type: 'text', text: 'Context the title lacks' }] },
+          ],
+        },
+      },
+      projectId: PROJECT_ID,
+    });
+    expect(screen.getByTitle('Has a description')).toBeInTheDocument();
+    unmount();
+
+    // What a cleared editor stores is still a doc, but it is not a description.
+    render(TaskCard, {
+      task: {
+        ...task,
+        description: {
+          type: 'doc',
+          content: [{ type: 'paragraph', content: [{ type: 'text', text: '   ' }] }],
+        },
+      },
+      projectId: PROJECT_ID,
+    });
+    expect(screen.queryByTitle('Has a description')).not.toBeInTheDocument();
   });
 
   it('shows the comment badge, pluralized, only when there are comments', () => {
