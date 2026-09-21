@@ -542,24 +542,38 @@ describe('Board snapping', () => {
     expect(panel?.lastElementChild).toHaveAttribute('data-quick-add');
   });
 
-  // ...and a card in flight opens a strip under the cards rather than an exception
-  // to any of it. svelte-dnd-action picks a zone by its bounding rect, so a list
-  // that ends at its last card is one a pointer below it is not in, and a two-card
-  // column could be reached only by dragging up to the cards first. The heights are
-  // jsdom-invisible and `check:layout:real` drives the drop itself; what is
-  // asserted here is the arrangement that produces them — the padding that opens
-  // the strip, the composer out of the way so the strip stands where it was, and
-  // nothing on the panel that would grow it past its cards.
-  it('opens a landing strip under the cards while one is in flight, growing nothing else', async () => {
+  // ...and a card in flight reaches the list down to the foot of the column rather
+  // than making an exception to any of it. svelte-dnd-action picks a zone by its
+  // bounding rect, so a list that ends at its last card is one a pointer below it
+  // is not in, and a two-card column could be reached only by dragging up to the
+  // cards first. `drop-reach` in app.css spends the number and `check:layout:real`
+  // drives the drop; what is asserted here is the number — measured from the foot
+  // of the column rather than chosen, which is the whole of why it reaches — the
+  // composer out of the way so the reach stands where it was, and nothing on the
+  // panel that would grow it past its cards.
+  it('reaches the card list to the foot of the column while one is in flight', async () => {
     render(Board, { props: { projectId: PROJECT_ID } });
     await screen.findByText('plain one');
     const panel = (): Element | null => column().firstElementChild;
     const composer = (): Element | null => document.querySelector('[data-quick-add]');
+    const reach = (): string => taskList().style.getPropertyValue('--cp-drop-reach');
+    // jsdom lays nothing out, so the measurement is given a board to read: a column
+    // 700px to its foot, drawn to 300, leaves 400 of room under its cards.
+    for (const wrapper of document.querySelectorAll('[data-column-id]')) {
+      vi.spyOn(wrapper, 'getBoundingClientRect').mockReturnValue(new DOMRect(0, 0, 288, 700));
+      const drawn = wrapper.firstElementChild;
+      if (drawn !== null) {
+        vi.spyOn(drawn, 'getBoundingClientRect').mockReturnValue(new DOMRect(0, 0, 288, 300));
+      }
+    }
+
+    expect(reach()).toBe('');
 
     pickUp(T1);
     await tick();
 
-    expect(taskList()).toHaveClass('pb-14');
+    expect(reach()).toBe('400px');
+    expect(taskList()).toHaveClass('drop-reach');
     expect(composer()).toHaveClass('hidden');
     for (const grows of ['flex-1', 'h-full', 'max-h-full']) {
       expect(panel()).not.toHaveClass(grows);
@@ -569,7 +583,7 @@ describe('Board snapping', () => {
     drop(T1, board.tasksInColumn('c1'));
     await tick();
 
-    expect(taskList()).not.toHaveClass('pb-14');
+    expect(reach()).toBe('');
     expect(composer()).not.toHaveClass('hidden');
   });
 });

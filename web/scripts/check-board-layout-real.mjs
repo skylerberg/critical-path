@@ -825,17 +825,19 @@ failed += await runScrollCases(PROBE, { mustPass: true });
 // asymmetry the bug lives in — the center trails the finger — and a mid-card grab
 // would pass either way.
 //
-// `low` asks the other half of the same question: the finger ends in the strip
-// under the destination column's last card rather than at the height it started.
-// A zone that ends at its last card is one that point is not inside, so the drop
-// bounces back and the only way into a short column is to drag up to its cards
-// first. Also invisible to jsdom, and to the fixture check, which lays out no drag
-// at all.
+// `low` asks the other half of the same question: the finger ends at the FOOT of
+// the destination column — as low as a thumb can go and still be over it — rather
+// than at the height it started. A zone that ends at its last card is one that
+// point is not inside, so the drop bounces back and the only way into a short
+// column is to drag up to its cards first. Also invisible to jsdom, and to the
+// fixture check, which lays out no drag at all.
 //
 // Every case also reads what the board looks like while the card is in flight: no
-// column drawn to the foot of the board, and the held card's place drawn where it
-// would land. The reach used to be bought by stretching every column to the foot
-// of the screen, which is a drop that works on a board nobody wants to look at.
+// column drawn to the foot of the board, every column's card list reaching it all
+// the same, no ring around the part of one that is reach rather than cards, and
+// the held card's place drawn where it would land. The reach was once bought by
+// stretching every column to the foot of the screen, which is a drop that works on
+// a board nobody wants to look at.
 const DRAG_PROBE = `(async (c) => {
   const pause = (ms) => new Promise((r) => setTimeout(r, ms));
   const span = (el) => { const r = el.getBoundingClientRect(); return { l: Math.round(r.left), r: Math.round(r.right) }; };
@@ -869,19 +871,19 @@ const DRAG_PROBE = `(async (c) => {
   const taskId = card.dataset.taskId;
   const grabX = Math.round(cr.right - 16);
   const grabY = Math.round(cr.top + cr.height / 2);
-  // Where the destination column's cards stop, read BEFORE the press and off the
-  // cards themselves: the strip below them is what the drag is supposed to open,
-  // so a target read off the zone would move with the fix and ask nothing. 28px is
-  // clear of the 8px of padding a resting zone ends with and well inside a strip a
-  // card tall, so the same number answers both directions.
+  // Where the destination column ends, read BEFORE the press and off the WRAPPER:
+  // the reach below its cards is what the drag is supposed to open, so a target
+  // read off the zone would move with the fix and ask nothing. The wrapper is the
+  // board's height whatever its column holds, so this is the same point before and
+  // after, and the same for an empty column as for a full one. 8px up from its
+  // foot, which is inside it and inside nothing else.
   const destList = [...document.querySelectorAll('[data-task-list]')].find((l) => {
     const r = l.closest('[data-column-id]').getBoundingClientRect();
     return c.toX >= r.left && c.toX <= r.right;
   });
-  const destCards = destList ? [...destList.querySelectorAll('[data-task-id]')] : [];
-  const lastCard = destCards[destCards.length - 1];
-  const toY = c.low && lastCard
-    ? Math.round(lastCard.getBoundingClientRect().bottom + 28)
+  const destWrapper = destList && destList.closest('[data-column-id]');
+  const toY = c.low && destWrapper
+    ? Math.round(destWrapper.getBoundingClientRect().bottom - 8)
     : grabY;
 
   const touch = (target, type, x, y) => {
@@ -939,6 +941,23 @@ const DRAG_PROBE = `(async (c) => {
   const footRoom = Math.min(...[...document.querySelectorAll('[data-column-panel]')].map(
     (p) => Math.round(p.closest('[data-column-id]').getBoundingClientRect().bottom - p.getBoundingClientRect().bottom)
   ));
+  // ...and how much of that room the card LIST leaves unreached, per column, which
+  // is the same question asked of the box the drop is decided by. Positive is
+  // surface a release bounces back from; negative is zone hanging below the board,
+  // where it makes the scroller vertically scrollable and the library scrolls the
+  // whole board out from under the drag. Both are the two ways of missing a reach
+  // that is measured rather than chosen, so both are named.
+  const zoneShortfall = [...document.querySelectorAll('[data-task-list]')].map((z) =>
+    Math.round(z.closest('[data-column-id]').getBoundingClientRect().bottom - z.getBoundingClientRect().bottom)
+  );
+  // What the library paints on a zone whose box is mostly reach. An outline traces
+  // the border box, reach included, so one here is a box drawn to the foot of the
+  // board in every column on screen — the look this reach exists to avoid, and the
+  // one thing about it a drop that lands correctly cannot show.
+  const zonesOutlined = [...document.querySelectorAll('[data-task-list]')].filter((z) => {
+    const cs = getComputedStyle(z);
+    return cs.outlineStyle !== 'none' && parseFloat(cs.outlineWidth) > 0;
+  }).length;
   // The column drawing the held card's place, and only where it is actually
   // painted: svelte-dnd-action hides the element it renders for the placeholder,
   // so an outline that has not taken its own visibility back is in the DOM and on
@@ -960,6 +979,8 @@ const DRAG_PROBE = `(async (c) => {
     taskId,
     toY,
     footRoom,
+    zoneShortfall,
+    zonesOutlined,
     placeholderIndex,
     skeletonIn: drawn.map((s) => s.closest('[data-task-list]').dataset.taskList),
     columnAtFinger: colAt(c.toX, toY),
@@ -1028,13 +1049,23 @@ function checkDrag(d) {
       );
   }
   // The reach under a column's cards may not be bought by drawing the column to
-  // the foot of the board. Every case holds three cards, so every column ends far
-  // above it; 120px is the same floor the layout phase holds a resting short
-  // column to.
+  // the foot of the board. Every case holds three cards or none, so every column
+  // ends far above it; 120px is the same floor the layout phase holds a resting
+  // short column to.
   if (!(d.footRoom >= 120))
     f.push(
       `a column reaches the foot of the board while a card is in flight (${d.footRoom}px left)`
     );
+  // ...and the card list underneath must reach it anyway, in EVERY column rather
+  // than in the one under the finger: a release below the cards is a release the
+  // board should take wherever it lands. 2px of tolerance for a fractional layout
+  // rounded to whole pixels on the way in.
+  if (d.zoneShortfall.some((n) => n > 2))
+    f.push(`a card list stops short of its column's foot ([${d.zoneShortfall.join(',')}]px)`);
+  if (d.zoneShortfall.some((n) => n < -2))
+    f.push(`a card list hangs below its column's foot ([${d.zoneShortfall.join(',')}]px)`);
+  if (d.zonesOutlined > 0)
+    f.push(`${d.zonesOutlined} card lists are outlined to their reach while a card is in flight`);
   if (d.other.length) f.push(`a drop made requests beyond its own move (${d.other.join(', ')})`);
   return f;
 }
@@ -1047,15 +1078,22 @@ const DRAG_CASES = [
   { w: 768, h: 900, cols: 4, tasks: 3, pointer: 'touch', toX: 350, hold: 400 }, // two columns fully visible, no auto-scroll
   { w: 390, h: 844, cols: 4, tasks: 3, pointer: 'touch', toX: 370, hold: 260 }, // phone: release over the next column's sliver
   { w: 1280, h: 800, cols: 4, tasks: 3, pointer: 'mouse', toX: 600, hold: 400 }, // same rule for a mouse
-  // The two that end in the strip under the destination column's cards instead.
-  // Both are cases the edge band does not reach, because a board scrolling under a
-  // parked finger changes which column is there and that is a different question.
+  // The three that end at the foot of the destination column instead. None is a
+  // case the edge band reaches, because a board scrolling under a parked finger
+  // changes which column is there and that is a different question.
   { w: 768, h: 900, cols: 4, tasks: 3, pointer: 'touch', toX: 350, low: true, hold: 400 },
   { w: 1280, h: 800, cols: 4, tasks: 3, pointer: 'mouse', toX: 600, low: true, hold: 400 },
+  // ...and into a column holding nothing, where the whole of the destination is
+  // reach and the card list's own floor is the thing that can swallow it. Two
+  // columns rather than four, so the empty one is on screen at 768 without the
+  // board having to scroll to it.
+  { w: 768, h: 900, cols: 2, tasks: 3, empty: 1, pointer: 'touch', toX: 350, low: true, hold: 400 },
 ];
 
 function dragName(c) {
-  return `drag/${c.w}x${c.h} ${c.pointer}${c.low ? ' below the cards' : ''}`;
+  return `drag/${c.w}x${c.h} ${c.pointer}${c.empty ? ' into an empty column' : ''}${
+    c.low ? ' below the cards' : ''
+  }`;
 }
 
 async function runDragCases(probeUrl, { mustPass, include = () => true }) {
@@ -1066,7 +1104,9 @@ async function runDragCases(probeUrl, { mustPass, include = () => true }) {
       continue;
     }
     await setViewport({ width: c.w, height: c.h, mobile: c.w < 1024 });
-    await goto(`${probeUrl}?cols=${c.cols}&tasks=${c.tasks}`, { wait: 700 });
+    await goto(`${probeUrl}?cols=${c.cols}&tasks=${c.tasks}&empty=${c.empty ?? 0}`, {
+      wait: 700,
+    });
     const d = await evalPage(`(${DRAG_PROBE})(${JSON.stringify(c)})`);
     const failures = checkDrag({ ...d, toX: c.toX });
     const passed = failures.length === 0;
@@ -1161,37 +1201,65 @@ if (SELFTEST) {
     (probe) => runDragCases(probe, { mustPass: false })
   );
 
-  // The drop below the cards is the strip and nothing else, so take the strip
-  // away and the two cases that release into it must fail. The cases that end at
-  // the height they started are unaffected by it, and run in the arms below
-  // instead.
-  const lowCases = DRAG_CASES.filter((c) => c.low === true);
+  // The drop below the cards is the reach and nothing else, so take the border it
+  // is spent on away and every case must fail: the low ones on the drop, and the
+  // rest on the shortfall they all measure while the card is in flight.
+  // The cases that release below a column that HAS cards: the arm on the seeded
+  // sort keys reads the index a card landed at, and an empty destination puts
+  // every answer at 0 whether or not the keys are there.
+  const intoAFullColumn = (c) => c.low === true && c.empty === undefined;
+  const lowCases = DRAG_CASES.filter(intoAFullColumn);
   const belowTheCards = (probe) =>
-    runDragCases(probe, { mustPass: false, include: (c) => c.low === true });
+    runDragCases(probe, { mustPass: false, include: intoAFullColumn });
 
   failed += await runRegression(
-    regression('no-landing-strip', [
-      ["const dropPad = $derived(taskDragging ? 'pb-14' : '');", "const dropPad = $derived('');"],
-    ]),
-    lowCases.map(dragName),
-    belowTheCards
+    regression(
+      'no-reach',
+      [['border-bottom: var(--cp-drop-reach, 0px) solid transparent;', 'border-bottom: 0;']],
+      'src/app.css'
+    ),
+    DRAG_CASES.map(dragName),
+    (probe) => runDragCases(probe, { mustPass: false })
   );
 
-  // ...and buying that reach the way it was bought before — every column drawn to
-  // the foot of the board and its zone filling it — must fail every case, on the
-  // room left below the columns rather than on the drop, which still works. Both
-  // halves in one arm because either alone grows nothing: the panel is what
-  // reaches the foot, the zone inside it is what fills the panel.
+  // ...and keeping the reach without handing its height back is the board this
+  // replaces: every column drawn to the foot of the screen for the length of every
+  // drag. The drop still works, which is the point of the arm — what fails is the
+  // room left below the columns.
   failed += await runRegression(
-    regression('columns-drawn-to-the-foot', [
-      [
-        "const dropPad = $derived(taskDragging ? 'pb-14' : '');",
-        "const dropPad = $derived(taskDragging ? 'flex-1' : '');",
-      ],
-      [
-        'class="flex min-h-0 flex-col rounded-lg border border-edge bg-surface"',
-        'class="flex min-h-0 flex-col rounded-lg border border-edge bg-surface {dropPad}"',
-      ],
+    regression(
+      'columns-drawn-to-the-foot',
+      [['margin-bottom: calc(-1 * var(--cp-drop-reach, 0px));', 'margin-bottom: 0;']],
+      'src/app.css'
+    ),
+    DRAG_CASES.map(dragName),
+    (probe) => runDragCases(probe, { mustPass: false })
+  );
+
+  // ...and a floor that does not move with the reach, which only a column with
+  // almost nothing in it can see: `min-height` is measured against the border box,
+  // so in an empty column the border meets 4rem on its own and the list is left
+  // that much short of the foot — with the panel shrinking by the difference on the
+  // way. Every other case holds three cards, whose height clears the floor without
+  // help, and passes either way.
+  const emptyCases = DRAG_CASES.filter((c) => c.empty !== undefined);
+  failed += await runRegression(
+    regression(
+      'floor-swallows-the-reach',
+      [['min-height: calc(4rem + var(--cp-drop-reach, 0px));', 'min-height: 4rem;']],
+      'src/app.css'
+    ),
+    emptyCases.map(dragName),
+    (probe) => runDragCases(probe, { mustPass: false, include: (c) => c.empty !== undefined })
+  );
+
+  // ...and the ring the library draws asked for as an outline, which traces the
+  // border box the reach is part of. Nothing about the drop changes; what comes
+  // back is the accent-outlined box in every column that the reach was rebuilt to
+  // get rid of.
+  failed += await runRegression(
+    regression('ringed-to-the-foot', [
+      ['dropTargetStyle: INSET_DROP_TARGET_STYLE,', 'dropTargetStyle: DROP_TARGET_STYLE,'],
     ]),
     DRAG_CASES.map(dragName),
     (probe) => runDragCases(probe, { mustPass: false })
@@ -1214,9 +1282,9 @@ if (SELFTEST) {
   // placement re-rendered at the top of its column and no case could tell. Take
   // the key away again and every case must fail on the index — the column, the
   // request and the drawn place are all still right, which is exactly why this
-  // went unnoticed. Only the two low cases can see it: the others release at the
-  // height they grabbed at, which puts the placeholder at index 0 — where an
-  // unkeyed card re-stacks to anyway, so they agree for the wrong reason.
+  // went unnoticed. Only the low cases into a column with cards in it can see it:
+  // every other case puts the placeholder at index 0 — the top of the destination,
+  // where an unkeyed card re-stacks to anyway, so they agree for the wrong reason.
   failed += await runRegression(
     regression(
       'unkeyed-seed',

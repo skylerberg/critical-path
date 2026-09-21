@@ -15,7 +15,7 @@
   import { board, placementAfterDrop } from '../lib/board.svelte';
   import type { BoardColumn, BoardLabel, BoardTask } from '../lib/board-types';
   import { cardMenu, TOUCH_DRAG_DELAY_MS } from '../lib/card-menu.svelte';
-  import { DROP_TARGET_STYLE, flipDuration } from '../lib/dnd';
+  import { DROP_TARGET_STYLE, flipDuration, INSET_DROP_TARGET_STYLE } from '../lib/dnd';
   import { draftKey, drafts } from '../lib/drafts.svelte';
   import { edgeScrollSpeed, fitsHorizontally } from '../lib/board-scroll';
   import {
@@ -150,28 +150,68 @@
   const dragging = $derived(columnDragging || taskDragging);
   const pointerDragging = $derived(dragging && !keyboardDragging);
 
-  // The landing strip a live card drag opens under every column's cards.
-  // svelte-dnd-action picks a zone by its bounding rect, so a task list that ends
-  // at its last card is one a pointer below it is simply not in: a two-card column
-  // could be reached only by dragging up to the cards first, which on a phone is up
-  // from the bottom of the screen every time. A card's worth of bottom padding is
-  // the whole of the reach — padding rather than a child, because the zone's direct
-  // children are the items svelte-dnd-action indexes by position and an extra one
-  // shifts every drop by one.
+  // How far below its cards each column can be dropped into while a card is in
+  // flight: the room between where the column is drawn to and the foot of the
+  // board, which is as far down as the column still looks like a column.
+  // `drop-reach` in src/app.css spends the number, and carries both why a reach is
+  // needed and why it is spent the way it is.
   //
-  // A card's worth and no more, which is the difference from the full-height
-  // stretch this replaces: a column drawn to the foot of the board turns every
-  // column on screen into a tall outlined box for the length of the drag. The
-  // composer gives up its band for the same span, so the strip stands roughly where
-  // "+ Add task" was and the column keeps the height it had. `hidden` rather than an
-  // `{#if}`: unmounting would drop the focus and the open state of a composer
-  // someone is part-way through, and it is the space the zone needs, not the
-  // element.
+  // Measured rather than chosen, because both ways of choosing are wrong. A fixed
+  // strip is what this replaces and it was a card tall, which left most of a short
+  // column's empty surface still bouncing a drop back; one long enough for the
+  // tallest board hangs below the shortest, where it makes the scroller vertically
+  // scrollable and the library scrolls the whole board out from under the drag. The
+  // layout already holds the only number that reaches the foot without passing it.
+  // It is spent on the zone rather than on a child of it, because the zone's direct
+  // children are the items svelte-dnd-action indexes by position.
+  //
+  // The composer gives up its band for the same span rather than holding the bottom
+  // of the column, which is exactly where a finger dragging along the foot of the
+  // screen sits. `hidden` rather than an `{#if}`: unmounting would drop the focus
+  // and the open state of a composer someone is part-way through, and it is the
+  // space the zone needs, not the element.
   //
   // Resting layout is untouched, which is the point of keying it to the drag at
   // all: a column ends with its cards, and `check:layout` and `check:layout:real`
   // both fail a column drawn to the foot of the board with two cards in it.
-  const dropPad = $derived(taskDragging ? 'pb-14' : '');
+  const dropReach = new SvelteMap<string, number>();
+
+  // What moves a column's foot mid-drag, and the whole of it: the placeholder
+  // arriving in a column or leaving it. Reordering within one moves nothing, so the
+  // rendered card counts are what the measurement re-runs on. Null while nothing is
+  // in flight, which is also what sends every column back to its resting box.
+  const dropReachSignature = $derived(
+    taskDragging
+      ? localColumns.map((column) => (localTasks.get(column.id) ?? []).length).join(',')
+      : null
+  );
+
+  $effect(() => {
+    const scroller = boardScroller;
+    if (dropReachSignature === null || scroller === undefined) {
+      dropReach.clear();
+      return;
+    }
+    // Off the wrapper and the panel, which is what makes this idempotent: the
+    // margin in `drop-reach` hands the reach straight back, so neither of the two
+    // edges read here moves when the answer is applied.
+    for (const wrapper of columnElements(scroller)) {
+      const columnId = wrapper.dataset.columnId;
+      const panel = wrapper.querySelector('[data-column-panel]');
+      if (columnId === undefined || panel === null) {
+        continue;
+      }
+      const room = wrapper.getBoundingClientRect().bottom - panel.getBoundingClientRect().bottom;
+      dropReach.set(columnId, Math.max(0, Math.round(room)));
+    }
+  });
+
+  // Absent rather than `0px` for a column with no room below it — a full one, and
+  // every column on a board at rest — so nothing it would be spent on is declared.
+  function dropReachOf(columnId: string): string | null {
+    const room = dropReach.get(columnId) ?? 0;
+    return room === 0 ? null : `${room}px`;
+  }
 
   // The item svelte-dnd-action swaps in for the card in flight, marked on the item
   // rather than found by id: the placeholder id it carries into a zone is traded
@@ -823,11 +863,11 @@
         >
           <!-- The column proper: it draws the surface, and it ends where its cards
                do, so "+ Add task" sits under the last one rather than at the foot of
-               the screen — a card in flight only lengthens the list inside it by
-               the strip `dropPad` above describes. The full-height wrapper above
-               draws nothing and keeps the geometry the board reads off it — the
-               snap position, the flip, and the box a dragged column is measured by
-               — the same whatever a column holds.
+               the screen — a card in flight lengthens the box the list is dropped
+               into by `dropReach` above and leaves this one where it was. The
+               full-height wrapper above draws nothing and keeps the geometry the
+               board reads off it — the snap position, the flip, and the box a
+               dragged column is measured by — the same whatever a column holds.
 
                Held to the wrapper's height by flex-shrink rather than by max-h-full,
                because a percentage height needs the parent's to resolve and that is
@@ -836,9 +876,9 @@
                nav off the screen. `min-h-0` is what lets the shrink happen at all: a
                flex item's automatic minimum is its content's height, and a scrolling
                child does not lower it, so the panel's own minimum is the whole card
-               stack and it would overflow rather than cap. The list keeps `min-h-16`
-               as its floor, and the header and composer are `shrink-0`, so the cards
-               are what gives up the room. -->
+               stack and it would overflow rather than cap. The list keeps the floor
+               `drop-reach` gives it, and the header and composer are `shrink-0`, so
+               the cards are what gives up the room. -->
           <div
             data-column-panel
             class="flex min-h-0 flex-col rounded-lg border border-edge bg-surface"
@@ -850,7 +890,8 @@
               matchCount={board.hasActiveFilters ? board.matchingCountInColumn(column.id) : null}
             />
             <div
-              class="flex min-h-16 flex-col gap-2 overflow-y-auto p-2 {dropPad}"
+              class="drop-reach flex flex-col gap-2 overflow-y-auto p-2"
+              style:--cp-drop-reach={dropReachOf(column.id)}
               data-task-list={column.id}
               aria-label="{column.name} tasks"
               use:scrollToTopOn={board.filterSignature}
@@ -859,7 +900,9 @@
                 type: 'task',
                 flipDurationMs: animatedColumns.has(column.id) ? flipDuration() : 0,
                 dropAnimationDisabled: motion.reduced,
-                dropTargetStyle: DROP_TARGET_STYLE,
+                // Inset, because this zone's box reaches past its cards: see
+                // INSET_DROP_TARGET_STYLE, and `drop-reach` for the reach itself.
+                dropTargetStyle: INSET_DROP_TARGET_STYLE,
                 delayTouchStart: TOUCH_DRAG_DELAY_MS,
                 // The finger picks the column, not the center of the card under it.
                 // A card is nearly as wide as its column, so grabbing one anywhere
