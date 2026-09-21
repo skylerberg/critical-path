@@ -141,7 +141,10 @@ hand you. `--only api,web` narrows the installs. Everything is resolved from the
 checkout it is **run in**, so it works from a sibling project too. Make every
 worktree with it: a hand-made one fails the checks for reasons that have nothing
 to do with the change in it, and an uninstalled `cli/` in particular fails only
-the CLI tests, deep into an api run.
+the CLI tests, deep into an api run. Pi's `/start` makes its worktrees with it
+too — `.pi/settings.json` declares it as `worktree.setup`, which the agent's
+worktree extension runs as `<setup> <branch> <base-ref>` instead of its own
+built-in bootstrap.
 
 It sits here rather than in `api/scripts/`, where it was written, because
 `api-deploy.yaml` filters on `api/scripts/**` — so a four-package developer

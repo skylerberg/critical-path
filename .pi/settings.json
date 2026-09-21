@@ -1,0 +1,5 @@
+{
+  "worktree": {
+    "setup": "scripts/new-worktree.sh"
+  }
+}
