@@ -6,6 +6,7 @@
   import Image from '@tiptap/extension-image';
   import { Mention, type MentionNodeAttrs } from '@tiptap/extension-mention';
   import { Placeholder } from '@tiptap/extensions';
+  import { menuKeys } from '../lib/actions';
   import type { BoardTask } from '../lib/board-types';
   import { filterMentionCandidates, mentionLabel } from '../lib/mentions';
   import { isEmptyDoc } from '../lib/tiptap';
@@ -56,6 +57,17 @@
     index: number;
     command: (attrs: MentionNodeAttrs) => void;
   } | null>(null);
+  // Clicking a link never navigates (openOnClick is off, and in the readonly
+  // editor the bare anchor still would): it opens this menu, which owns
+  // following, copying and — where the text is editable — removing the link.
+  let linkMenu = $state<{
+    href: string;
+    x: number;
+    y: number;
+    anchor: HTMLAnchorElement;
+  } | null>(null);
+  let linkMenuEl = $state<HTMLDivElement>();
+  let linkMenuPlaced = $state({ x: 0, y: 0 });
   const menuId = $props.id();
 
   // Saves are debounced (800 ms) and flushed on blur and teardown.
@@ -109,6 +121,8 @@
     }
     e.commands.setContent((doc ?? null) as JSONContent | null, { emitUpdate: false });
     lastSaved = JSON.stringify(currentDoc(e));
+    // The stored anchor points into a document that was just thrown away.
+    linkMenu = null;
     setSaveState('idle');
   }
 
@@ -273,6 +287,24 @@
             handlePaste: (_view, event) => insertImageFiles(event.clipboardData?.files),
             handleDrop: (_view, event, _slice, moved) =>
               !moved && insertImageFiles(event.dataTransfer?.files),
+            handleDOMEvents: {
+              // False either way: a non-link click is none of this handler's
+              // business, and a link click keeps its ordinary caret placement —
+              // the menu opens beside it, it does not replace the caret.
+              click: (_view, event) => {
+                const anchor =
+                  event.target instanceof Element
+                    ? event.target.closest<HTMLAnchorElement>('a[href]')
+                    : null;
+                const href = anchor?.getAttribute('href');
+                if (anchor === null || href === null || href === undefined || href === '') {
+                  return false;
+                }
+                event.preventDefault();
+                linkMenu = { href, x: event.clientX, y: event.clientY, anchor };
+                return false;
+              },
+            },
           },
           onTransaction: () => {
             version += 1;
@@ -298,6 +330,7 @@
     return () => {
       flushSave();
       if (savedTimer !== null) clearTimeout(savedTimer);
+      linkMenu = null;
       e.destroy();
       editor = null;
     };
@@ -370,6 +403,65 @@
     }
     e.chain().focus().extendMarkRange('link').setLink({ href }).run();
   }
+
+  const LINK_MENU_MARGIN_PX = 8;
+
+  // Measured rather than guessed, like the card menu: the anchor is wherever
+  // the pointer was, so a link low in the text would otherwise open the menu
+  // off the bottom of the screen.
+  $effect(() => {
+    const rect = linkMenuEl?.getBoundingClientRect();
+    const menu = linkMenu;
+    if (rect === undefined || menu === null) return;
+    const maxX = window.innerWidth - rect.width - LINK_MENU_MARGIN_PX;
+    const maxY = window.innerHeight - rect.height - LINK_MENU_MARGIN_PX;
+    linkMenuPlaced = {
+      x: Math.max(LINK_MENU_MARGIN_PX, Math.min(menu.x, maxX)),
+      y: Math.max(LINK_MENU_MARGIN_PX, Math.min(menu.y, maxY)),
+    };
+  });
+
+  function closeLinkMenu(opts?: { restoreFocus?: boolean }): void {
+    linkMenu = null;
+    if (opts?.restoreFocus === true && !readonly) {
+      editor?.commands.focus();
+    }
+  }
+
+  // The menu is anchored to the viewport, not the text, so a press elsewhere or
+  // a wheel that scrolls the text out from under it takes it down.
+  function dismissLinkMenu(event: Event): void {
+    if (linkMenu === null) return;
+    const target = event.target;
+    if (target instanceof Node && linkMenuEl?.contains(target) === true) return;
+    closeLinkMenu();
+  }
+
+  async function copyLinkHref(href: string): Promise<void> {
+    try {
+      await navigator.clipboard.writeText(href);
+      toasts.success('Link copied');
+    } catch {
+      toasts.error('Could not copy the link');
+    }
+    closeLinkMenu({ restoreFocus: true });
+  }
+
+  // Removes exactly the anchor that was clicked: its DOM span maps back to the
+  // mark's range one for one, where extendMarkRange from a caret at the link's
+  // edge can land just outside it.
+  function removeLink(anchor: HTMLAnchorElement): void {
+    const e = editor;
+    if (e && !e.isDestroyed && e.view.dom.contains(anchor)) {
+      const from = e.view.posAtDOM(anchor, 0);
+      const to = e.view.posAtDOM(anchor, anchor.childNodes.length);
+      e.chain().focus().setTextSelection({ from, to }).unsetLink().run();
+    }
+    closeLinkMenu({ restoreFocus: true });
+  }
+
+  const linkMenuItemClass =
+    'flex min-h-11 w-full cursor-pointer items-center gap-3 px-4 text-left text-sm hover:bg-accent-soft focus-ring-inset';
 </script>
 
 {#snippet bulletListIcon()}
@@ -439,6 +531,8 @@
   </button>
 {/snippet}
 
+<svelte:window onpointerdown={dismissLinkMenu} onwheel={dismissLinkMenu} />
+
 <div
   class="rte relative {bare ? 'rte-bare' : 'rounded-md border border-edge bg-canvas'} {compact
     ? 'rte-compact'
@@ -505,6 +599,61 @@
           <span class="min-w-0 flex-1 truncate font-medium">{user.name}</span>
         </button>
       {/each}
+    </div>
+  {/if}
+  {#if linkMenu !== null}
+    {@const open = linkMenu}
+    <div
+      bind:this={linkMenuEl}
+      role="menu"
+      tabindex="-1"
+      aria-label="Link"
+      use:menuKeys={{ onclose: closeLinkMenu }}
+      style="left: {linkMenuPlaced.x}px; top: {linkMenuPlaced.y}px"
+      class="fixed z-40 w-64 rounded-md border border-edge bg-surface py-1 shadow-lg"
+    >
+      <!-- role=menu permits only menuitem rows and separators, so the URL this
+           menu acts on is presentation rather than a dead row. -->
+      <div role="presentation" title={open.href} class="truncate px-4 py-1.5 text-xs text-muted">
+        {open.href}
+      </div>
+      <!-- A real anchor, so the URL keeps working the ways the browser's own menu
+           offered it: middle-click, modifier-click, and drag to the tab bar. -->
+      <a
+        role="menuitem"
+        tabindex="-1"
+        href={open.href}
+        target={/^mailto:/i.test(open.href) ? undefined : '_blank'}
+        rel="noopener noreferrer"
+        class={linkMenuItemClass}
+        onclick={() => closeLinkMenu({ restoreFocus: true })}
+        onauxclick={(event) => {
+          // The middle button opens the tab natively and dispatches no click.
+          if (event.button === 1) closeLinkMenu({ restoreFocus: true });
+        }}
+      >
+        Open link
+      </a>
+      <button
+        type="button"
+        role="menuitem"
+        tabindex="-1"
+        class={linkMenuItemClass}
+        onclick={() => void copyLinkHref(open.href)}
+      >
+        Copy link
+      </button>
+      {#if !readonly}
+        <button
+          type="button"
+          role="menuitem"
+          tabindex="-1"
+          class={linkMenuItemClass}
+          onclick={() => removeLink(open.anchor)}
+        >
+          Remove link
+        </button>
+      {/if}
     </div>
   {/if}
 </div>

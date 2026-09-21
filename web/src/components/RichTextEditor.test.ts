@@ -678,6 +678,162 @@ describe('RichTextEditor', () => {
     });
   });
 
+  describe('link menu', () => {
+    const linkDoc: components['schemas']['TiptapDoc'] = {
+      type: 'doc',
+      content: [
+        {
+          type: 'paragraph',
+          content: [
+            {
+              type: 'text',
+              text: 'click me',
+              marks: [{ type: 'link', attrs: { href: 'https://example.com' } }],
+            },
+          ],
+        },
+      ],
+    };
+
+    async function editorWithLink(props?: {
+      content?: components['schemas']['TiptapDoc'];
+      readonly?: boolean;
+    }): Promise<{ editor: Editor; container: HTMLElement }> {
+      const { component, container } = render(RichTextEditor, {
+        content: linkDoc,
+        onSave: vi.fn(),
+        ...props,
+      });
+      await tick();
+      return { editor: component.getEditor()!, container };
+    }
+
+    function anchorIn(container: HTMLElement): HTMLAnchorElement {
+      return container.querySelector<HTMLAnchorElement>('.tiptap a')!;
+    }
+
+    async function openMenu(container: HTMLElement): Promise<HTMLElement> {
+      // fireEvent's return is whether the event ran its default — false here is
+      // the click on the anchor being prevented from navigating.
+      expect(await fireEvent.click(anchorIn(container))).toBe(false);
+      return screen.getByRole('menu', { name: 'Link' });
+    }
+
+    it('opens on click with follow, copy and remove rows, naming the href', async () => {
+      const { container } = await editorWithLink();
+
+      const menu = await openMenu(container);
+
+      expect(menu).toHaveTextContent('https://example.com');
+      expect(screen.getByRole('menuitem', { name: 'Open link' })).toBeInTheDocument();
+      expect(screen.getByRole('menuitem', { name: 'Copy link' })).toBeInTheDocument();
+      expect(screen.getByRole('menuitem', { name: 'Remove link' })).toBeInTheDocument();
+    });
+
+    it('opens the link in a new tab and closes', async () => {
+      const { container } = await editorWithLink();
+      await openMenu(container);
+
+      const follow = screen.getByRole('menuitem', { name: 'Open link' });
+      expect(follow).toHaveAttribute('href', 'https://example.com');
+      expect(follow).toHaveAttribute('target', '_blank');
+      expect(follow).toHaveAttribute('rel', expect.stringContaining('noopener'));
+
+      await fireEvent.click(follow);
+
+      expect(screen.queryByRole('menu', { name: 'Link' })).toBeNull();
+    });
+
+    // A mailto in a blank tab is an empty tab beside the mail client.
+    it('follows a mailto in place rather than a new tab', async () => {
+      const mailtoDoc: components['schemas']['TiptapDoc'] = {
+        type: 'doc',
+        content: [
+          {
+            type: 'paragraph',
+            content: [
+              {
+                type: 'text',
+                text: 'mail me',
+                marks: [{ type: 'link', attrs: { href: 'mailto:ada@example.com' } }],
+              },
+            ],
+          },
+        ],
+      };
+      const { container } = await editorWithLink({ content: mailtoDoc });
+      await openMenu(container);
+
+      const follow = screen.getByRole('menuitem', { name: 'Open link' });
+      expect(follow).toHaveAttribute('href', 'mailto:ada@example.com');
+      expect(follow).not.toHaveAttribute('target');
+    });
+
+    it('copies the href, says so, and closes', async () => {
+      // Stubbed after the render, and carrying userAgent along: the stub
+      // replaces navigator with a plain object, and Tiptap's isiOS check reads
+      // userAgent off it at mount and again when the close restores focus.
+      const { container } = await editorWithLink();
+      await openMenu(container);
+      const writeText = vi.fn().mockResolvedValue(undefined);
+      vi.stubGlobal('navigator', {
+        ...navigator,
+        userAgent: navigator.userAgent,
+        clipboard: { writeText },
+      });
+
+      await fireEvent.click(screen.getByRole('menuitem', { name: 'Copy link' }));
+
+      expect(writeText).toHaveBeenCalledWith('https://example.com');
+      expect(toasts.toasts.at(-1)?.message).toBe('Link copied');
+      expect(screen.queryByRole('menu', { name: 'Link' })).toBeNull();
+      vi.unstubAllGlobals();
+    });
+
+    it('removes the link but keeps its text, and closes', async () => {
+      const { editor, container } = await editorWithLink();
+      await openMenu(container);
+
+      await fireEvent.click(screen.getByRole('menuitem', { name: 'Remove link' }));
+
+      const json = JSON.stringify(editor.getJSON());
+      expect(json).not.toContain('example.com');
+      expect(editor.getText()).toContain('click me');
+      expect(screen.queryByRole('menu', { name: 'Link' })).toBeNull();
+    });
+
+    // A reader can still follow or copy a link; only the writer can delete it.
+    it('offers a reader follow and copy but no removal', async () => {
+      const { container } = await editorWithLink({ readonly: true });
+
+      await openMenu(container);
+
+      expect(screen.getByRole('menuitem', { name: 'Open link' })).toBeInTheDocument();
+      expect(screen.getByRole('menuitem', { name: 'Copy link' })).toBeInTheDocument();
+      expect(screen.queryByRole('menuitem', { name: 'Remove link' })).toBeNull();
+    });
+
+    it('closes on Escape and returns focus to the editor', async () => {
+      const { container } = await editorWithLink();
+      const menu = await openMenu(container);
+
+      await fireEvent.keyDown(menu, { key: 'Escape' });
+
+      expect(screen.queryByRole('menu', { name: 'Link' })).toBeNull();
+      // Tiptap's focus command lands on a timer, not in the keydown's tick.
+      await waitFor(() => expect(document.activeElement).toBe(container.querySelector('.tiptap')));
+    });
+
+    it('closes on a press elsewhere', async () => {
+      const { container } = await editorWithLink();
+      await openMenu(container);
+
+      await fireEvent.pointerDown(document.body);
+
+      expect(screen.queryByRole('menu', { name: 'Link' })).toBeNull();
+    });
+  });
+
   describe('images', () => {
     function pngFile(name = 'shot.png'): File {
       return new File([new Uint8Array([1, 2, 3])], name, { type: 'image/png' });
