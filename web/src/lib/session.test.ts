@@ -8,6 +8,8 @@ import {
   saveBoardSnapshot,
   type BoardSnapshot,
 } from './offline-cache';
+import { readQueue, writeOp } from './offline-db';
+import type { QueuedOp } from './outbox-ops';
 import { consumeIntendedPath, rememberIntendedPath, session } from './session.svelte';
 import { matchRoute, router } from './router.svelte';
 import { projectHref, publicBoardHref } from './short-links';
@@ -32,6 +34,21 @@ function snapshot(title: string): BoardSnapshot {
     columns: [{ id: testUuid('c1'), name: 'Todo', sort_key: 'V0', is_done: false } as BoardColumn],
     tasks: [{ id: testUuid('t1'), title, column_id: testUuid('c1'), sort_key: 'V0' } as BoardTask],
     labels: [] as BoardLabel[],
+  };
+}
+
+function queuedOp(): QueuedOp {
+  return {
+    id: testUuid('op1'),
+    seq: 1,
+    userId: user.id,
+    projectId: PROJECT_ID,
+    subject: { kind: 'task', id: testUuid('t1') },
+    semantics: 'plain',
+    label: 'Rename the card',
+    request: { method: 'PATCH', path: '/api/tasks/{id}', pathParams: { id: testUuid('t1') } },
+    queuedAt: '2026-03-04T05:06:07.000Z',
+    attempts: 0,
   };
 }
 
@@ -293,6 +310,7 @@ describe('session.logout', () => {
     await clearOfflineCache(OTHER_USER_ID);
     await saveBoardSnapshot(user.id, PROJECT_ID, snapshot('Ada’s board'));
     await saveBoardSnapshot(OTHER_USER_ID, PROJECT_ID, snapshot('Grace’s board'));
+    await writeOp(queuedOp());
     await loginAs();
     fetchMock.mockResolvedValue(jsonResponse(204));
 
@@ -301,23 +319,33 @@ describe('session.logout', () => {
     await vi.waitFor(async () => {
       expect(await readBoardSnapshot(user.id, PROJECT_ID)).toBeNull();
     });
+    expect(await readQueue(user.id)).toEqual([]);
     expect((await readBoardSnapshot(OTHER_USER_ID, PROJECT_ID))?.payload.tasks[0]?.title).toBe(
       'Grace’s board'
     );
   });
 
-  it('takes it with it when the server rejects the token instead', async () => {
+  // Not when the server rejects the token. An expiry or a revocation is nobody
+  // on this device deciding to sign out, the same person is about to sign back
+  // in, and the queued rows beside the snapshot are the only copy of work that
+  // never reached the server — dropping those is silent, unrecoverable loss.
+  it('leaves it alone when the server rejects the token instead', async () => {
     await clearOfflineCache(user.id);
     await loginAs();
     await saveBoardSnapshot(user.id, PROJECT_ID, snapshot('Ada’s board'));
+    await writeOp(queuedOp());
     fetchMock.mockResolvedValue(jsonResponse(401, { error: 'Unauthorized' }));
 
     await api.GET('/api/users');
 
     expect(session.status).toBe('anon');
-    await vi.waitFor(async () => {
-      expect(await readBoardSnapshot(user.id, PROJECT_ID)).toBeNull();
-    });
+    // A clear is scheduled rather than awaited, so settle the microtasks a
+    // regression would have used before reading the stores back.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect((await readBoardSnapshot(user.id, PROJECT_ID))?.payload.tasks[0]?.title).toBe(
+      'Ada’s board'
+    );
+    expect(await readQueue(user.id)).toHaveLength(1);
   });
 
   it('survives a browser with no CacheStorage at all', async () => {
