@@ -45,7 +45,7 @@ export interface BoardPayloadBody {
   };
   columns: BoardColumnPayload[];
   tasks: BoardTaskPayload[];
-  labels: Array<{ id: string; name: string; color: string }>;
+  labels: Array<{ id: string; name: string; color: string; sort_key: string | null }>;
   changed_task_ids: string[];
 }
 
@@ -87,6 +87,7 @@ export async function insertLabel(options: {
   projectId: string;
   name: string;
   color?: string;
+  sortKey?: ResolvedSortKey;
 }): Promise<string> {
   const id = crypto.randomUUID();
   await db
@@ -96,6 +97,7 @@ export async function insertLabel(options: {
       project_id: options.projectId,
       name: options.name,
       color: options.color ?? '#ff0000',
+      sort_key: options.sortKey ?? rankKey(),
     })
     .execute();
   return id;

@@ -712,6 +712,7 @@ export interface components {
         id: string;
         name: string;
         project_id: string;
+        sort_key: string | null;
       };
     };
     LabelCreatedWebhookEvent: {
@@ -730,6 +731,7 @@ export interface components {
         id: string;
         name: string;
         project_id: string;
+        sort_key: string | null;
       };
     };
     LabelDeletedEvent: {
@@ -766,6 +768,7 @@ export interface components {
         id: string;
         name: string;
         project_id: string;
+        sort_key: string | null;
       };
     };
     LabelUpdatedWebhookEvent: {
@@ -784,6 +787,7 @@ export interface components {
         id: string;
         name: string;
         project_id: string;
+        sort_key: string | null;
       };
     };
     ProjectChangedEvent: {

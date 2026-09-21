@@ -13,8 +13,13 @@ declare const sortKeyBrand: unique symbol;
 // the gap is `resolveSortKey` or `appendKeys` in `src/services/sortKey.ts`.
 export type ResolvedSortKey = string & { readonly [sortKeyBrand]: 'sortKey' };
 
+// Nullability survives the brand: a scope mid-rollover (label's key is nullable
+// until the enforcement migration lands) reads and writes `ResolvedSortKey | null`,
+// and tightening the column tightens the brand on the next codegen.
 type BrandSortKey<T> = 'sort_key' extends keyof T
-  ? Omit<T, 'sort_key'> & { sort_key: ResolvedSortKey }
+  ? Omit<T, 'sort_key'> & {
+      sort_key: null extends T['sort_key'] ? ResolvedSortKey | null : ResolvedSortKey;
+    }
   : T;
 
 export type DB = { [Table in keyof GeneratedDB]: BrandSortKey<GeneratedDB[Table]> };

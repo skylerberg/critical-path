@@ -39,7 +39,7 @@ interface PublicBoardBody {
     checklist_item_count: number;
     checklist_done_count: number;
   }>;
-  labels: Array<{ id: string; name: string; color: string }>;
+  labels: Array<{ id: string; name: string; color: string; sort_key: string | null }>;
   attachments: Array<{ id: string; task_id: string; kind: string }>;
   users: Array<{ id: string; name: string; avatar_url: string | null }>;
   comments: Array<{

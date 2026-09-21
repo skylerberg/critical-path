@@ -21,13 +21,26 @@ describe('Labels API', () => {
     projectId: string,
     name: string,
     color = '#ff0000'
-  ): Promise<{ id: string; project_id: string; name: string; color: string }> {
+  ): Promise<{ id: string; project_id: string; name: string; color: string; sort_key: string }> {
     const id = newId();
     const res = await ctx
       .request(user.token)
       .post('/api/labels', { id, project_id: projectId, name, color });
     expect(res.status).toBe(201);
-    return (await res.json()) as { id: string; project_id: string; name: string; color: string };
+    return (await res.json()) as {
+      id: string;
+      project_id: string;
+      name: string;
+      color: string;
+      sort_key: string;
+    };
+  }
+
+  async function boardLabelOrder(projectId: string): Promise<string[]> {
+    const res = await ctx.request(user.token).get(`/api/projects/${projectId}`);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { labels: { id: string }[] };
+    return body.labels.map((label) => label.id);
   }
 
   async function insertColumn(projectId: string): Promise<string> {
@@ -102,7 +115,37 @@ describe('Labels API', () => {
         project_id: projectId,
         name: 'Art',
         color: '#ffaa00',
+        sort_key: expect.any(String),
       });
+    });
+
+    it('appends each new label at the end of the project’s label order', async () => {
+      const projectId = await createProject('labels-append-order');
+      const first = await createLabel(projectId, 'First');
+      const second = await createLabel(projectId, 'Second');
+
+      expect(second.sort_key > first.sort_key).toBe(true);
+      expect(await boardLabelOrder(projectId)).toEqual([first.id, second.id]);
+    });
+
+    it('ranks a label created with an explicit sort_key where that key puts it', async () => {
+      const projectId = await createProject('labels-create-key');
+      const first = await createLabel(projectId, 'First');
+      const second = await createLabel(projectId, 'Second');
+
+      const id = newId();
+      const res = await ctx.request(user.token).post('/api/labels', {
+        id,
+        project_id: projectId,
+        name: 'Between',
+        color: '#00ff00',
+        sort_key: first.sort_key,
+      });
+      expect(res.status).toBe(201);
+      const body = (await res.json()) as { sort_key: string };
+      // The sent key was taken, so the echo is the slot immediately after it.
+      expect(body.sort_key > first.sort_key && body.sort_key < second.sort_key).toBe(true);
+      expect(await boardLabelOrder(projectId)).toEqual([first.id, id, second.id]);
     });
 
     it('returns 404 when the project does not exist, matching an inaccessible project', async () => {
@@ -202,6 +245,7 @@ describe('Labels API', () => {
         project_id: projectId,
         name: 'New name',
         color: '#ff0000',
+        sort_key: label.sort_key,
       });
       // A rename reaches an open board and a webhook registration from nowhere
       // else, and the response body is what the caller already knows.
@@ -214,6 +258,7 @@ describe('Labels API', () => {
             project_id: projectId,
             name: 'New name',
             color: '#ff0000',
+            sort_key: label.sort_key,
             actor_user_id: user.id,
           },
         },
@@ -232,6 +277,7 @@ describe('Labels API', () => {
         project_id: projectId,
         name: 'New name',
         color: '#0000ff',
+        sort_key: label.sort_key,
       });
       expect(recolorEntries).toEqual([
         {
@@ -242,10 +288,54 @@ describe('Labels API', () => {
             project_id: projectId,
             name: 'New name',
             color: '#0000ff',
+            sort_key: label.sort_key,
             actor_user_id: user.id,
           },
         },
       ]);
+    });
+
+    it('moves a label to a new sort_key and echoes the key that landed', async () => {
+      const projectId = await createProject('labels-move');
+      const first = await createLabel(projectId, 'First');
+      const second = await createLabel(projectId, 'Second');
+      const third = await createLabel(projectId, 'Third');
+
+      const entries = await collectBusEntries(async () => {
+        const res = await ctx
+          .request(user.token)
+          .patch(`/api/labels/${third.id}`, { sort_key: first.sort_key });
+        expect(res.status).toBe(200);
+        const body = (await res.json()) as { sort_key: string };
+        expect(body.sort_key > first.sort_key && body.sort_key < second.sort_key).toBe(true);
+        third.sort_key = body.sort_key;
+      });
+      expect(entries).toEqual([
+        {
+          type: 'label_updated',
+          project_id: projectId,
+          data: {
+            id: third.id,
+            project_id: projectId,
+            name: 'Third',
+            color: '#ff0000',
+            sort_key: third.sort_key,
+            actor_user_id: user.id,
+          },
+        },
+      ]);
+
+      expect(await boardLabelOrder(projectId)).toEqual([first.id, third.id, second.id]);
+    });
+
+    it('rejects a malformed sort_key with 422', async () => {
+      const projectId = await createProject('labels-move-bad-key');
+      const label = await createLabel(projectId, 'Move me');
+
+      const res = await ctx
+        .request(user.token)
+        .patch(`/api/labels/${label.id}`, { sort_key: 'not a sort key!' });
+      expect(res.status).toBe(422);
     });
 
     it('returns the label unchanged for an empty patch', async () => {

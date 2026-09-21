@@ -175,7 +175,7 @@ function exportFixture(overrides: Partial<ProjectExport> = {}): ProjectExport {
       { id: 'c1', name: 'To Do', sort_key: rankKey(1000), is_done: false },
       { id: 'c2', name: 'Done', sort_key: rankKey(2000), is_done: true },
     ],
-    labels: [{ id: 'l1', name: 'bug', color: '#ff0000' }],
+    labels: [{ id: 'l1', name: 'bug', color: '#ff0000', sort_key: rankKey(1) }],
     tasks: [],
     ...overrides,
   };
@@ -297,8 +297,8 @@ describe('tasksCsv', () => {
     const csv = tasksCsv(
       exportFixture({
         labels: [
-          { id: 'l1', name: 'bug', color: '#ff0000' },
-          { id: 'l2', name: 'ui', color: '#00ff00' },
+          { id: 'l1', name: 'bug', color: '#ff0000', sort_key: rankKey(1) },
+          { id: 'l2', name: 'ui', color: '#00ff00', sort_key: rankKey(2) },
         ],
         users: [
           { id: 'u1', name: 'Owner' },
@@ -329,8 +329,8 @@ describe('tasksCsv', () => {
     const csv = tasksCsv(
       exportFixture({
         labels: [
-          { id: 'l2', name: 'aardvark', color: '#00ff00' },
-          { id: 'l1', name: 'zebra', color: '#ff0000' },
+          { id: 'l2', name: 'aardvark', color: '#00ff00', sort_key: rankKey(1) },
+          { id: 'l1', name: 'zebra', color: '#ff0000', sort_key: rankKey(2) },
         ],
         users: [
           { id: 'u2', name: 'Ann' },
