@@ -307,7 +307,14 @@
             },
           },
           onTransaction: () => {
-            version += 1;
+            // Deferred to a microtask: a blur that arrives while Svelte is still
+            // evaluating the template — unmounting a focused editor fires one in
+            // Chromium, mid-flush — would make a synchronous write here a
+            // state_unsafe_mutation. The bump only re-invalidates the toolbar's
+            // active-state derived, which is read back after the flush anyway.
+            queueMicrotask(() => {
+              version += 1;
+            });
           },
           onUpdate: ({ editor: updated }) => {
             scheduleSave();
@@ -317,7 +324,14 @@
           // one, so the menu would otherwise outlive the editor's focus and hang
           // over whatever is rendered below it.
           onBlur: () => {
-            mention = null;
+            // Deferred like the version bump above: this handler runs inside the
+            // transaction the blur plugin dispatches, and a blur fired by the DOM
+            // being removed mid-flush would make the write a state_unsafe_mutation.
+            // It must not throw here for a second reason — the flush below is the
+            // save the blur exists to cause.
+            queueMicrotask(() => {
+              mention = null;
+            });
             flushSave();
           },
         })
