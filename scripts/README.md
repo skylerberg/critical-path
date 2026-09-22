@@ -149,7 +149,10 @@ runs `pnpm install` in every package. Packages are discovered from
 edit here, and each install is asserted to have left a `node_modules` behind
 rather than trusted for exiting 0 — which is what a stray root
 `pnpm-workspace.yaml` would hand you. `--only` narrows the installs and fails
-on a name that is not a package; the `.env` files are copied either way.
+on a name that is not a package, but never narrow it away from `cli/`:
+`api/tsconfig.json` type-checks `../cli/**/*` and api's vitest collects its
+tests, so an uninstalled `cli/` fails api's checks on files your change never
+touched. The `.env` files are copied either way.
 
 Everything is resolved from the git checkout it is **run in**, not from where
 this file lives, so running it from a package subdirectory is fine.

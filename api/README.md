@@ -184,9 +184,9 @@ covers the coupling.
 
 ## Rate limits
 
-The ceilings a client or operator can hit, all enforced in
-`src/services/rateLimit.ts` (which `tests/unit/documentedLimits.test.ts` holds
-this list to):
+The ceilings a client or operator can hit. The constants live in
+`src/services/rateLimit.ts`, and `tests/unit/documentedLimits.test.ts` pins the
+figures it names to them:
 
 - Signing in and signing up share the auth limiter: **10 a minute per (source
   IP, email address) pair**, **30 per 15 minutes per email address**, and
@@ -200,6 +200,11 @@ this list to):
 - Invitations: 100 pending per project, 100 addresses looked up an hour per
   caller, **20 invitation emails an hour, per caller**, 3 re-mails an hour per
   invitation.
+- Email verification resends: 3 an hour per account, 10 an hour per source IP,
+  shared with the send triggered by an address change.
+- User search: 100 an hour per account and 300 an hour per source IP — both
+  arms are needed because an account costs a signup, and signup itself allows
+  50 an hour from one address.
 - Link attachments: 60 an hour per user.
 - Notification email: the same notification at most once an hour, one sender
   causing at most 20 an hour to any one recipient, and a recipient receiving at
@@ -580,14 +585,16 @@ and the post-commit hook drops the event. One mutation can be many deliveries
 (stripping 200 assignments sends 200 requests per registration); size receivers
 accordingly. Terminal deliveries are kept for seven days.
 
-**Secrets and targets.** The secret is stored and returned in plaintext — the
-server signs with it, so it cannot be hashed. Every editor of the project can
-read it; the list route omits it for a viewer, since holding it is enough to
-forge a delivery. In production, webhook URLs must be `https` and may not
-resolve to loopback, private, link-local, reserved or cloud-metadata addresses
-— checked at registration and again after DNS resolution at connect time.
-Redirects are never followed. Outside production the address rules are relaxed
-so a development server can point a webhook at its own machine.
+**Secrets and targets.** Webhook reads are gated on access rather than role,
+so a viewer can read a project's registrations and their delivery log; the
+secret is the exception, omitted for a viewer, since holding it is enough to
+forge a delivery. The secret is stored and returned in plaintext — the server
+signs with it, so it cannot be hashed. In production, webhook URLs must be
+`https` and may not resolve to loopback, private, link-local, reserved or
+cloud-metadata addresses — checked at registration and again after DNS
+resolution at connect time. Redirects are never followed. Outside production
+the address rules are relaxed so a development server can point a webhook at
+its own machine.
 
 ### Background jobs
 
@@ -634,8 +641,13 @@ healthy while sending no mail. Every link the server mails is built in
 notification email and nothing else — account-access mail (verification,
 password reset, feedback) always sends regardless. `POST
 /api/auth/verify-email` takes a token and answers 204; it is unauthenticated
-and inert, so a leaked link reveals nothing. Tokens are stateless HMACs
-(`EMAIL_TOKEN_SECRET`, falling back to `PASSWORD_RESET_SECRET`) carrying a hash
+and inert, so a leaked link reveals nothing. `POST /api/auth/verify-email/resend`
+mails a fresh link, or answers 204 without sending when the address is already
+verified; the resend budget is shared with the send triggered by an address
+change, so an exhausted budget makes `PATCH /api/auth/me` answer 429 and change
+nothing. Tokens are stateless HMACs
+(`EMAIL_TOKEN_SECRET`, falling back to
+`PASSWORD_RESET_SECRET`) carrying a hash
 of the address rather than the address itself, which both binds the token and
 keeps addresses out of load-balancer logs. `email` and `email_verified` are
 returned only to the caller about themselves; no user record discloses one
@@ -742,7 +754,10 @@ card someone else owns.
   that has to keep that promise.
 - Attachment downloads support no Range requests: the storage interface returns
   a whole buffer, so a download costs its full size in pod memory. Uploads
-  stream; downloads do not.
+  stream; downloads do not. `GET /api/attachments/:id/preview` and `/favicon`
+  answer to project access like the download route, so a preview stops being
+  readable when someone loses access rather than staying readable to anyone who
+  learned the attachment id.
 - A published board is readable by anyone who ever held the project id, and
   unpublishing takes the embedded images with it; there is no separate,
   rotatable slug.

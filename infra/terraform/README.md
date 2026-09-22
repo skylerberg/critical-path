@@ -104,7 +104,8 @@ bucket, where a Cloud Run "preview edge" serves it.
      wildcard, so this uses Certificate Manager DNS-01; one CNAME covers the
      whole `*.…` set.
 
-> **Currently unsatisfied — previews do not work over HTTPS.** The
+> **Currently unsatisfied — previews do not work over HTTPS.** As of
+> 2026-08-21 (check before trusting that date) the
 > `_acme-challenge.criticalpath.skylerberg.com` CNAME does not exist, so the
 > wildcard certificate sits in `PROVISIONING` with `CNAME_MISMATCH` and every
 > `pr-<n>.criticalpath.skylerberg.com` fails TLS. Nothing reports this:
@@ -217,7 +218,10 @@ gcloud iam service-accounts add-iam-policy-binding \
 ```
 
 Read the current set with `gcloud iam service-accounts get-iam-policy
-github-actions-service@realm-construction.iam.gserviceaccount.com`.
+github-actions-service@realm-construction.iam.gserviceaccount.com`. The
+bindings for the pre-merge repository names are still present and still
+authorize impersonation of that account — remove them once nothing references
+them.
 
 ## Secrets (never committed)
 

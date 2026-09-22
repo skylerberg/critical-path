@@ -29,6 +29,7 @@ import { MAX_SUBSCRIPTIONS_PER_SOCKET } from '../../src/services/realtime/state'
 // only the fragment naming the number is fixed, and rewording that fragment is
 // the point at which someone should be asked to update it.
 const readme = readFileSync(new URL('../../README.md', import.meta.url), 'utf8');
+const agentsMd = readFileSync(new URL('../../AGENTS.md', import.meta.url), 'utf8');
 
 interface DocumentedLimit {
   what: string;
@@ -118,11 +119,15 @@ describe('documented limits match the constants that enforce them', () => {
   }
 
   // Catches the other direction of drift: lowering a ceiling and leaving the old
-  // figure in a sentence the rows above do not happen to match.
+  // figure in a sentence the rows above do not happen to match. AGENTS.md is
+  // scanned too — it points at the README's sections rather than restating the
+  // ceilings, and this negative check is what keeps it that way.
   it('leaves no stale socket figures behind', () => {
     const superseded = ['500 live sockets', '50 sockets', '100 subscriptions'];
-    for (const stale of superseded) {
-      expect(readme).not.toContain(stale);
+    for (const document of [readme, agentsMd]) {
+      for (const stale of superseded) {
+        expect(document).not.toContain(stale);
+      }
     }
   });
 });

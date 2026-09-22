@@ -142,7 +142,8 @@ goes to stderr, so `cpath watch | jq …` is the intended shape. `--json` and
 `--project` narrows the stream to one project. Unlike every other command it
 does **not** fall back to `CRITICAL_PATH_PROJECT` or the configured
 `default-project` — without the flag, `watch` follows every accessible
-project, and each line's `project_id` disambiguates. Scoping to a project also
+project, including ones created while it runs, and each line's `project_id`
+disambiguates. Scoping to a project also
 drops the account-scoped events (`user_updated`, `account_updated`), which
 carry `project_id: null`. Unscoped, note that `account_updated` puts your own
 email address on stdout; it is the only event `watch` prints that contains one.
@@ -163,7 +164,9 @@ code of 4429 stops the watch instead: the account was over the API's
 per-account socket ceiling (the Realtime section of `api/README.md` states the
 number) and this connection was the oldest, so reconnecting would only take the
 slot back off whichever client the server handed it to. Close another client
-and start it again. Any other close code reconnects.
+and start it again. It exits 3 too, but without the login hint — the message
+is what tells a revoked session and a ceiling stop apart. Any other close code
+reconnects.
 
 ## Shell completion
 
@@ -179,9 +182,12 @@ cpath completion -s fish > ~/.config/fish/completions/cpath.fish
 ```
 
 TAB completes subcommands and flags, and — where a reference is expected —
-project, column, label, task and member names. Those lookups are cached for
+project, column, label, task and member names, taken from the project named on
+the command line or, failing that, from `CRITICAL_PATH_PROJECT` / the
+configured `default-project`. Those lookups are cached for
 ~30 seconds under the config directory and fail silently: an unreachable server
-just means no suggestions, never an error in the middle of your prompt.
+or an expired session just means no suggestions, never an error in the middle
+of your prompt.
 
 The bash and zsh scripts are verified against bash 3.2 and zsh 5.9. **The fish
 script is untested.**

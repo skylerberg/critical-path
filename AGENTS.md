@@ -47,7 +47,9 @@ else (not `.npmrc` beyond auth and registry, not package.json's `pnpm` field),
 and **keys are camelCase**: a kebab-case key is dropped silently. `allowBuilds`
 gates whether a dependency may run install scripts, with `strictDepBuilds`
 failing the install on any unlisted one — adding a dependency that builds means
-listing it there in the same commit.
+listing it there in the same commit. `minimumReleaseAge` refuses versions
+younger than the gate outright, so a brand-new release of a dependency fails
+resolution rather than falling back.
 
 ## Toolchain and command names
 
@@ -203,8 +205,9 @@ always correct, skipping silently never is.
 `ci-gate.yaml` exists because path filtering and required status checks are in
 direct conflict: a workflow its filter excludes produces no check run, and
 GitHub waits on a required-but-absent check forever. The gate is the one
-workflow with no `paths:`; it reads the other runs' results for the head
-commit and fails if any of them did not pass. **`ci-gate` is the check to
+workflow whose lack of a `paths:` filter is what makes it requireable; it reads
+the other runs' results for the head commit and fails if any of them did not
+pass. **`ci-gate` is the check to
 require in branch protection** — a manual step in the GitHub UI; the file's
 header explains the mechanism and why a skipped job is a *green* required
 check.

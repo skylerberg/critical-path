@@ -135,6 +135,7 @@ The absent ones are why a few modules guard on `typeof window.matchMedia`
 before reading a media query. Those guards look dead — the browser always has
 it — and are load-bearing under the test runner.
 
+<<<<<<< HEAD
 The vitest suite runs on the same jsdom, and the rich text editor concentrates
 the traps that have cost time there:
 
@@ -161,12 +162,11 @@ the traps that have cost time there:
   hand-rolled: the two ways the obvious `vi.stubGlobal('navigator', …)`
   spelling breaks under an editor are written out in its doc comment.
 
-`createBrowser()` wraps Playwright rather than re-exporting it: the returned
-object is `{ setViewport, goto, eval, press, click, screenshot, close }` and
-nothing more. Its own header documents the signatures and the
-null-on-missing-engine skip. **Chromium is not the target** for anything about
-focus or the on-screen keyboard — WebKit disagrees with it there, and the
-browser-repro skill carries the difference.
+`scripts/lib/browser.mjs` is how to see the real thing: `createBrowser()`
+wraps Playwright down to `{ setViewport, goto, eval, press, click, screenshot,
+close }`, and its header documents the signatures. **Chromium is not the
+target** for anything about focus or the on-screen keyboard — WebKit disagrees
+with it there, and the browser-repro skill carries the difference.
 
 **The `.pi/skills/browser-repro` skill owns the how**: reproducing a bug
 against the real component, writing a probe for a new component, and the traps
@@ -239,15 +239,16 @@ that shape hits. Read it before writing a probe.
   `uuid`, which eslint restricts so the point is made where the import would
   go.
 - List ordering uses string `sort_key` ranks from `fractional-indexing`
-  (`src/lib/ranks.ts`), not numbers. `byRank` sorts a keyed row ahead of an
-  unkeyed one and breaks ties on id.
+  (`src/lib/ranks.ts` — `append`, `prepend`, `between`, `placeAtIndex`), not
+  numbers. `byRank` sorts a keyed row ahead of an unkeyed one and breaks ties
+  on id.
 
   **A key only means anything against the list it was computed from.** A move
   that has to wait — queued offline, replayed minutes later — must therefore
   travel as `Neighbors` (`afterId`/`beforeId`) and be turned back into a key at
   replay by `placeBetweenNeighbors`, which reports `exact: false` when both
-  anchors are gone. `board.svelte.ts` and `outbox.svelte.ts` both depend on
-  this.
+  anchors are gone, so the caller can say the card landed somewhere it was not
+  aimed. `board.svelte.ts` and `outbox.svelte.ts` both depend on this.
 - Optimistic updates: apply the store change immediately, then fire the API
   call. On failure: `toasts.error(...)` and refetch the affected payload to
   resync — never snapshot-rollback.
