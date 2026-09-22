@@ -308,6 +308,11 @@ const EXTERNAL = new Set([
   'column_entered_at',
   'starred',
   'share_token',
+  // prosemirror-view's, named by web/AGENTS.md's list of the editor's jsdom
+  // traps: the view's focus getter and the coordinate lookup a let-through
+  // mousedown throws from. Neither is declared anywhere in this tree.
+  'hasFocus',
+  'posAtCoords',
 ]);
 
 // Repo-relative paths this tree produces and deliberately does not track. Both

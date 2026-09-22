@@ -507,6 +507,32 @@ The absent ones are why a few modules guard on `typeof window.matchMedia`
 before reading a media query. Those guards look dead — the browser always has
 it — and are load-bearing under the test runner.
 
+The vitest suite runs on the same jsdom, and the rich text editor concentrates
+the traps that have cost time there — each of these has burned a session:
+
+- **Nothing can type into a ProseMirror `contenteditable` under jsdom.** Tests
+  drive the document through the editor instance the component exports for
+  exactly that (`getEditor()` in `src/components/RichTextEditor.svelte`), never
+  through the DOM.
+- **Tiptap's `focus` command lands on a timer**, not in the command's own tick,
+  so an assertion placed right after `commands.focus()` races it: `waitFor` on
+  `document.activeElement` instead.
+- **`EditorView.hasFocus()` demands a DOM selection as well as the active
+  element** — stricter than "the user is working in this text", and false in
+  states a test has plainly focused. The component tracks focus through the
+  editor's `onFocus`/`onBlur` callbacks for that reason; do not reintroduce
+  `hasFocus()` as the question.
+- **`document.elementFromPoint` is not implemented**, so a `mousedown` let
+  through to ProseMirror's own handlers throws out of `posAtCoords` — as an
+  *unhandled* error vitest attributes to the whole file, not to the test that
+  dispatched it.
+- **`window.open` and navigation only log "Not implemented"**, and the suite
+  keeps going; `vi.spyOn(window, 'open')` wherever the code under test follows
+  a link programmatically.
+- The clipboard is `stubClipboard` from `src/lib/test-stubs.ts`, and nothing
+  hand-rolled: the two ways the obvious `vi.stubGlobal('navigator', …)`
+  spelling breaks under an editor are written out in its doc comment.
+
 `createBrowser()` wraps Playwright rather than re-exporting it: the returned
 object is `{ setViewport, goto, eval, press, click, screenshot, close }` and nothing more, so
 `newPage()` and the rest of the Playwright API are not on it. Its own header
