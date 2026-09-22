@@ -2,7 +2,7 @@ node_modules
 dist
 dev-dist
 coverage
-# Throwaway browser probes. AGENTS.md asks for them inside the repo, because one
+# Throwaway browser probes. The browser-repro skill asks for them inside the repo, because one
 # written to /tmp cannot resolve vite or playwright — so they need a name that is
 # ignored here and by eslint, or every scratch file is a commit risk and a red
 # lint gate.

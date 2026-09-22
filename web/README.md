@@ -15,11 +15,9 @@ Requires Node >= 22. From the repository root:
 pnpm -C web install
 ```
 
-That also activates the repository's git hooks (the root `.githooks/`) via the `prepare`
-script, which runs the one `scripts/setup-hooks.mjs` all four packages share.
-If your pnpm config disables lifecycle scripts, run `pnpm run prepare` once manually.
-That setting is unrelated to `allowBuilds` in `pnpm-workspace.yaml`, which governs
-whether *dependencies* may run install scripts, not whether this project runs its own.
+That also activates the repository's git hooks (the root `.githooks/`) via the
+`prepare` script. If your pnpm config disables lifecycle scripts, run
+`pnpm run prepare` once manually.
 
 ## Development
 
@@ -49,15 +47,13 @@ pnpm run generate:api
 pnpm run generate:realtime
 ```
 
-Each re-dumps `api/` at its fixed path in this working tree and prints the
-absolute path it read; dumping first is not needed, and a missing `api/` is an
-error rather than a fall back to the deployed API. The generator itself is
-`../scripts/lib/`, shared with the CLI, so the two clients cannot drift apart in
-how they are produced. Because the schema and the client are now in one tree,
-regenerate in the same commit as the API change — `codegen-ci.yaml` fails the
-pull request otherwise. `ALLOW_REMOTE_SPEC=1` opts into the deployed API
-instead, for generating a client somewhere other than this repository; see
-AGENTS.md.
+Each re-dumps `api/` at its fixed path in this working tree; dumping first is
+not needed, and a missing `api/` is an error rather than a fall back to the
+deployed API. The generator itself is `../scripts/lib/`, shared with the CLI.
+Because the schema and the client are now in one tree, regenerate in the same
+commit as the API change — `codegen-ci.yaml` fails the pull request otherwise.
+`ALLOW_REMOTE_SPEC=1` opts into the deployed API instead, for generating a
+client somewhere other than this repository; see AGENTS.md.
 
 ## Checks
 

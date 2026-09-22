@@ -3,70 +3,25 @@
 Critical Path frontend: Svelte 5 (runes) + Vite SPA/PWA. No SvelteKit. Tailwind CSS v4.
 TypeScript strict.
 
-This is `web/`, one package of four in a monorepo alongside `api/`, `cli/` and
-`preview-edge/`. The root `AGENTS.md` holds what spans them — above all the
-**two-commit deploy rule**, which every change here that calls a new endpoint is
-half of. `api/AGENTS.md` is the backend's manual.
+This is `web/`, one package of four. The root `AGENTS.md` owns the
+cross-package rules and is required reading: the pnpm workspace trap (including
+pnpm's `--` forwarding), the pinned toolchain, the commit hooks that run the
+formatters, the two-commit deploy rule (which every change here that calls a
+new endpoint is half of), and staying current with `main`. `api/AGENTS.md` is
+the backend's manual.
 
 **Where commands run.** A bare `pnpm run …` or `pnpm test` in this file is a
 web-package command: run it from `web/`, or as `pnpm -C web run …` from the
-repository root. There is no root package and no root `node_modules`, so a bare
-`pnpm install` at the top of the checkout installs nothing.
-
-## Package manager
-
-pnpm, pinned by `packageManager` in package.json. pnpm honours that pin by
-downloading the named version when the installed one differs, so the pin decides
-which pnpm runs and Homebrew only decides what is there to start with.
-
-`pnpm-workspace.yaml` is where settings live, and it is a settings file here
-rather than a workspace declaration — it has no `packages:` key, so this package
-is the only member. Each of the four packages has its own copy and its own
-lockfile, and there is deliberately none at the repository root: pnpm searches
-upward, so one there would be what this package resolved to if it ever lost its
-own, and the install would then match no project, print `No projects found` and
-exit 0 having written nothing.
-
-Four packages means four installs, and a new worktree needs all four:
-`scripts/new-worktree.sh <branch>`, at the **repository root**, branches, creates
-`~/.worktrees/<repo>/<branch>`, installs every package and copies the untracked
-`.env` files (which live in `api/`). A bare `git worktree add` leaves this
-package with no `node_modules`, so every check fails on that rather than on the
-change in it.
-
-pnpm 11 reads settings from nowhere else: `.npmrc` carries auth
-and registry only, and package.json's `pnpm` field is ignored, as is npm's
-top-level `overrides`. **Keys are camelCase.** A kebab-case key is dropped
-silently, with no warning and exit 0, which is the one way to misconfigure this
-file and see nothing at all.
-
-Two behaviours that differ from npm and have already cost time:
-
-- **`pnpm run x -- <arg>` forwards the `--` into argv**, where npm swallowed it.
-  Under vitest that reads as end-of-options and everything after it is ignored, so
-  `pnpm test -- src/lib/board.test.ts` silently runs the whole suite and passes.
-  Write `pnpm test src/lib/board.test.ts`. The api's CI shards were the same bug
-  with a worse ending — four shards, each quietly running everything, all green.
-- **A dependency may not run install scripts unless `allowBuilds` says so**
-  (`strictDepBuilds`), and a denial has to be written down rather than left out —
-  an omission and a glob both match nothing. Adding a dependency that builds means
-  adding it there in the same commit, or the install fails for everyone, after
-  appending the name to that file as `set this to true or false` on its way out.
+repository root. There is no root package, so a bare `pnpm install` at the top
+of the checkout installs nothing. A new worktree needs all four packages
+installed: `scripts/new-worktree.sh <branch>` at the repository root does that
+and copies the untracked `.env` files.
 
 ## The API package
 
 The backend (Hono + Kysely + Postgres) this app talks to is the `api/` package
-beside this one, in the same working tree. Start it first on port 3001
-(`pnpm -C api run dev`); Vite proxies `/api` and `/ws` to `localhost:3001`.
-`src/api/api.generated.ts` is generated from its OpenAPI spec — a schema change
-and both regenerated clients (web's and the CLI's) belong in **one commit**,
-which is the capability the merge exists to provide. `scripts/generate-clients.sh`
-at the repository root rebuilds all four in one go and is the command to reach
-for; `codegen-ci.yaml` re-runs it on every pull request and fails when a
-committed client does not match. Shipping them with the api change does not
-break the two-commit deploy rule, because a generated client declares types and
-no runtime values — only the *call sites* wait for the second merge.
-`api/AGENTS.md` has the backend's conventions.
+beside this one. Start it first on port 3001 (`pnpm -C api run dev`); Vite
+proxies `/api` and `/ws` to `localhost:3001`.
 
 **`API_PROXY_TARGET` moves that proxy**, for the dev and preview servers alike:
 
@@ -79,436 +34,110 @@ worktree's takes another port. Left at the default the page loads against
 whichever build owns 3001 and says nothing about it, which looks exactly like
 the branch's change not working.
 
-`src/api/realtime.generated.ts` is the same arrangement for `/ws`, generated by
-`pnpm run generate:realtime` from `realtime-events.json`, which the api package
-dumps beside its OpenAPI spec. The per-package scripts are still the unit of
-work; the shell script above only sequences all six.
+`src/api/api.generated.ts` and `src/api/realtime.generated.ts` are generated
+from the api package's OpenAPI spec and realtime document — a schema change and
+both regenerated clients (web's and the CLI's) belong in **one commit**:
 
-**Neither needs a dump first**, and neither is silent about what it read.
-`../scripts/lib/spec-source.mjs` — shared with the CLI's generator, which is the
-same program with another output path — resolves the api package at a fixed
-in-repo path, re-dumps it, and prints the absolute path it used. There is no
-search and no ancestor walk any more, so the whole class of bug where a worktree
-generated against some other checkout and wrote a client with no diff cannot
-happen: the sources it reads are the ones this branch is changing. A missing
-`api/` is a fatal error naming the path it looked for, not a quiet fallback to
-the network.
+```sh
+scripts/generate-clients.sh     # repository root; rebuilds all four
+```
 
-The deployed API is opt-in and is for generating a client **outside** this
-repository, never for the app in it: `ALLOW_REMOTE_SPEC=1` (with `API_ORIGIN`
-to name another server) allows the fetch, and `SPEC_URL` / `REALTIME_DOC_URL`
-name one document outright. `SPEC_PATH` / `REALTIME_DOC_PATH` do the same for a
-file on disk. Each names an exact document rather than a directory to search,
-which is the property that makes them safe to keep.
+`codegen-ci.yaml` re-runs it on every pull request and fails on a diff. The
+generators (`../scripts/lib/`, shared with the CLI) resolve `api/` at a fixed
+in-repo path and re-dump it themselves — a missing `api/` is a fatal error, not
+a fallback to the deployed API. Generating against the deployed API exists only
+for a client **outside** this repository: `ALLOW_REMOTE_SPEC=1` (with
+`API_ORIGIN`), or `SPEC_URL` / `REALTIME_DOC_URL` / `SPEC_PATH` /
+`REALTIME_DOC_PATH` to name a document outright.
 
-Generated headers are labeled `api/<file>` — repo-relative and constant, so no
-override can record one machine's paths in a committed file.
+**A required field in the generated types is not a required field on the
+wire.** The spec describes the API as deployed, and a pod that predates a field
+omits it while the type still says it is there. So a reader of a newly-added
+field coalesces (`data.changed_task_ids ?? []`) even though `svelte-check` sees
+the guard as dead. Each is written as `// Coalesced: a pod predating <what>
+omits <which>`, so `grep -rn 'Coalesced: a pod predating' src` lists them.
+**They are removable once the API rollout they name has reached every
+environment.**
 
-The freshness check that remains is the one nothing else can settle: on the path
-branch, where no re-dump ran, the dump's mtime is compared against the api
-sources git knows about, because these documents are gitignored build products
-whose age no commit implies. A checkout that cannot re-dump would otherwise read
-a months-old dump and silently drop whole endpoints from the client, failing
-only later under `svelte-check`.
-
-`RealtimeEvent` in `src/lib/realtime-types.ts` is the envelope union the realtime
-generator produces: narrowing on `event.type` yields that event's payload, so an
-apply site never asserts a shape. The one assertion is in `realtime.svelte.ts`
-where a frame arrives, and the payload is deliberately not validated there. Tests
-build events with `realtimeEvent()` from `src/lib/realtime-test-events.ts`, which
-takes a `Partial` payload so a fixture stays short while its field _names_ are
-still checked — a fixture naming a field the API stopped sending is what hid the
-`project_position_updated` bug for several releases.
-
-**A required field in the generated types is not a required field on the wire.**
-The spec describes the API as deployed, and a pod that predates a field omits it
-while the type still says it is there. So a reader of a newly-added field
-coalesces (`data.changed_task_ids ?? []`, `task.checklist_item_count ?? 0`) even
-though `svelte-check` sees the guard as dead. Each is written as
-`// Coalesced: a pod predating <what> omits <which>`, so
-`grep -rn 'Coalesced: a pod predating' src` lists them. **They are removable once
-the API rollout they name has reached every environment** — the grep is how you
-find the ones whose moment has passed, and none of them is meant to be permanent.
-
-## Staying current with main
-
-`main` moves fast, and a stale base is silent until a
-rebase conflicts or CI fails on a rule the base predates. `git fetch origin &&
-git rev-list --count HEAD..origin/main -- web/` before starting and before
-pushing; rebase onto `main` rather than merging, and re-run the checks
-afterwards rather than trusting the pre-rebase pass. Run `gh pr list` before
-starting too — the fix may already be open. `api/AGENTS.md`
-carries the longer version, including two ways a stale base has produced wrong
-conclusions.
-
-**Mind the pathspec.** One `main` now serves both projects, so the count without
-one is red nearly always and tells you nothing about your own base; the root
-`AGENTS.md` measures how lopsided a single day can be. `-- web/` asks what the
-bare count used to ask. Ask `-- api/` as well
-when the change consumes a new endpoint, because that is the half that has to
-have landed first.
-
-Regenerate the clients after any rebase that moved `api/`
-(`pnpm run generate:api`, `pnpm run generate:realtime`): a rebase can pull in a
-schema change that leaves the committed client describing the old shape. That
-rebase is now the only way a schema change arrives without your noticing — the
-generators read the tree you are standing in.
-
-**After the rebase, not before.** Regenerating first writes every schema change
-`main` is about to deliver anyway, so a two-line fix arrives as a hundred-line
-diff that reads as the branch's own work. It also leaves the tree dirty, which
-`git rebase` refuses outright — so the regeneration gets discarded and re-run,
-and the only thing it produced was the misleading diff in between.
+`RealtimeEvent` in `src/lib/realtime-types.ts` is the envelope union the
+realtime generator produces: narrowing on `event.type` yields that event's
+payload, so an apply site never asserts a shape. Tests build events with
+`realtimeEvent()` from `src/lib/realtime-test-events.ts`, which takes a
+`Partial` payload so a fixture stays short while its field *names* are still
+checked.
 
 ## Checks
 
-**While working, run only the tests your change touches** — `pnpm test
-<path>` on a file or directory takes seconds. The full suite is minutes, CI
-runs it on every push, and re-running it after every edit is most of the
-wall-clock in a long session for almost no extra signal. Reach for the whole
-suite when a change is broad enough that you cannot name the files it affects
-(a shared helper, a store, a type everything imports) — and once at the end.
-
-**Leave the full gate to CI.** `pnpm run check:all` is the whole list, in one
-place — which is why this file no longer spells the commands out or counts them.
-It is minutes of typecheck, every browser check, the suite and a production
-build; running it locally at the end of a change mostly re-derives what the push
-is about to tell you anyway. Push, and read the run.
-
-`check:all` is composed of four groups — `check:static`, `check:suite`,
-`check:browser`, then `check:test-guards` — and `web-ci.yaml` runs each as a
-**separate job**, guards across two shards, each gated on a `changes` job that
-skips the groups a change cannot reach (an icon under `public/` runs only the
-build; a doc-only edit now runs no job here at all, since the check that read
-this file moved to the repository root). Measured on a 10-core laptop, one
-group at a time: 20.6s, 49.3s, 127.4s, 140.0s. Serially that is 5m37s, and it
-was 9m04s as the single CI step it replaces; as four jobs the slowest one is
-`check:browser`. Locally `check:all` still runs them one after another, and has
-to: every group is CPU-bound, and the series-cap tests in the suite fail a 30s
-timeout under contention rather than on anything real. Separate *jobs* get
-separate runners, which is where the parallelism is safe to take. The groups run
-cheapest-first, and within `check:static` `format:check` comes last because
-`.githooks/post-commit` has already run prettier over every file a commit
-touched.
+**While working, run only the tests your change touches** — `pnpm test <path>`
+takes seconds. **Leave the full gate to CI.** `pnpm run check:all` is the whole
+list — four groups, `check:static`, `check:suite`, `check:browser`,
+`check:test-guards`, each a separate `web-ci.yaml` job behind a `changes` job —
+and `package.json` is where to read it.
 
 What is worth doing by hand is whatever your change actually touches: the test
-files near it, and the one check that covers the thing you changed if there is
-one — `check:layout:real` after a board layout change, `check:task-detail` after
-touching the card overlay, `check:column-menu` after touching the column kebab or
-`sortColumn`, `check:a11y` after changing markup or a colour token. Those are
-seconds each. The one that no longer belongs to this package is the prose check:
-after moving a rule between a comment and this file, run
+files near it, and the one check that covers the thing you changed —
+`check:layout:real` after a board layout change, `check:task-detail` after
+touching the card overlay, `check:column-menu` after touching the column kebab
+or `sortColumn`, `check:a11y` after changing markup or a colour token. Each
+check's own header documents what it does and why; the prose check is
 `node scripts/check-comments.mjs` from the repository root.
 
-`pnpm run type-check` — `svelte-check`, named the way the other three packages
-name theirs — covers `src/` (tests included — they are colocated as
-`src/**/*.test.ts`), `scripts/**/*.ts` and `vite.config.ts`. Nothing about the
-test files is exempt from `strict`.
+Every one of those checks takes `--selftest`, which re-runs its cases against
+something deliberately put back on the bug and fails if any still *passes* —
+the shared failure mode of a browser check is measuring nothing and reporting
+green. **Run it after changing what a check asserts.** The two board-layout
+checks also take `--only=` and `--list` for iterating on one case.
 
-**Never run `prettier --write` or `eslint --fix` by hand.** The hooks live at the
-**repository root**, not in this package — `.githooks/post-commit` there already
-runs both over the files each commit touched and amends the result in, so
-formatting is fixed the moment work is committed — including from a worktree,
-since `core.hooksPath` is repository config and the hook directory is checked in.
-One commit spanning two packages gets each package's own eslint and prettier over
-its own files, in a single amend: the hook buckets every path by its first
-segment and shells out with `pnpm -C <pkg> exec`, which is what keeps a `.svelte`
-file away from api's prettier, which has no plugin that can parse one.
-It does need this package's dependencies to be reachable, and it now says so out
-loud: a missing binary or a package with no config of its own is named in a
-warning and skipped, where the old hook swallowed the failure and a worktree
-nobody had installed got a hook that ran and formatted nothing. The remedy is
-`pnpm -C web install` — four packages, four installs. Hand-formatting after every
-edit is redundant work that also churns files out from under whatever is reading
-them.
-
-A rebase is the one path that does not go through that hook: git builds those
-commits itself, so the root `.githooks/post-rewrite` takes the whole rebased
-range once the rebase has finished, with one caveat its header explains.
-Resolving a conflict by hand is the only way unformatted code enters a rebase,
-and it is covered. One inherited edge case survives the move: a commit whose
-entire content is formatting noise leaves the fixers with nothing net to commit,
-so the amend refuses on an empty commit and the fix is left staged in the index
-rather than folded in.
-
-**The `eslint --fix` half of it decides where an import goes, so you do not have
-to.** `import-x/order` is autofixable: put a new import anywhere in the block and
-the commit sorts it into its group. There is no placement judgement to make here
-and no house style to infer from the file you happen to be looking at.
-
-The one thing to know is the ordering it implies: the hook runs *after* the commit,
-so `pnpm run format:check` is only meaningful on a committed tree. Failing it on
-uncommitted edits means nothing has fixed them yet, not that something is wrong —
-commit, and it resolves itself. `format:check` stays in the gate and in CI because
-that is the assertion that the hook actually ran. The same goes for an import-order
-error out of `pnpm run lint` mid-edit: it is the unfixed state, not a decision
-waiting on you.
-
-The two layout checks are different tiers, and which one you are reading matters
-when one fails. `check:layout` loads `scripts/board-layout.fixture.html` over
-`file://` — a hand-written, dependency-free mirror of the board's class chain,
-with no vite and no components, so a failure there is a pure-CSS failure and the
-fixture is where to look. `check:layout:real` boots vite in-process on the first
-free port at or above 5180 and mounts the real `Board.svelte` through
-`scripts/board-probe.ts`, so two worktrees can run it at the same time and a
-killed run leaves nothing behind.
-
-Every check that boots vite takes its own port variable and its own default —
-`LAYOUT_PROBE_PORT` 5180, `TASK_DETAIL_PROBE_PORT` 5190, `A11Y_PROBE_PORT` 5200,
-`COLUMN_MENU_PROBE_PORT` 5210 — so moving one cannot move another. They shared a single variable once, which made
-the documented override a way to land two checks on the same port rather than a
-way to separate them; each header names only its own.
-
-The fixture is a copy, so it can agree with a component it no longer resembles.
-`.pi/skills/browser-repro/SKILL.md` covers when not to trust it and how to
-reproduce against the real thing instead.
-
-`check:task-detail` is a browser check that is not about layout. It
-mounts the real `TaskDetail.svelte` through `scripts/task-detail-probe.ts` and
-asserts what jsdom cannot see about the card overlay: that opening it does not
-steal the caret into the title field, and that dismissing it with an unsaved
-title produces exactly **one** write. It runs under Chromium for the reason the
-engine table below gives — it is the only engine on which a dismissal takes both
-flush paths at once, so it is the only one that can see the double write.
-
-`check:column-menu` reuses the board probe entry rather than adding one of its
-own — `scripts/board-probe.html` already mounts a real board with real columns —
-and drives the column kebab the way a pointer does: it opens the menu, expands
-"Sort by", picks an option, and then reads the **card order off the DOM** and the
-ids off the request the board sent. That last part is the point. `ColumnHeader.test.ts`
-already opens the same submenu and asserts `sortColumn` was called with the right
-option, which proves a handler fired and says nothing about whether the column
-re-orders or whether the menu is still on screen to click — a reported "the Sort
-by menu just closes" lives entirely in that gap. Two of its arms are controls: a
-different menu item is shown to close the menu (otherwise "still open" is also
-what a press that never landed looks like), and the column is shown not to be in
-sorted order already (otherwise a sort that does nothing passes).
-
-The probe answers `POST /api/columns/{id}/reorder` for real, in
-`scripts/board-probe-net.ts`, because the default echo hands `sortColumn` a
-response with no `moved_tasks` in it. That crash lands **after** the optimistic
-reorder, so the screen and the request both look right and only the arm watching
-for an unhandled rejection can tell — which is the shape to expect from any
-probe of a mutation that reads its own response.
-
-That answer **repeats the caller's own order**, which costs the DOM reads their
-independence and is worth understanding before writing a probe of any other
-mutation shaped like this one. Re-stamping from the reply lands the column in the
-same order an optimistic update would, so an order read after the answer is
-implied by the request the check already asserts, and a store that sent the
-reorder and moved nothing passes. The probe therefore holds that response for a
-beat, and the check reads the order once inside the window and once after — the
-first read is the one that can fail. It is also the read that can quietly stop
-meaning anything, since a slower press would drift past the window into the
-second read's territory, so `board-probe-net.ts` counts reorders it has
-**answered** and the arm requires that count to still be zero.
-
-This package's own prose — this file, the README, the skills under `.pi/` and
-every comment in `src/` — is checked as well, by something that is deliberately
-not one of the checks above and no longer lives in this package.
-`scripts/check-comments.mjs` at the repository root reads all four packages in
-one pass, and `repo-ci.yaml` runs it on every pull request; the root `AGENTS.md`
-says what it looks for and how to answer it. Run it here as
-`node scripts/check-comments.mjs` from the checkout root, not from `web/`.
-
-`check:a11y` runs axe-core over the real board and the real card overlay, in
-**both colour schemes** — the palette is defined twice and half the tokens exist
-only under `prefers-color-scheme: dark`, so a light-only run reads none of them.
-It owns a named rule list rather than all of axe, so a new axe release cannot
-turn it red on a rule nobody adopted. Two things it cannot see, which is why the
-unit tests beside them exist: `title` counts as an accessible name of last
-resort, so a title-only avatar passes every rule while a bare `<span>` carrying
-one is named nothing at all; and anything behind a hover or a keypress, since it
-audits the resting page.
-
-**All six also take `--selftest`, and a change to what they assert should run
-it:**
-
-```sh
-node scripts/check-board-layout.mjs --selftest
-node scripts/check-board-layout-real.mjs --selftest
-node scripts/check-task-detail.mjs --selftest
-node scripts/check-column-menu.mjs --selftest
-node scripts/check-a11y.mjs --selftest
-node scripts/check-test-guards.mjs --selftest
-```
-
-Each re-runs its cases against something deliberately put back on the bug —
-legacy markup in the fixture, the pre-fix `dndzone` option in the real board, the
-write queue disabled in the card overlay, the pre-fix dark accent and a column
-back on `<section>`, the "Sort by"
-row rewritten to dismiss the menu, a sort option rewritten to sort nothing and a
-`sortColumn` stripped of its optimistic order,
-guards whose edit changes nothing, one aimed at a module its tests never load and
-one handed a deadline no real run could meet — and fails if any of them still
-*passes*. The a11y selftest also names the rule it expects,
-because with a dirty baseline any violation would otherwise read as the planted
-one being caught; the column-menu selftest goes further and names the arms each
-planted bug must leave **green**, which is what stops "something went red" from
-passing for "the right thing went red". All six share a failure mode a unit test mostly does not:
-measuring nothing and reporting green, because the gesture never armed, the
-selector matched nothing, the option it turns on was renamed out from under it,
-or the pattern it greps for stopped matching the codebase. CI runs the checks
-without the flag; the flag is how you earn the right to believe them. The ones
-that rewrite a source file to plant their bug
-— the real board check, the card-overlay one and the column-menu one — also
-assert they rewrote exactly one call site, since rewriting none is that same
-failure wearing the selftest's face. `check:test-guards` carries that assertion in its own shape: one
-of its controls is an unmodified guard that must still come back caught, because
-a transform that has stopped rewriting anything satisfies every control expecting
-a non-catch.
-
-`pnpm run check:test-guards` is the same idea aimed at the suite, which had no
-version of it: a unit test can measure nothing and report green too — a stale
-expectation, a fixture that stopped reaching the code path, an assertion that was
-already true before the fix. `scripts/test-guards.mjs` lists a bug and the edit
-that puts it back; the runner requires the named tests to **fail** with that edit
-in place. A guard whose tests still pass has stopped guarding anything.
-
-Nothing is written to the source tree. Each guard is one spawned `vitest` child
-carrying its edit in the environment, applied by `guardMutation()` in
-`vite.config.ts` as the module is transformed — so a run is invisible to whatever
-else is reading those files and cannot leave a bug behind. That is what put the
-full mutating run in `check:all`: cost was never what kept it out — the in-place
-write was. Cost is not nothing, though. 136 guards, four children at a time, is
-140.0s on a 10-core laptop and was 4m24s of the old single CI step, which is the
-gap between `GUARD_CONCURRENCY: 4` and the two cores a standard hosted runner
-gives it. `GUARD_SHARD=i/n` splits the list across n runs — every nth guard
-rather than a block, since the list is grouped by the file each guard mutates and
-the per-guard cost runs from ~3s to ~20s — and `web-ci.yaml` uses two, measured
-locally at 57.9s and 73.9s against 140.0s whole. An environment variable rather
-than a flag because pnpm's argument forwarding is a documented trap here, and a
-silently dropped shard looks exactly like a passing run. It refuses to combine with
-`--selftest`: the five controls are one argument about the runner, and a shard
-of them proves nothing about the shards that did not run them. It also refuses a
-total larger than the number of guards selected, which is the last way left to
-ask for a run of nothing and be told it passed — under that bound every shard
-holds at least one guard, so no shard is ever silently empty. Take the total from
-the closing line of a listing rather than counting its rows: the run that found
-this gap counted line numbers, came out one high, and reported a clean zero.
-`check:test-guards:anchors` is still worth running mid-refactor because it is
-sub-second, but it is no longer what CI proves — it checks that every `find`
-still resolves and stops there, which cannot tell a guard that catches its bug
-from one that catches nothing.
-
-Each `find` must match **exactly once**, for the reason the two rewriting browser
-checks assert the same thing: a pattern that matches nothing leaves the source
-correct and the tests green, which is indistinguishable from a guard that works.
-That is not hypothetical — a hand-run revert once matched a four-space pattern
-against a six-space line in a different function, the "reverted" test passed, and
-the pass meant nothing. That count is taken from the file on disk, ahead of the
-run, so a drifted anchor is reported as a drifted anchor. The other half is a
-marker file the plugin touches when it matches: it makes "the bug was in play"
-something the runner observed rather than assumed, which is what separates a
-guard aimed at a module the named tests never load (`NEVER-APPLIED`) from one
-that has stopped biting (`STILL-PASSED`), and both from a child that died before
-it measured anything (`RUN-FAILED`).
-
-Every child also runs under a deadline (`GUARD_TIMEOUT_MS`, 120s), past which its
-process group is killed and the guard reported `TIMED-OUT`. Not all of these bugs
-fail an expectation: the outbox claim guards name resends that never stop, so a
-`testName` widened to a second passing case turns that guard's run from a
-five-second failure into one with no upper bound at all. Narrowing `testName`
-until exactly one case fails is what keeps such a guard cheap; the deadline is
-only what stops CI hanging when it is not.
+`check:test-guards` is the same idea aimed at the unit suite:
+`scripts/test-guards.mjs` lists a bug and the edit that puts it back, and the
+runner requires the named tests to **fail** with that edit in place, applied by
+`guardMutation()` in `vite.config.ts` as the module is transformed — nothing is
+written to the source tree. `check:test-guards:anchors` is the sub-second
+mid-refactor version: it checks that every `find` still resolves exactly once
+and stops there. `GUARD_SHARD=i/n` and `GUARD_CONCURRENCY` are environment
+variables rather than flags because of pnpm's `--` forwarding (root
+`AGENTS.md`).
 
 **Coverage is a discovery instrument here, and deliberately not a gate.** It
-answers one question nothing else in the repo answers — which lines no test
-executes at all — and it is run by hand when that question comes up, read once,
-and thrown away. Nothing about it is committed: the provider stays out of
-`devDependencies`, there is no CI step, and there is no threshold.
+answers one question nothing else answers — which lines no test executes at all
+— and it is run by hand when that question comes up, read once, and thrown
+away. Nothing about it is committed: no provider in `devDependencies`, no CI
+step, no threshold (runs over an identical tree disagree on the count, so a
+threshold would fail on noise).
 
 ```sh
 pnpm add -D @vitest/coverage-v8@$(node -p "require('vitest/package.json').version")
 pnpm exec vitest run --silent=true --coverage.enabled --coverage.provider=v8 \
   "--coverage.include=src/**/*.{ts,svelte}" --coverage.exclude='src/**/*.test.ts' \
   --coverage.reporter=json --coverage.reporter=text-summary
-```
-
-The version is read off the installed vitest because the provider tracks it
-exactly. pnpm has no `--no-save` — `pnpm add` rejects the flag outright — so the
-manifest and the lockfile really are edited, and putting them back is the second
-half of the recipe rather than something the package manager does for you:
-
-```sh
 git restore package.json pnpm-lock.yaml && pnpm install
 ```
 
-Until that runs, the tree is dirty and `format:check` and the lockfile checks are
-reading a state nobody meant to commit. Each worktree installs its own
-dependencies, so a run leaves nothing behind anywhere else — and the restore has
-to happen in the worktree the run happened in.
+The version is read off the installed vitest because the provider tracks it
+exactly; pnpm has no `--no-save`, so the restore is the second half of the
+recipe, not an optional cleanup. Read the uncovered **functions** list first;
+the per-file percentages on `.svelte` files are not actionable, and the
+`// Coalesced: a pod predating …` sites are uncoverable by construction and out
+of scope permanently.
 
-Three measured reasons there is no number to enforce. Two runs over an identical
-tree reported 12,981 and 12,983 covered statements, so a threshold set at the
-current figure fails on noise rather than on a change. 173 of 1,020 uncovered
-branch arms — 17% — carry no source position after remap, so a sixth of what it
-names cannot be pointed at a line. And the per-file percentages on `.svelte`
-files are not actionable: one markup line in `src/components/LabelManager.svelte`
-carries six uncovered entries by itself.
-
-Read the uncovered **functions** list first. That slice is what found the three
-board methods whose every test call site was a spy, so no test had ever run their
-bodies. What coverage cannot see is the opposite failure — an assertion that runs
-and asserts nothing — which is what `check:test-guards` is for. Coverage
-discovers; the guard entries are what keep the finding shut afterwards, so a test
-written off a coverage run gets one.
-
-**The `??` coalescing family is out of scope, permanently.** The sites marked
-`// Coalesced: a pod predating …` are uncoverable by construction: the arm exists
-for a pod this suite cannot be running against, and the convention above requires
-it. Every coverage run will list them; deleting one to satisfy a report is
-undoing a deliberate guard, not covering a branch.
-
-**The two board-layout checks take `--only=` and `--list`,** which is how to
-iterate without paying for the whole gate — the scroll phase alone is around 27s
-per case against 1s for a layout case, so it is most of the two minutes:
-
-```sh
-node scripts/check-board-layout-real.mjs --list        # the case names
-node scripts/check-board-layout-real.mjs --only=scroll  # one phase
-node scripts/check-board-layout-real.mjs --only=740 --selftest   # one case
-```
-
-The name a case **prints** is the key it is selected by, so a failing line pastes
-straight back as `--only=<that line>`. Patterns are substrings, comma-separated
-or repeated. `scripts/lib/case-filter.mjs` is shared by both, and is meant to be
-what any other check with a case matrix adopts — `check:a11y` has one
-(screens × schemes) and its own ad-hoc `only` predicate, and would be the next
-one to move over. `check:task-detail` and `check:column-menu` are scripted
-linear page loads, so neither has cases to select.
-
-Because a filter narrows what a gate covers, all three ways of getting one wrong
-are loud: a pattern matching nothing exits 2 listing the names rather than
-passing over zero cases, a filtered run never prints the summary an unfiltered
-one does, and under `CI` a filter is refused outright. A `--selftest` arm runs
-only when the phase it proves is in the selection, so a filtered run never
-asserts sensitivity for cases that did not run.
-
-`scripts/board-probe.ts` answers `/api` itself (`scripts/board-probe-net.ts`)
-and records every request. Nothing is mocked per-case: the probe is a board with
-no server behind it, and the checks assert it stays that way — mounting and
-scrolling must issue no requests at all, and a drop must issue exactly one PATCH,
-which is also where the destination column is read from. Leave that boundary in
-place. Without it the probe reaches a real API on any machine following the
-instructions above and running one on 3001, and measures that server's board
-instead of its own — a difference CI can never reproduce.
+`pnpm run type-check` — `svelte-check`, named the way the other three packages
+name theirs — covers `src/` (tests included), `scripts/**/*.ts` and
+`vite.config.ts`. Nothing about the test files is exempt from `strict`.
 
 ## Checking what jsdom cannot model
 
-Layout, scrolling, focus, `showModal()`, computed styles, `matchMedia`, `Touch`:
-jsdom implements none of them, so a green suite says nothing about any of it — the task overlay put
-the caret in its title field on every open for a month, invisibly to the tests,
-because `showModal()`'s focus steps only exist in a real browser.
-`scripts/lib/browser.mjs` is how to see the real thing, and it is worth a
+Layout, scrolling, focus, `showModal()`, computed styles, `matchMedia`,
+`Touch`: jsdom implements none of them, so a green suite says nothing about any
+of it. That is what the `check:browser` group exists for, and it is worth a
 throwaway probe before believing a claim about any of the above.
 
 The absent ones are why a few modules guard on `typeof window.matchMedia`
 before reading a media query. Those guards look dead — the browser always has
 it — and are load-bearing under the test runner.
 
+<<<<<<< HEAD
 The vitest suite runs on the same jsdom, and the rich text editor concentrates
-the traps that have cost time there — each of these has burned a session:
+the traps that have cost time there:
 
 - **Nothing can type into a ProseMirror `contenteditable` under jsdom.** Tests
   drive the document through the editor instance the component exports for
@@ -533,161 +162,34 @@ the traps that have cost time there — each of these has burned a session:
   hand-rolled: the two ways the obvious `vi.stubGlobal('navigator', …)`
   spelling breaks under an editor are written out in its doc comment.
 
-`createBrowser()` wraps Playwright rather than re-exporting it: the returned
-object is `{ setViewport, goto, eval, press, click, screenshot, close }` and nothing more, so
-`newPage()` and the rest of the Playwright API are not on it. Its own header
-documents the signatures and the null-on-missing-engine skip; the two things
-below are the ones that have cost time.
+`scripts/lib/browser.mjs` is how to see the real thing: `createBrowser()`
+wraps Playwright down to `{ setViewport, goto, eval, press, click, screenshot,
+close }`, and its header documents the signatures. **Chromium is not the
+target** for anything about focus or the on-screen keyboard — WebKit disagrees
+with it there, and the browser-repro skill carries the difference.
 
-**Chromium is not the target.** `createBrowser({ engine: 'webkit' })` runs the
-same probe under WebKit, which every iOS browser uses and which most bug reports
-here come from. The two disagree, and Chromium is the optimistic one — removing
-a focused input fires `blur` in Chromium and **not** in WebKit:
-
-```js
-// chromium  -> {"blur":["blur"],"active":"BODY"}
-// webkit    -> {"blur":[],"active":"BODY"}
-```
-
-That difference is why a field saved only `onblur` lost what was typed whenever
-the card was dismissed on a phone, and it is the whole reason `check:task-detail`
-runs where it does. Any question about focus, the on-screen keyboard, or what an
-unmount does to a focused field wants both engines; one green Chromium run is not
-an answer. Only the committed checks are Chromium-only, so CI installs Chromium
-alone and a committed check asking for WebKit would fail loudly there rather than
-skip.
-
-The seven methods take their own shapes, none of which match Playwright's:
-
-```js
-await browser.setViewport({ width: 375, height: 667, mobile: true }); // object, not (w, h)
-await browser.goto(url, { wait: 350 }); // waits for load, then the delay
-const value = await browser.eval(`expression`); // a string, awaited if it returns a promise
-await browser.press('Tab', { selector: '#name' }); // real keyboard; focuses first if given one
-await browser.click('#row'); // real mouse, at the element's centre
-await writeFile(path, await browser.screenshot()); // returns a PNG Buffer; takes no path
-```
-
-`press` and `click` are the ones to reach for whenever the answer depends on what
-the browser does rather than on what a listener does — their headers say which is
-which, and the gap is invisible from the probe's side because a listener answers
-both. `click`'s half of that gap is *when the page re-renders*, which is why
-`check:column-menu` was green for so long over a menu that dismissed itself in
-every engine, and it is the reason a probe cannot build its own MouseEvent for a
-question about what other listeners see.
-
-`engine: 'firefox'` exists alongside webkit and is the one engine
-`pnpm run playwright:install` leaves out; install it when a report names it.
-
-`mobile` defaults to **true** and models the mobile layout viewport, where
-overflow _expands_ `innerWidth` past the requested width — which is how the
-layout checks catch a header that no longer fits, and why a desktop case has to
-say `mobile: false` rather than leave it out. `colorScheme` (`'light'` by
-default) drives `prefers-color-scheme`, which is the only way to reach the dark
-half of the palette. Playwright fixes both per context,
-so flipping either discards the page: `goto` again after every `setViewport`
-rather than navigating once and resizing around it.
-
-One more trap when measuring anything colour-valued: most controls here carry
-`transition-colors`, which transitions `outline-color` too, so reading a focus
-ring in the same tick as `focus()` samples it mid-fade and reports the colour it
-came *from*. Let it settle before believing the value.
-
-**To write a throwaway probe of some other component**, copy the shape the two
-committed ones use: a dev-only `.html` vite entry, a `.ts` beside it that seeds
-the stores and `mount()`s the component, and a `.mjs` driver that boots vite
-in-process and evaluates against it. `scripts/board-probe.html`,
-`scripts/board-probe.ts` and `scripts/check-board-layout-real.mjs` are one such
-trio; `scripts/task-detail-probe.ts` and `scripts/check-task-detail.mjs` are the
-same shape around a single component, which is usually the closer model.
-
-Traps a probe of that shape hits:
-
-- **`import './board-probe-net'` first is load-bearing, not tidiness.** The api
-  client captures `globalThis.fetch` when `createClient()` runs at module init
-  (`src/api/client.ts`), so whoever installs a stub after that point is talking
-  to nobody. Imports are evaluated before any statement in the probe entry's
-  body, which puts a stub written **in the body** on the wrong side of that line
-  — silently: the app keeps hitting `board-probe-net` as though the stub were
-  never written. A probe that needs its own answer for a route wants a second
-  module, imported after `board-probe-net` and before anything reaching the
-  client.
-- **`board-probe-net` answers by echoing the request body, so a GET is answered
-  `{}`** — deliberately, because a refusal cascades, but it means the answer is
-  not the shape the OpenAPI types promise. Every store assigns straight off the
-  payload (`this.results = data.results`), which the generated types make safe
-  against the real API and not against this, so a probe of a component that GETs
-  a list crashes in a derived on `undefined.map`. Answer that route yourself; do
-  not add a guard to the store, whose contract is fine.
-- **An open `<dialog>` makes the rest of the page inert.** Anything mounted
-  outside it cannot take focus, so a probe that opens a modal and then tests
-  focus elsewhere reports "nothing focused" under both engines and reads as
-  agreement. `dialog.close()` first.
-- **Give every negative assertion a control.** "`focus({ preventScroll: true })`
-  left `scrollY` at 0" means nothing until a plain `focus()` on the same page is
-  shown to move it. WebKit does not scroll on focus in cases where Chromium
-  does, so on WebKit that control is what tells you the check is inert rather
-  than passing.
-
-A probe has to sit inside the repo to resolve `vite`, `playwright` and the
-helper itself; one written to `/tmp` fails at the import, not at the assertion.
-**Name it `scripts/tmp-<what>.mjs`** — that prefix is the one thing that makes a
-scratch file safe to forget. It is ignored by git, by eslint, by vitest's test
-discovery and by `scripts/check-comments.mjs`, which is every gate that walks the
-tree. Each of those has been red because of a leftover probe: eslint on an
-import order, `pnpm test` on a `tmp-*.test.ts` that failed on purpose to print a
-value, the comment check on a probe copied wholesale from a real module. Delete it when
-you are done anyway — the prefix is what keeps the gate honest in the meantime,
-on a tree `git status` calls clean.
-
-**Being ignored costs the probe its Tailwind classes**, which is the one place
-that prefix bites back. Tailwind v4 compiles the classes it finds in whatever
-`.gitignore` does not exclude — the module graph has nothing to do with it — so a
-class named only inside a `scripts/tmp-*` file gets no rule, and markup the probe
-injects renders unstyled while the identical class works everywhere else.
-Measured: `w-[1371px]` written in a non-ignored `scripts/*.mjs` is compiled,
-`w-[1372px]` in a `scripts/tmp-*` one is not. Style injected markup inline, or
-settle it before trusting a measurement of it — the compiled sheet is one fetch
-away, and it answers this in a line:
-
-```js
-const css = await (await fetch(new URL('src/app.css?direct', base))).text();
-css.includes(String.raw`.w-\[134px\]`); // false ⇒ nothing is styling that element
-```
-
-```js
-import { createBrowser } from './scripts/lib/browser.mjs';
-const browser = await createBrowser();
-await browser.goto('data:text/html,' + encodeURIComponent('<dialog id="d"><input></dialog>'));
-console.log(
-  await browser.eval(`(() => {
-  document.getElementById('d').showModal();
-  return document.activeElement.tagName;
-})()`)
-);
-await browser.close();
-```
+**The `.pi/skills/browser-repro` skill owns the how**: reproducing a bug
+against the real component, writing a probe for a new component, and the traps
+that shape hits. Read it before writing a probe.
 
 ## Svelte 5 conventions
 
-- Runes only: `$state`, `$derived`, `$effect`, `$props()`, `$bindable()`. `runes`
-  is set in `svelte.config.js`, so legacy `export let`, `$:` labels and
+- Runes only: `$state`, `$derived`, `$effect`, `$props()`, `$bindable()`.
+  `runes` is set in `svelte.config.js`, so legacy `export let`, `$:` labels and
   svelte/store are compile errors rather than a convention to keep.
-- Shared reactive state lives in `.svelte.ts` modules exporting a class instance
-  (see `src/lib/toasts.svelte.ts`); state fields use `$state`.
+- Shared reactive state lives in `.svelte.ts` modules exporting a class
+  instance (see `src/lib/toasts.svelte.ts`); state fields use `$state`.
 - Components type their props with a local `interface Props` and destructure
-  `$props()`. Extend `svelte/elements` attribute types when wrapping DOM elements
-  (see `src/components/ui/Button.svelte`).
-- `$props.id()` may be called **once** per component — a second call is a compile
-  error (`props_duplicate`), not a second id. A component needing several ids (a
-  panel plus the hint that describes it) calls it once into `const uid` and
-  suffixes from there: `` `${uid}-panel` ``, `` `${uid}-hint` `` (see
-  `src/components/FilterBar.svelte`).
+  `$props()`. Extend `svelte/elements` attribute types when wrapping DOM
+  elements (see `src/components/ui/Button.svelte`).
+- `$props.id()` may be called **once** per component — a second call is a
+  compile error. A component needing several ids calls it once into `const uid`
+  and suffixes from there (see `src/components/FilterBar.svelte`).
 - Event handlers are plain attributes (`onclick`, `onconsider`, `onfinalize`).
-- **`$state` hands back a proxy, and the object you passed it keeps its original
-  values.** Writes go through the proxy, so anything holding the raw object reads
-  a snapshot frozen at construction — silently, with no type error, because the
-  two have the same type:
+- **`$state` hands back a proxy, and the object you passed it keeps its
+  original values.** Writes go through the proxy, so anything holding the raw
+  object reads a snapshot frozen at construction — silently, with no type
+  error:
 
   ```ts
   let card = $state(freshCard());
@@ -698,129 +200,90 @@ await browser.close();
   ```
 
   So a value captured for later use must be read back **off the `$state`
-  variable** after assignment, never taken from the constructor call:
-
-  ```ts
-  card = freshCard();
-  const opened = card; // the proxy — sees every later write
-  ```
-
-  `TaskDetail.svelte` does exactly this, and hands `opened` to the teardown that
-  saves an unsaved title. Capturing the constructor's return instead compiles,
-  typechecks, and flushes a card whose draft is forever `null`.
+  variable** after assignment, never taken from the constructor call.
 
 - A `$state` field read inside an `$effect` teardown is still readable, and the
-  teardown does not track — which is what lets one effect reset state in its body
-  and flush the outgoing value in its teardown. Svelte runs an effect's teardown
-  immediately before that same effect's body, so pairing the two in **one** effect
-  makes the ordering a framework guarantee; splitting them across two effects
-  makes it depend on declaration order, which a reorder breaks silently.
+  teardown does not track — which is what lets one effect reset state in its
+  body and flush the outgoing value in its teardown. Svelte runs an effect's
+  teardown immediately before that same effect's body, so pairing the two in
+  **one** effect makes the ordering a framework guarantee; splitting them
+  across two effects makes it depend on declaration order, which a reorder
+  breaks silently.
 
 - **Reading `$state` during teardown is safe; writing it is not.** A write to
-  state owned by a component that is being torn down does not survive: the
-  assignment reads back correctly on the spot and is gone by the next read. There
-  is no error and no warning, so the field simply appears never to have been
-  written.
-
-  ```ts
-  // during teardown, on the same object, same tick:
-  card.pendingWrite = next; // stored
-  card.pendingWrite === next; // true
-  // …and by the next read it is back to what it was before
-  ```
-
-  So **bookkeeping that has to survive an unmount cannot live in `$state`** —
-  put it in a plain binding. That is not a niche concern, because teardown is
-  exactly when the last write of a session happens. `TaskDetail.svelte` kept its
-  write queue (`pendingWrite`) on the `$state` card, and the queue head reverting
-  mid-teardown made two flushes that should have serialised run concurrently
-  instead: both read the same baseline and one title edit went out as two PATCHes,
-  the second carrying a precondition the first had already superseded. Against a
-  real server that 409s and opens a conflict draft for a card the user has just
-  left.
-
-  The reason it survived so long is the engine difference above: only Chromium
-  ran both flush paths at once, and jsdom fires no blur on unmount either, so no
-  unit test could reach it. `scripts/check-task-detail.mjs` is the guard.
+  state owned by a component being torn down does not survive: the assignment
+  reads back correctly on the spot and is gone by the next read, with no error
+  and no warning. So **bookkeeping that has to survive an unmount cannot live
+  in `$state`** — put it in a plain binding. Teardown is exactly when the last
+  write of a session happens. `scripts/check-task-detail.mjs` is the guard for
+  the instance of this that mattered.
 
 ## Router
 
 `src/lib/router.svelte.ts` is a hand-rolled History router.
 
-- `router.current` is a discriminated-union `Route` (`$state`); `App.svelte` switches
-  on `route.name`. `router.path` is the full current path.
+- `router.current` is a discriminated-union `Route` (`$state`); `App.svelte`
+  switches on `route.name`. `router.path` is the full current path.
 - Navigate with `router.navigate(path)` (pushState) or `router.redirect(path)`
   (replaceState), or put `use:link` on an anchor (or a container of anchors) —
-  it respects modifier keys, middle-click, `target="_blank"`, and external origins.
-- Auth guarding: set `router.beforeNavigate = (to, path) => ...` and return a path
-  string to redirect (e.g. to `/login` with the intended URL remembered). It runs on
-  `navigate()` and popstate; the initial page load must be guarded by the caller
-  (check `router.current` once the session store knows the auth state).
+  it respects modifier keys, middle-click, `target="_blank"`, and external
+  origins.
+- Auth guarding: set `router.beforeNavigate = (to, path) => ...` and return a
+  path string to redirect. It runs on `navigate()` and popstate; the initial
+  page load must be guarded by the caller (check `router.current` once the
+  session store knows the auth state).
 
 ## Data pattern (for the API/store agents)
 
-- IDs are client-generated via `newId()` (`src/lib/ids.ts`); never install `uuid`,
-  which eslint restricts so the point is made where the import would go.
+- IDs are client-generated via `newId()` (`src/lib/ids.ts`); never install
+  `uuid`, which eslint restricts so the point is made where the import would
+  go.
 - List ordering uses string `sort_key` ranks from `fractional-indexing`
-  (`src/lib/ranks.ts`), not numbers — `append`, `prepend`, `between`,
-  `placeAtIndex`. `byRank` sorts a keyed row ahead of an unkeyed one and breaks
-  ties on id, so an unranked project list still has a stable order.
+  (`src/lib/ranks.ts` — `append`, `prepend`, `between`, `placeAtIndex`), not
+  numbers. `byRank` sorts a keyed row ahead of an unkeyed one and breaks ties
+  on id.
 
   **A key only means anything against the list it was computed from.** A move
   that has to wait — queued offline, replayed minutes later — must therefore
   travel as `Neighbors` (`afterId`/`beforeId`) and be turned back into a key at
   replay by `placeBetweenNeighbors`, which reports `exact: false` when both
-  anchors are gone so the caller can say the card landed somewhere it was not
-  aimed. `board.svelte.ts` and `outbox.svelte.ts` both depend on this; sending a
-  stored `sort_key` instead is the bug the split exists to prevent.
-- Optimistic updates: apply the store change immediately, then fire the API call.
-  On failure: `toasts.error(...)` and refetch the affected payload to resync —
-  never snapshot-rollback.
-- Styling uses the design tokens mapped in `src/app.css` (`bg-canvas`, `bg-surface`,
-  `border-edge`, `text-ink`, `text-muted`, `bg-accent`, ...). They adapt to dark mode
-  via `prefers-color-scheme`; don't hardcode gray-\* palettes.
+  anchors are gone, so the caller can say the card landed somewhere it was not
+  aimed. `board.svelte.ts` and `outbox.svelte.ts` both depend on this.
+- Optimistic updates: apply the store change immediately, then fire the API
+  call. On failure: `toasts.error(...)` and refetch the affected payload to
+  resync — never snapshot-rollback.
+- Styling uses the design tokens mapped in `src/app.css` (`bg-canvas`,
+  `bg-surface`, `border-edge`, `text-ink`, `text-muted`, `bg-accent`, ...).
+  They adapt to dark mode via `prefers-color-scheme`; don't hardcode gray-*
+  palettes.
 - Tap targets >= 44px (`min-h-11 min-w-11`).
 
 ## Tests
 
 Vitest + jsdom; component mounting works because `svelteTesting()` from
-`@testing-library/svelte/vite` is in `vite.config.ts` plugins — do not remove it.
-Tests are colocated (`src/**/*.test.ts`).
+`@testing-library/svelte/vite` is in `vite.config.ts` plugins — do not remove
+it. Tests are colocated (`src/**/*.test.ts`).
 
 **A test that needs runes has to be named `*.svelte.test.ts`.** Without the
 infix the runes in it are never compiled, and the failure is not a compile
-error: a `$derived` under test simply never invalidates, so it keeps handing
-back its first value and every assertion reads a stale one. A plain
-`let rows = []` reassigned mid-test looks like it changed and does nothing —
-make it `$state`, in a `.svelte.test.ts` file. `realtime-effects.svelte.test.ts`
-and `list-nav.svelte.test.ts` are the two examples.
+error: a `$derived` under test simply never invalidates, so every assertion
+reads a stale value.
 
 The side-effecting `import '../api/testUtils'` goes **first** in any test that
 touches the network — it stubs `fetch`, `Request` and `localStorage`, and a
 module that reads them at import time gets the real ones if it loads first.
-`import-x/order` enforces that placement rather than exempting the tests from it —
-`eslint.config.js` owns the mechanism, including which of the two import forms
-`--fix` can move back for you and which one you have to move yourself.
+`import-x/order` enforces that placement rather than exempting the tests from
+it.
 
 **A UI-layer test may not stub a store mutation to nothing.** `eslint.config.js`
-bans `vi.spyOn(board, 'x').mockResolvedValue()` and its `(undefined)` twin under
-`src/components/**`, `src/routes/**` and `src/lib/shortcuts.test.ts`; the spy
-itself is fine, and so is a stub
-that supplies a return the fixture cannot produce — `mockResolvedValue(task)`,
-`mockReturnValue(false)`, `mockImplementation`. `CommandPalette.test.ts` needs
-`markTaskDone` to return `false` and no honest fixture produces that. The
-most spy-heavy file in the repo, `DependencyPicker.test.ts`, is flagged zero
-times for exactly this reason.
+bans `vi.spyOn(board, 'x').mockResolvedValue()` and its `(undefined)` twin
+under `src/components/**`, `src/routes/**` and `src/lib/shortcuts.test.ts`; the
+spy itself is fine, and so is a stub that supplies a return the fixture cannot
+produce — `mockResolvedValue(task)`, `mockReturnValue(false)`,
+`mockImplementation`.
 
 **Do not read the ban as coverage.** Letting the method run does not make the
-component test a store test: `board.archiveTask` was mutated to stop removing the
-card and the call-through `CardMenu.test.ts` stayed 38/38 green — `board.test.ts`
-is what failed. Behaviour belongs in the store's own test. The ban buys two other
-things. A fixture that lies to the store now breaks loudly instead of being
-absorbed: the checklist tests answered every write `204`, so the real store wrote
-`undefined` over the row it had just sent, and the route-aware `fetchMock` at the
-top of `TaskChecklist.test.ts` (and the `PATCH` arm in `TaskAttachments.test.ts`,
-which had the same fixture and happened not to crash) is what the deletion
-forced. The attachments arm crashed nothing, so its rename-on-unmount case reads
-the stored row back — otherwise nothing would fail if the arm were dropped. And a reader can no longer mistake a suppressed method for a tested one,
-which was true of 92 sites across 23 files.
+component test a store test: behaviour belongs in the store's own test. What
+the ban buys is that a fixture that lies to the store breaks loudly instead of
+being absorbed, and that a reader cannot mistake a suppressed method for a
+tested one.

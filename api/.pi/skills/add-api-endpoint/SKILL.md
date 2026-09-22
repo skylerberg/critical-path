@@ -1,6 +1,6 @@
 ---
 name: add-api-endpoint
-description: "Add a new HTTP route/handler to the Critical Path API (Hono). Use when adding or changing a POST/PUT/PATCH/DELETE/GET endpoint under src/routes. Enforces the project's 12 conventions: transaction middleware, client-supplied ids, describeRoute/OpenAPI, arktype validation, centralized authorization, and realtime publish."
+description: "Add a new HTTP route/handler to the Critical Path API (Hono). Use when adding or changing a POST/PUT/PATCH/DELETE/GET endpoint under src/routes. Enforces the project's conventions: transaction middleware, client-supplied ids, describeRoute/OpenAPI, arktype validation, centralized authorization, and realtime publish."
 ---
 
 # Add an API endpoint
@@ -74,7 +74,7 @@ Every mutation publishes an event via `publishAfterCommit` from
 rollback). Snapshot `recipientUserIds` inside the transaction for events about
 rows/access that are gone post-commit (`project_deleted`, membership evictions);
 for live rows the delivery layer re-checks access per event.
-The event catalog and envelope are in `README.md`.
+The event catalog and envelope are in the README's Realtime section.
 
 ## 9. Response shape
 

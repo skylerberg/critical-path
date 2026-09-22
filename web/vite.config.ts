@@ -167,8 +167,8 @@ export default defineConfig({
     // out of test discovery so a run from the main checkout doesn't pick up
     // (stale) tests from sibling worktrees.
     //
-    // scripts/tmp-* is the throwaway-probe prefix (see AGENTS.md). Those are
-    // written to be run once and deleted, and one shaped like a test is usually a
+    // scripts/tmp-* is the throwaway-probe prefix (see the browser-repro skill).
+    // Those are written to be run once and deleted, and one shaped like a test is usually a
     // deliberate failure used to print a value — so a forgotten one fails the
     // suite while `git status` stays clean, because the same prefix is gitignored.
     exclude: [...configDefaults.exclude, '.pi/worktrees/**', '.claude/**', 'scripts/tmp-*'],

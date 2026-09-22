@@ -264,20 +264,14 @@ const EXTERNAL = new Set([
   // Workbox's, implied by registerType: 'autoUpdate' in web/vite.config.ts.
   'skipWaiting',
   'clientsClaim',
-  // Svelte's own compile-error code, and a pnpm default this repo names but
-  // never sets.
-  'props_duplicate',
+  // A pnpm default this repo names but never sets.
   'strictDepBuilds',
-  // SQL. The api's prose names these constantly and its code never does: Kysely
-  // builds the clauses, so the keyword reaches no source line.
+  // SQL. The api's prose names these and its code never does: Kysely builds the
+  // clauses, so the keyword reaches no source line.
   'CHECK',
   'TRUNCATE',
-  'LIMIT',
-  'RESTRICT',
-  // Postgres and the tools around it — a client, a server setting, an extension
-  // the search docs weigh, and the example database name in the test-database
-  // walkthrough.
-  'psql',
+  // Postgres and the tools around it — a server setting, an extension the search
+  // docs weigh, and the example database name in the test-database walkthrough.
   'max_connections',
   'pg_trgm',
   'critical_path_test_api_3f2a1b9c',
@@ -295,9 +289,6 @@ const EXTERNAL = new Set([
   // block type and the principal form a workload-identity binding is written in.
   'path_rule',
   'principalSet',
-  // A half-typed word, quoted as the input it is, in the paragraph about prefix
-  // search meeting stemming.
-  'testin',
   // The feature survey under docs/ quotes other products and proposes columns
   // nobody has built: two competitors' date-input literals, a table of Planka's,
   // an extension of Deck's, and three fields that would only exist if the

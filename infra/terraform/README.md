@@ -11,8 +11,7 @@ service that put its pods behind the shared load balancer. Everything else is
 shared: the load balancer and its URL map, the web bucket and CDN backend, the
 preview-edge Cloud Run service and its secret, the certificates, the Artifact
 Registry repository both images are pushed to, and the monitoring. That is why
-this lives at `infra/terraform/` and not under `api/`, where it was until
-2026-08-21.
+this lives at `infra/terraform/` and not under `api/`.
 
 ```
 terraform init
@@ -105,13 +104,14 @@ bucket, where a Cloud Run "preview edge" serves it.
      wildcard, so this uses Certificate Manager DNS-01; one CNAME covers the
      whole `*.…` set.
 
-> **Currently unsatisfied — previews do not work over HTTPS.** As of 2026-08-21
-> the `_acme-challenge.criticalpath.skylerberg.com` CNAME does not exist, so the
-> wildcard certificate created on 2026-08-01 has sat in `PROVISIONING` with
-> `CNAME_MISMATCH` ever since and every `pr-<n>.criticalpath.skylerberg.com`
-> fails TLS. Nothing reports this: `preview-deploy` uploads the bundle and posts
-> the comment without ever requesting the URL, so each PR gets a preview link
-> that cannot be opened. Check with
+> **Currently unsatisfied — previews do not work over HTTPS.** As of
+> 2026-08-21 (check before trusting that date) the
+> `_acme-challenge.criticalpath.skylerberg.com` CNAME does not exist, so the
+> wildcard certificate sits in `PROVISIONING` with `CNAME_MISMATCH` and every
+> `pr-<n>.criticalpath.skylerberg.com` fails TLS. Nothing reports this:
+> `preview-deploy` uploads the bundle and posts the comment without ever
+> requesting the URL, so each PR gets a preview link that cannot be opened.
+> Check with
 > `gcloud certificate-manager certificates describe critical-path-wildcard-cert
 > --location=global` (managed.state) and `dig +short CNAME
 > _acme-challenge.criticalpath.skylerberg.com`, and read the expected value from
@@ -140,10 +140,7 @@ substitute for the API's own authentication and does not reach it — the
 never touches this service.
 
 `preview-edge` is **fail-closed**: 401 unless the credential it was handed is
-real and matches. That is the opposite of what it used to do — the check read
-`if (!PREVIEW_AUTH) return true` while nothing in terraform, in any workflow or
-in any manifest ever set `PREVIEW_AUTH`, so it admitted everyone, and had done
-since it was written. The direction is the fix: a gate that opens when it is
+real and matches. The direction matters: a gate that opens when it is
 misconfigured is a gate whose misconfiguration nobody ever notices.
 
 Terraform owns the secret and one placeholder version, so a revision has
@@ -221,10 +218,10 @@ gcloud iam service-accounts add-iam-policy-binding \
 ```
 
 Read the current set with `gcloud iam service-accounts get-iam-policy
-github-actions-service@realm-construction.iam.gserviceaccount.com`. This was
-applied by hand for `skylerberg/critical-path` when the api and web repositories
-were merged on 2026-08-21; the bindings for the two old names are still present
-and can be removed once nothing references them.
+github-actions-service@realm-construction.iam.gserviceaccount.com`. The
+bindings for the pre-merge repository names are still present and still
+authorize impersonation of that account — remove them once nothing references
+them.
 
 ## Secrets (never committed)
 

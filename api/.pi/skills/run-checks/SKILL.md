@@ -21,8 +21,8 @@ pnpm -C ../cli run check:all   # CLI: type-check + lint + format:check
 Every one of them only reads. The fixers are `pnpm run format` and
 `pnpm run lint:fix`, and `.githooks/post-commit` is what runs them, so
 `format:check` failing on an edit you have not committed yet reports the absence
-of a commit rather than a problem with the code — `AGENTS.md` in this package
-carries the rule and its consequences.
+of a commit rather than a problem with the code — the root `AGENTS.md` carries
+the rule and its consequences.
 
 `preview-edge/` is the one package none of the above reaches: it is outside
 `api/tsconfig.json`'s include and outside `api/knip.json`, and no test here
