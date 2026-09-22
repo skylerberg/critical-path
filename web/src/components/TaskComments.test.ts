@@ -111,7 +111,6 @@ function mockCommentApi(): void {
 }
 
 beforeEach(() => {
-  Reflect.deleteProperty(navigator, 'clipboard');
   fetchMock.mockReset();
   mockCommentApi();
   board.reset();

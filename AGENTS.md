@@ -137,14 +137,18 @@ codebase to walk — copies the untracked `.env` files, which live in `api/` and
 not at the checkout root, and runs `pnpm install` in every package it finds via
 `git ls-files '*/package.json'`. It asserts a `node_modules` appeared rather than
 trusting exit 0, which is what a stray root `pnpm-workspace.yaml` would otherwise
-hand you. `--only api,web` narrows the installs. Everything is resolved from the
-checkout it is **run in**, so it works from a sibling project too. Make every
-worktree with it: a hand-made one fails the checks for reasons that have nothing
-to do with the change in it, and an uninstalled `cli/` in particular fails only
-the CLI tests, deep into an api run. Pi's `/start` makes its worktrees with it
-too — `.pi/settings.json` declares it as `worktree.setup`, which the agent's
-worktree extension runs as `<setup> <branch> <base-ref>` instead of its own
-built-in bootstrap.
+hand you. `--only api,web` narrows the installs, but never away from `cli/`:
+`api/tsconfig.json` includes `../cli/**/*`, so `pnpm -C api run type-check`
+compiles the CLI's sources too and, with no `cli/node_modules` to compile them
+against, fails on a missing `commander` and forty implicit-any errors in files
+the change never touched — before a single test has run. The CLI's own tests
+then fail as well, deep into an api run, because they run in api's suite.
+Everything is resolved from the checkout it is **run in**, so it works from a
+sibling project too. Make every worktree with it: a hand-made one fails the
+checks for reasons that have nothing to do with the change in it. Pi's `/start`
+makes its worktrees with it too — `.pi/settings.json` declares it as
+`worktree.setup`, which the agent's worktree extension runs as
+`<setup> <branch> <base-ref>` instead of its own built-in bootstrap.
 
 It sits here rather than in `api/scripts/`, where it was written, because
 `api-deploy.yaml` filters on `api/scripts/**` — so a four-package developer

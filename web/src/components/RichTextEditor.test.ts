@@ -4,6 +4,7 @@ import { createEvent, fireEvent, render, screen, waitFor } from '@testing-librar
 import { tick } from 'svelte';
 import type { Editor } from '@tiptap/core';
 import type { components } from '../api/api.generated';
+import { stubClipboard } from '../lib/test-stubs';
 import { toasts } from '../lib/toasts.svelte';
 import type { User } from '../lib/users.svelte';
 import RichTextEditor from './RichTextEditor.svelte';
@@ -781,24 +782,16 @@ describe('RichTextEditor', () => {
     });
 
     it('copies the href, says so, and closes', async () => {
-      // Stubbed after the render, and carrying userAgent along: the stub
-      // replaces navigator with a plain object, and Tiptap's isiOS check reads
-      // userAgent off it at mount and again when the close restores focus.
       const { editor, container } = await editorWithLink();
       await openMenu(editor, container);
       const writeText = vi.fn().mockResolvedValue(undefined);
-      vi.stubGlobal('navigator', {
-        ...navigator,
-        userAgent: navigator.userAgent,
-        clipboard: { writeText },
-      });
+      stubClipboard(writeText);
 
       await fireEvent.click(screen.getByRole('menuitem', { name: 'Copy link' }));
 
       expect(writeText).toHaveBeenCalledWith('https://example.com');
       expect(toasts.toasts.at(-1)?.message).toBe('Link copied');
       expect(screen.queryByRole('menu', { name: 'Link' })).toBeNull();
-      vi.unstubAllGlobals();
     });
 
     it('removes the link but keeps its text, and closes', async () => {
