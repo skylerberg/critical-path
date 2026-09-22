@@ -2,6 +2,7 @@ import { fetchMock, jsonResponse, requestAt } from '../api/testUtils';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import PersonalAccessTokens from './PersonalAccessTokens.svelte';
+import { stubClipboard } from '../lib/test-stubs';
 import { toasts } from '../lib/toasts.svelte';
 
 interface TokenMetadata {
@@ -55,15 +56,8 @@ beforeEach(() => {
   toasts.toasts = [];
 });
 
-// `navigator` is the only global this file stubs, and it is put back by hand:
-// `vi.unstubAllGlobals()` restores the ones testUtils installs at import time
-// too — fetch, Request and both storages — leaving every case after the first
-// running against a different environment than the file started in.
-const realNavigator = navigator;
-
 afterEach(() => {
   vi.useRealTimers();
-  vi.stubGlobal('navigator', realNavigator);
 });
 
 describe('PersonalAccessTokens', () => {
@@ -174,7 +168,7 @@ describe('PersonalAccessTokens', () => {
     render(PersonalAccessTokens);
     await createToken();
     const writeText = vi.fn().mockResolvedValue(undefined);
-    vi.stubGlobal('navigator', { ...navigator, clipboard: { writeText } });
+    stubClipboard(writeText);
 
     await fireEvent.click(screen.getByRole('button', { name: 'Copy' }));
 
@@ -186,7 +180,8 @@ describe('PersonalAccessTokens', () => {
     mockCreate('cpat_supersecret');
     render(PersonalAccessTokens);
     await createToken();
-    vi.stubGlobal('navigator', { ...navigator, clipboard: undefined });
+    // No stub: jsdom's navigator has no clipboard, and the shared stub's cleanup
+    // guarantees no earlier case left one behind.
 
     await fireEvent.click(screen.getByRole('button', { name: 'Copy' }));
 

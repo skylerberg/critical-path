@@ -11,6 +11,7 @@ import { session } from '../lib/session.svelte';
 import { publicTaskHref, projectHref, taskHref } from '../lib/short-links';
 import { shortcuts } from '../lib/shortcuts.svelte';
 import { testUuid } from '../lib/test-ids';
+import { stubClipboard } from '../lib/test-stubs';
 import { toasts } from '../lib/toasts.svelte';
 
 const me = { id: 'u-me', name: 'Ada', email: 'ada@example.com', avatar_url: null };
@@ -261,7 +262,7 @@ describe('CardMenu', () => {
   // A copied link goes to someone else, who should not inherit the sharer's narrowing.
   it('copies an absolute url stripped of the filters, and says so', async () => {
     const writeText = vi.fn().mockResolvedValue(undefined);
-    vi.stubGlobal('navigator', { ...navigator, clipboard: { writeText } });
+    stubClipboard(writeText);
     board.labels = [{ id: 'l1', name: 'art', color: '#ff0000' }];
     board.setFilters({ labelIds: ['l1'], assigneeIds: [], query: 'boss' });
     open();
@@ -272,20 +273,15 @@ describe('CardMenu', () => {
       `${window.location.origin}${taskHref(TASK_ID, TASK_TITLE)}`
     );
     expect(toasts.toasts.at(-1)?.message).toBe('Link copied');
-    vi.unstubAllGlobals();
   });
 
   it('says so when the clipboard refuses', async () => {
-    vi.stubGlobal('navigator', {
-      ...navigator,
-      clipboard: { writeText: vi.fn().mockRejectedValue(new Error('denied')) },
-    });
+    stubClipboard(vi.fn().mockRejectedValue(new Error('denied')));
     open();
 
     await fireEvent.click(screen.getByRole('menuitem', { name: 'Copy link' }));
 
     expect(toasts.toasts.at(-1)).toMatchObject({ message: 'Could not copy the link' });
-    vi.unstubAllGlobals();
   });
 
   describe('keyboard', () => {

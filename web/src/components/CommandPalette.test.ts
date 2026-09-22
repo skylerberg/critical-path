@@ -18,6 +18,7 @@ import { projectHref, taskHref } from '../lib/short-links';
 import { shortcuts } from '../lib/shortcuts.svelte';
 import { taskRoute } from '../lib/task-route.svelte';
 import { testUuid } from '../lib/test-ids';
+import { stubClipboard } from '../lib/test-stubs';
 import { toasts } from '../lib/toasts.svelte';
 
 const DEBOUNCE_MS = 250;
@@ -817,7 +818,7 @@ describe('activation', () => {
 
   it('copies the card link the right-click menu copies', async () => {
     const writeText = vi.fn<(value: string) => Promise<void>>().mockResolvedValue(undefined);
-    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+    stubClipboard(writeText);
     open();
 
     await fireEvent.click(screen.getByRole('option', { name: /^Copy link/ }));
@@ -831,10 +832,7 @@ describe('activation', () => {
   });
 
   it('says so when the clipboard refuses the link', async () => {
-    Object.defineProperty(navigator, 'clipboard', {
-      value: { writeText: vi.fn().mockRejectedValue(new Error('denied')) },
-      configurable: true,
-    });
+    stubClipboard(vi.fn().mockRejectedValue(new Error('denied')));
     open();
 
     await fireEvent.click(screen.getByRole('option', { name: /^Copy link/ }));
