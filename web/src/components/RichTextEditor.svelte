@@ -57,9 +57,13 @@
     index: number;
     command: (attrs: MentionNodeAttrs) => void;
   } | null>(null);
-  // Clicking a link never navigates (openOnClick is off, and in the readonly
-  // editor the bare anchor still would): it opens this menu, which owns
-  // following, copying and — where the text is editable — removing the link.
+  // What a link click does depends on whether the editor is being worked in.
+  // While it is, the click opens this menu — which owns following, copying and
+  // removing the link — because navigation is the surprise there. In an editor
+  // nobody has focused, the click follows the link outright instead of placing
+  // a caret and starting an edit the reader never asked for. Either way the
+  // anchor's own navigation is suppressed (openOnClick is off, and in the
+  // readonly editor the bare anchor still would).
   let linkMenu = $state<{
     href: string;
     x: number;
@@ -81,6 +85,12 @@
   // rebuilt per card, so a card opens quiet and stops rearranging once in use.
   let everFocused = $state(false);
   const showToolbar = $derived(!readonly && everFocused);
+
+  // DOM focus, tracked through the editor's own callbacks rather than asked of
+  // the view: hasFocus also demands a DOM selection, which is more than "the
+  // user is working in this text" means. Read only by the link-click handlers,
+  // which decide between following a link and opening its menu on it.
+  let focused = false;
 
   function setSaveState(next: SaveState): void {
     if (savedTimer !== null) {
@@ -175,6 +185,27 @@
         setSaveState('saved');
       }
     }, markFailed);
+  }
+
+  // The anchor under a DOM event, with the href it carries; null anywhere
+  // else, so both the mousedown and the click handler can ask the one question.
+  function linkAt(event: Event): { href: string; anchor: HTMLAnchorElement } | null {
+    const anchor =
+      event.target instanceof Element ? event.target.closest<HTMLAnchorElement>('a[href]') : null;
+    const href = anchor?.getAttribute('href');
+    if (anchor == null || href == null || href === '') return null;
+    return { href, anchor };
+  }
+
+  // The menu's Open row is a real anchor so the browser offers its own
+  // repertoire around it; a programmatic follow has to reproduce the two halves
+  // of that row itself — a new tab for the web, the same tab for a mail client.
+  function followLink(href: string): void {
+    if (/^mailto:/i.test(href)) {
+      window.open(href, '_self');
+    } else {
+      window.open(href, '_blank', 'noopener,noreferrer');
+    }
   }
 
   function insertImageFiles(files: FileList | null | undefined): boolean {
@@ -288,20 +319,29 @@
             handleDrop: (_view, event, _slice, moved) =>
               !moved && insertImageFiles(event.dataTransfer?.files),
             handleDOMEvents: {
-              // False either way: a non-link click is none of this handler's
-              // business, and a link click keeps its ordinary caret placement —
-              // the menu opens beside it, it does not replace the caret.
-              click: (_view, event) => {
-                const anchor =
-                  event.target instanceof Element
-                    ? event.target.closest<HTMLAnchorElement>('a[href]')
-                    : null;
-                const href = anchor?.getAttribute('href');
-                if (anchor === null || href === null || href === undefined || href === '') {
-                  return false;
-                }
+              // The caret is placed on mousedown, long before the click
+              // arrives, so keeping a reader's link click from starting an
+              // edit means stopping it here: no caret, no focus, no toolbar.
+              // True marks it handled only for that reader's click — anything
+              // else is none of this handler's business.
+              mousedown: (_view, event) => {
+                if (readonly || focused || linkAt(event) === null) return false;
                 event.preventDefault();
-                linkMenu = { href, x: event.clientX, y: event.clientY, anchor };
+                return true;
+              },
+              // False either way from the menu path: a non-link click is none
+              // of this handler's business, and a link click keeps its
+              // ordinary caret placement — the menu opens beside it, it does
+              // not replace the caret.
+              click: (_view, event) => {
+                const link = linkAt(event);
+                if (link === null) return false;
+                event.preventDefault();
+                if (!readonly && !focused) {
+                  followLink(link.href);
+                  return true;
+                }
+                linkMenu = { ...link, x: event.clientX, y: event.clientY };
                 return false;
               },
             },
@@ -320,10 +360,16 @@
             scheduleSave();
             onChange?.(currentDoc(updated));
           },
+          onFocus: () => {
+            focused = true;
+          },
           // The suggestion plugin only closes on a transaction and a blur is not
           // one, so the menu would otherwise outlive the editor's focus and hang
           // over whatever is rendered below it.
           onBlur: () => {
+            // Plain state, not $state: the write needs none of the deferral
+            // the mention close below does.
+            focused = false;
             // Deferred like the version bump above: this handler runs inside the
             // transaction the blur plugin dispatches, and a blur fired by the DOM
             // being removed mid-flush would make the write a state_unsafe_mutation.
