@@ -2,17 +2,16 @@ import { sql } from 'kysely';
 import type { Kysely } from 'kysely';
 import { generateNKeysBetween, BASE_62_DIGITS } from 'fractional-indexing';
 
-// Imported straight from the library rather than through src/services/sortKey:
-// the migrator dynamic-imports this file outside the bundler, and a migration
-// must keep producing the same keys however the service is later refactored.
+// The library, not src/services/sortKey: the migrator loads this file by
+// dynamic import outside the bundler, and what a migration writes must not
+// drift with however that service is refactored later.
 const keysBetween = (count: number): string[] =>
   generateNKeysBetween(null, null, count, BASE_62_DIGITS);
 
 // Labels gain the fractional-index ordering every other ranked row already
-// has, scoped to the project. The column is `collate "C"` because the
-// database's en_US.UTF-8 collation does not compare ASCII byte-wise, and every
-// client sorts these keys with plain string comparison -- under the default
-// collation the two disagree.
+// has, scoped to the project. `collate "C"` because the clients compare these
+// keys with plain string comparison, and the database's en_US.UTF-8 collation
+// does not order ASCII byte-wise -- under it the two would disagree.
 //
 // It stays nullable for one release, the same split 0044/0048 made: a NOT NULL
 // column with no default fails the previous pods' INSERTs for the whole

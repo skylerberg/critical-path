@@ -6,6 +6,7 @@ import { board } from '../lib/board.svelte';
 import { testUuid } from '../lib/test-ids';
 import { users } from '../lib/users.svelte';
 import type { BoardTask } from '../lib/board-types';
+import { testSortKey } from '../lib/test-ids';
 
 const PROJECT_ID = testUuid('p1');
 
@@ -52,8 +53,8 @@ beforeEach(() => {
   board.currentProjectId = PROJECT_ID;
   board.columns = [{ id: 'c1', name: 'Todo', sort_key: 'V0000010001', is_done: false }];
   board.labels = [
-    { id: 'l1', name: 'art', color: '#ff0000' },
-    { id: 'l2', name: 'bug', color: '#00ff00' },
+    { id: 'l1', name: 'art', color: '#ff0000', sort_key: testSortKey(0) },
+    { id: 'l2', name: 'bug', color: '#00ff00', sort_key: testSortKey(1) },
   ];
   board.tasks = [task('t1', ['l1'], ['u1']), task('t2', ['l1'], [])];
   users.users = [ADA, ALAN];

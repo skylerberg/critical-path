@@ -14,6 +14,7 @@ import { TASK_TITLE_MAX_LENGTH, truncateTitle } from '../lib/titles';
 import { toasts } from '../lib/toasts.svelte';
 import { crossProjectDeps } from '../lib/crossProjectDeps.svelte';
 import type { BoardPayload, BoardTask } from '../lib/board-types';
+import { testSortKey } from '../lib/test-ids';
 
 const me = {
   id: 'u-me',
@@ -266,7 +267,7 @@ describe('Graph', () => {
     fetchMock.mockImplementation(async () =>
       jsonResponse(200, {
         ...payload(projectId, [withLabel]),
-        labels: [{ id: 'l1', name: 'art', color: '#ff0000' }],
+        labels: [{ id: 'l1', name: 'art', color: '#ff0000', sort_key: testSortKey(0) }],
       })
     );
 
@@ -688,7 +689,7 @@ describe('Graph dependency editing', () => {
     fetchMock.mockImplementation(async () =>
       jsonResponse(200, {
         ...payload(projectId, [withLabel, task('b', 'todo')]),
-        labels: [{ id: 'l1', name: 'art', color: '#ff0000' }],
+        labels: [{ id: 'l1', name: 'art', color: '#ff0000', sort_key: testSortKey(1) }],
       })
     );
 

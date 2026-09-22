@@ -1577,7 +1577,9 @@ class BoardStore {
       return;
     }
     const id = newId();
-    this.labels = [...this.labels, { id, name, color }];
+    // Unkeyed until the label_created echo lands with the real one; a null key
+    // sorts last under byRank, which is where the server appends too.
+    this.labels = [...this.labels, { id, name, color, sort_key: null }];
     await this.#sendOrFail(
       {
         subject: { kind: 'label', id },

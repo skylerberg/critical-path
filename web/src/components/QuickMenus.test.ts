@@ -17,6 +17,7 @@ import { projectHref } from '../lib/short-links';
 import { taskRoute } from '../lib/task-route.svelte';
 import { testUuid } from '../lib/test-ids';
 import { users } from '../lib/users.svelte';
+import { testSortKey } from '../lib/test-ids';
 
 const me = {
   id: 'u-me',
@@ -75,7 +76,9 @@ function payload(projectId: string, name: string, tasks: BoardTask[]): BoardPayl
       { id: `${projectId}-done`, name: 'Done', sort_key: 'V1', is_done: true },
     ],
     tasks,
-    labels: [{ id: `${projectId}-lab`, name: 'Urgent', color: '#ef4444' }],
+    labels: [
+      { id: `${projectId}-lab`, name: 'Urgent', color: '#ef4444', sort_key: testSortKey(0) },
+    ],
     changed_task_ids: [],
   };
 }

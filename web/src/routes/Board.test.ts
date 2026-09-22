@@ -16,6 +16,7 @@ import { shortcuts } from '../lib/shortcuts.svelte';
 import { publicTaskHref, taskHref } from '../lib/short-links';
 import { testUuid } from '../lib/test-ids';
 import type { BoardTask } from '../lib/board-types';
+import { testSortKey } from '../lib/test-ids';
 
 const PROJECT_ID = testUuid('p1');
 const OTHER_PROJECT_ID = testUuid('p2');
@@ -840,7 +841,7 @@ describe('Board filter scrolling', () => {
   });
 
   it('resets the scroll when a label chip is toggled', async () => {
-    board.labels = [{ id: 'l1', name: 'art', color: '#ff0000' }];
+    board.labels = [{ id: 'l1', name: 'art', color: '#ff0000', sort_key: testSortKey(0) }];
     board.tasks = board.tasks.map((t) => (t.id === T4 ? { ...t, label_ids: ['l1'] } : t));
     render(Board, { props: { projectId: PROJECT_ID } });
     await screen.findByText('plain one');
