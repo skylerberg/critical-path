@@ -45,7 +45,8 @@ setup() {
   STUB_DIRTY=$sandbox/dirty-before
   STUB_DIRTY_AFTER=$sandbox/dirty-after
   STUB_COMMIT_FILES=$sandbox/commit-files
-  export STUB_ROOT STUB_LOG STUB_DIRTY STUB_DIRTY_AFTER STUB_COMMIT_FILES
+  STUB_STATUS=$sandbox/status
+  export STUB_ROOT STUB_LOG STUB_DIRTY STUB_DIRTY_AFTER STUB_COMMIT_FILES STUB_STATUS
   unset STUB_EXIT
   unset SKIP_POST_COMMIT
 
@@ -53,6 +54,7 @@ setup() {
   : >"$STUB_DIRTY"
   : >"$STUB_DIRTY_AFTER"
   : >"$STUB_COMMIT_FILES"
+  : >"$STUB_STATUS"
   # Created up front so every assertion can read them without a existence dance.
   : >"$STUB_LOG/git.args"
   : >"$STUB_LOG/git.add"
@@ -102,6 +104,7 @@ make_file() {
 mark_dirty() { printf '%s\n' "$1" >>"$STUB_DIRTY"; }
 mark_rewritten() { printf '%s\n' "$1" >>"$STUB_DIRTY_AFTER"; }
 commit_touched() { printf '%s\n' "$1" >>"$STUB_COMMIT_FILES"; }
+status_line() { printf '%s\n' "$1" >>"$STUB_STATUS"; }
 
 run_format_touched() {
   (cd "$STUB_ROOT" && sh "$hooks_dir/format-touched" "$@") \
@@ -111,6 +114,12 @@ run_format_touched() {
 
 run_post_commit() {
   (cd "$STUB_ROOT" && sh "$hooks_dir/post-commit") \
+    >"$STUB_LOG/stdout" 2>"$STUB_LOG/stderr"
+  status=$?
+}
+
+run_format_changed() {
+  (cd "$STUB_ROOT" && sh "$hooks_dir/../scripts/format-changed.sh") \
     >"$STUB_LOG/stdout" 2>"$STUB_LOG/stderr"
   status=$?
 }
@@ -393,6 +402,68 @@ assert_status 0
 # It has to bail before the diff-tree, not merely before the fixers.
 assert_git_untouched
 assert_no_fixers
+finish
+
+# --- the --no-amend mode ----------------------------------------------------
+
+setup '--no-amend formats a file with unstaged changes rather than skipping it'
+# The skip exists so the amend cannot swallow WIP; with no amend there is
+# nothing to protect, and a dirty working-tree file is the mode's whole point.
+make_file api/src/dirty.ts
+mark_dirty api/src/dirty.ts
+mark_rewritten api/src/dirty.ts
+run_format_touched --no-amend api/src/dirty.ts
+assert_status 0
+assert_fixer_ran '-C|api|exec|eslint|--fix|src/dirty.ts|'
+assert_fixer_ran '-C|api|exec|prettier|--write|--log-level|warn|src/dirty.ts|'
+assert_fixer_count 2
+assert_no_amend
+finish
+
+setup '--no-amend folds nothing into HEAD even when the fixers rewrote a file'
+# The same input the amend case uses; the rewritten file must be left for the
+# caller's own commit, never staged here.
+make_file api/src/a.ts
+mark_rewritten api/src/a.ts
+run_format_touched --no-amend api/src/a.ts
+assert_status 0
+assert_fixer_count 2
+assert_no_amend
+finish
+
+setup '--no-amend with no paths is a no-op'
+run_format_touched --no-amend
+assert_status 0
+assert_no_fixers
+assert_no_amend
+finish
+
+# --- scripts/format-changed.sh ----------------------------------------------
+
+setup 'format-changed collects the modified, untracked and renamed, and never amends'
+status_line ' M api/src/a.ts'
+status_line '?? web/src/b.ts'
+status_line 'R  api/src/old.ts -> api/src/new.ts'
+status_line ' D api/src/gone.ts'
+make_file api/src/a.ts
+make_file web/src/b.ts
+make_file api/src/new.ts
+run_format_changed
+assert_status 0
+assert_fixer_ran '-C|api|exec|eslint|--fix|src/a.ts|src/new.ts|'
+assert_fixer_ran '-C|api|exec|prettier|--write|--log-level|warn|src/a.ts|src/new.ts|'
+assert_fixer_ran '-C|web|exec|eslint|--fix|src/b.ts|'
+assert_never_seen 'gone.ts'
+assert_never_seen 'old.ts'
+assert_fixer_count 4
+assert_no_amend
+finish
+
+setup 'format-changed on a clean tree runs nothing'
+run_format_changed
+assert_status 0
+assert_no_fixers
+assert_no_amend
 finish
 
 # --- the two entry points ---------------------------------------------------

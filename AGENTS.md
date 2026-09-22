@@ -168,9 +168,11 @@ runs). `post-commit` and `post-rewrite` hand the paths a commit touched to
 `format-touched`, which buckets each by its first segment and runs **that
 package's own** eslint and prettier; a package with no config or no installed
 binary is named in a warning and skipped. **Never run `prettier --write` or
-`eslint --fix` by hand.** One consequence: `format:check` is only meaningful on
-a *committed* tree — failing it on uncommitted edits means nothing has fixed
-them yet.
+`eslint --fix` by hand — run `scripts/format-changed.sh` instead,** which puts
+the working tree's modified and untracked files through the same dispatcher
+without amending anything. That closes the loop the amend used to force:
+format first, and `format:check` passes on a working tree, before the commit,
+instead of only after the hook has rewritten it.
 
 The hook has tests — `sh .githooks/tests/format-touched.test.sh`, run by
 `repo-ci.yaml` and by nothing else. Add a case for anything you change in a

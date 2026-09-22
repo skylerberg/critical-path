@@ -15,6 +15,7 @@
 #   STUB_DIRTY_AFTER    and after; the pnpm stub flips the phase by writing
 #                       $STUB_LOG/fixers-ran
 #   STUB_COMMIT_FILES   what `diff-tree` lists, for post-commit and post-rewrite
+#   STUB_STATUS         what `status --porcelain` prints, for format-changed.sh
 
 printf '%s\n' "$*" >>"$STUB_LOG/git.args"
 
@@ -37,6 +38,9 @@ case $1 in
     ;;
   diff-tree)
     cat "$STUB_COMMIT_FILES"
+    ;;
+  status)
+    cat "$STUB_STATUS"
     ;;
   add)
     shift
