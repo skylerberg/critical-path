@@ -184,31 +184,21 @@ covers the coupling.
 
 ## Rate limits
 
-The ceilings a client or operator can hit. The constants live in
-`src/services/rateLimit.ts`, and `tests/unit/documentedLimits.test.ts` pins the
-figures it names to them:
+What is throttled, and on what key. The numbers live only in
+`src/services/rateLimit.ts`, so they cannot drift from a document:
 
-- Signing in and signing up share the auth limiter: **10 a minute per (source
-  IP, email address) pair**, **30 per 15 minutes per email address**, and
-  **300 an hour per source IP**. The third exists because the first two are
-  keyed on values the caller supplies; every attempt costs an argon2 verify, so
-  an unauthenticated caller must not set the pace of the most expensive
-  operation in the product.
-- Account creation: **50 an hour per source IP**.
-- `POST /api/auth/forgot-password`: **5 an hour per source IP** and
-  **3 an hour per email address**.
-- Invitations: 100 pending per project, 100 addresses looked up an hour per
-  caller, **20 invitation emails an hour, per caller**, 3 re-mails an hour per
-  invitation.
-- Email verification resends: 3 an hour per account, 10 an hour per source IP,
-  shared with the send triggered by an address change.
-- User search: 100 an hour per account and 300 an hour per source IP — both
-  arms are needed because an account costs a signup, and signup itself allows
-  50 an hour from one address.
-- Link attachments: 60 an hour per user.
-- Notification email: the same notification at most once an hour, one sender
-  causing at most 20 an hour to any one recipient, and a recipient receiving at
-  most 100 an hour across all senders.
+- Signing in and signing up share the auth limiter, budgeted per (source IP,
+  email address) pair, per email address, and per source IP. The per-IP bucket
+  exists because the other two are keyed on values the caller supplies; every
+  attempt costs an argon2 verify, so an unauthenticated caller must not set the
+  pace of the most expensive operation in the product.
+- Account creation, password-reset requests, email-verification resends, user
+  search, invitation sends and address lookups, and link attachments each carry
+  their own budgets, keyed per caller or per source address as the abuse shape
+  demands.
+- Notification email repeats are suppressed per (recipient, kind, subject), and
+  hourly budgets bound one sender mailing one recipient and one recipient
+  across all senders.
 
 The realtime socket ceilings are listed under [Realtime](#realtime).
 
@@ -265,8 +255,8 @@ there are no scopes. `POST /api/auth/tokens` mints one (`cpat_`-prefixed) and
 its response is the **only** time the secret is returned — only its sha256 hash
 is stored. `GET /api/auth/tokens` lists them, expired included, so they can be
 cleaned up; `DELETE` revokes. `last_used_at` is stamped on every successful
-authentication — a REST request, a `/ws` handshake, or the 30-second heartbeat
-of an open socket — throttled to one write per token per minute. A token can
+authentication — a REST request, a `/ws` handshake, or the heartbeat of an
+open socket — throttled to one write per token per minute. A token can
 mint further tokens, so revocation is the only reliable control over the access
 one was granted.
 
@@ -447,9 +437,9 @@ nofollow`; nothing enumerates published projects.
 A WebSocket endpoint listens at `/ws` on the same server (not part of the
 OpenAPI spec). Clients must send `{ "type": "auth", "token": "<session or
 personal access token>" }` within 10 seconds of connecting, then may
-`subscribe` / `unsubscribe` to project rooms. The server pings every 30 seconds
-and expects a `pong`; a socket is closed with code 4401 when **its own**
-credential is revoked or expires.
+`subscribe` / `unsubscribe` to project rooms. The server pings on a fixed
+interval and expects a `pong`; a socket is closed with code 4401 when **its
+own** credential is revoked or expires.
 
 Every close code above the RFC 6455 ones is declared in
 `src/services/realtime/closeCodes.ts` and published in `realtime-events.json`
@@ -457,13 +447,14 @@ as `RealtimeCloseCode`, and the ping interval likewise as
 `RealtimeHeartbeatMs` — literal types rather than runtime values, which is what
 lets a regenerated client ship without waiting for the api deploy.
 
-Three ceilings bound what one caller can hold open: **200 live sockets from one
-source address** (a handshake past it is answered 429 and the socket
-destroyed), an account holding more than **20 sockets** has its oldest closed
-with code 4429 (so the connection that just arrived survives), and a socket may
-hold **1000 subscriptions**. All three are **per process**, unlike the rate
-limiter, which shares counters through Redis — they bound what one process can
-be made to hold, not what one person may have.
+Three ceilings bound what one caller can hold open: live sockets per source
+address (`MAX_SOCKETS_PER_ADDRESS`; a handshake past it is answered 429 and the
+socket destroyed), sockets per account (`MAX_SOCKETS_PER_USER`; the oldest is
+closed with code 4429, so the connection that just arrived survives), and
+subscriptions per socket (`MAX_SUBSCRIPTIONS_PER_SOCKET`). All three are
+**per process**, unlike the rate limiter, which shares counters through Redis —
+they bound what one process can be made to hold, not what one person may have.
+The constants live in `src/services/realtime/`.
 
 Every mutation emits an event after its transaction commits, in a
 `{ type, project_id, data }` envelope; every board mutation's `data` carries

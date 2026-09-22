@@ -18,8 +18,7 @@ import {
 // Neither side can import the other — four packages, four node_modules, no
 // workspace — and a shared runtime module is not available at any price, so the
 // agreement is held by reading web's decision out of its source and running it
-// against the same corpus, the way documentedLimits.test.ts and
-// eventCatalog.test.ts read README.md.
+// against the same corpus, the way eventCatalog.test.ts reads README.md.
 //
 // The corpus spells out the expected verdict rather than only asserting that
 // the two match, so two implementations that had drifted together still fail.

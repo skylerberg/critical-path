@@ -20,10 +20,9 @@ import {
 //
 // Left uncrossed, the drift is silent in the direction that costs most: a
 // ceiling RAISED here leaves the client refusing input the server would take,
-// with no error anywhere. This is documentedLimits.test.ts pointed across the
-// repository instead of at the docs, and the row shape is the same one — the
-// expectation is built FROM the constant, so a constant that moves without its
-// client fails here rather than in someone's browser.
+// with no error anywhere. Each expectation is built FROM the constant, so a
+// constant that moves without its client fails here rather than in someone's
+// browser.
 //
 // What is deliberately NOT here: cli's copy of the socket heartbeat. That one is
 // annotated with the literal type the realtime document publishes, so it is a
