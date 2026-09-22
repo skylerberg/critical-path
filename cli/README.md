@@ -161,8 +161,8 @@ A close code of 4401 is confirmed with one HTTP request before giving up,
 because the server also sends it for transient auth-protocol closes; a
 genuinely revoked or expired session exits 3 with the usual login hint. A close
 code of 4429 stops the watch instead: the account was over the API's
-per-account socket ceiling (the Realtime section of `api/README.md` states the
-number) and this connection was the oldest, so reconnecting would only take the
+per-account socket ceiling and this connection was the oldest, so reconnecting
+would only take the
 slot back off whichever client the server handed it to. Close another client
 and start it again. It exits 3 too, but without the login hint — the message
 is what tells a revoked session and a ceiling stop apart. Any other close code
