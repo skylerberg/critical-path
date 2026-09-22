@@ -20,10 +20,13 @@ async function settleSuggestion(): Promise<void> {
   await tick();
 }
 
-// The toolbar appears on first focus, and focusin bubbles from the contenteditable
-// to the wrapper that listens for it.
+// Focus for real: the component reads focus off the editor's own callbacks,
+// which a synthetic focusin event never reaches. jsdom dispatches the focus
+// event synchronously out of .focus(); the toolbar's sticky half lands one
+// microtask behind it.
 async function focusEditor(container: HTMLElement): Promise<void> {
-  await fireEvent.focusIn(container.querySelector('.tiptap')!);
+  (container.querySelector('.tiptap') as HTMLElement).focus();
+  await tick();
 }
 
 function insertedMentionAttrs(editor: Editor): Record<string, unknown> | undefined {
