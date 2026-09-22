@@ -712,7 +712,18 @@ describe('RichTextEditor', () => {
       return container.querySelector<HTMLAnchorElement>('.tiptap a')!;
     }
 
-    async function openMenu(container: HTMLElement): Promise<HTMLElement> {
+    async function openMenu(editor: Editor, container: HTMLElement): Promise<HTMLElement> {
+      // The menu is the editing-time behavior: in an editor nobody has focused,
+      // the same click follows the link outright instead. Tiptap's focus
+      // command lands on a timer, not in the command's own tick. The readonly
+      // editor opens the menu either way — and could not take focus if it
+      // wanted to, with no contenteditable to land it on.
+      if (editor.isEditable) {
+        editor.commands.focus();
+        await waitFor(() =>
+          expect(document.activeElement).toBe(container.querySelector('.tiptap'))
+        );
+      }
       // fireEvent's return is whether the event ran its default — false here is
       // the click on the anchor being prevented from navigating.
       expect(await fireEvent.click(anchorIn(container))).toBe(false);
@@ -720,9 +731,9 @@ describe('RichTextEditor', () => {
     }
 
     it('opens on click with follow, copy and remove rows, naming the href', async () => {
-      const { container } = await editorWithLink();
+      const { editor, container } = await editorWithLink();
 
-      const menu = await openMenu(container);
+      const menu = await openMenu(editor, container);
 
       expect(menu).toHaveTextContent('https://example.com');
       expect(screen.getByRole('menuitem', { name: 'Open link' })).toBeInTheDocument();
@@ -731,8 +742,8 @@ describe('RichTextEditor', () => {
     });
 
     it('opens the link in a new tab and closes', async () => {
-      const { container } = await editorWithLink();
-      await openMenu(container);
+      const { editor, container } = await editorWithLink();
+      await openMenu(editor, container);
 
       const follow = screen.getByRole('menuitem', { name: 'Open link' });
       expect(follow).toHaveAttribute('href', 'https://example.com');
@@ -761,8 +772,8 @@ describe('RichTextEditor', () => {
           },
         ],
       };
-      const { container } = await editorWithLink({ content: mailtoDoc });
-      await openMenu(container);
+      const { editor, container } = await editorWithLink({ content: mailtoDoc });
+      await openMenu(editor, container);
 
       const follow = screen.getByRole('menuitem', { name: 'Open link' });
       expect(follow).toHaveAttribute('href', 'mailto:ada@example.com');
@@ -773,8 +784,8 @@ describe('RichTextEditor', () => {
       // Stubbed after the render, and carrying userAgent along: the stub
       // replaces navigator with a plain object, and Tiptap's isiOS check reads
       // userAgent off it at mount and again when the close restores focus.
-      const { container } = await editorWithLink();
-      await openMenu(container);
+      const { editor, container } = await editorWithLink();
+      await openMenu(editor, container);
       const writeText = vi.fn().mockResolvedValue(undefined);
       vi.stubGlobal('navigator', {
         ...navigator,
@@ -792,7 +803,7 @@ describe('RichTextEditor', () => {
 
     it('removes the link but keeps its text, and closes', async () => {
       const { editor, container } = await editorWithLink();
-      await openMenu(container);
+      await openMenu(editor, container);
 
       await fireEvent.click(screen.getByRole('menuitem', { name: 'Remove link' }));
 
@@ -804,9 +815,9 @@ describe('RichTextEditor', () => {
 
     // A reader can still follow or copy a link; only the writer can delete it.
     it('offers a reader follow and copy but no removal', async () => {
-      const { container } = await editorWithLink({ readonly: true });
+      const { editor, container } = await editorWithLink({ readonly: true });
 
-      await openMenu(container);
+      await openMenu(editor, container);
 
       expect(screen.getByRole('menuitem', { name: 'Open link' })).toBeInTheDocument();
       expect(screen.getByRole('menuitem', { name: 'Copy link' })).toBeInTheDocument();
@@ -814,8 +825,8 @@ describe('RichTextEditor', () => {
     });
 
     it('closes on Escape and returns focus to the editor', async () => {
-      const { container } = await editorWithLink();
-      const menu = await openMenu(container);
+      const { editor, container } = await editorWithLink();
+      const menu = await openMenu(editor, container);
 
       await fireEvent.keyDown(menu, { key: 'Escape' });
 
@@ -825,12 +836,56 @@ describe('RichTextEditor', () => {
     });
 
     it('closes on a press elsewhere', async () => {
-      const { container } = await editorWithLink();
-      await openMenu(container);
+      const { editor, container } = await editorWithLink();
+      await openMenu(editor, container);
 
       await fireEvent.pointerDown(document.body);
 
       expect(screen.queryByRole('menu', { name: 'Link' })).toBeNull();
+    });
+
+    // The reader's path: no focus, no menu, no caret — the click just goes.
+    it('follows the link outright when the editor is not being edited', async () => {
+      const open = vi.spyOn(window, 'open').mockImplementation(() => null);
+      const { container } = await editorWithLink();
+
+      // The caret is placed on mousedown, so that is the half that has to be
+      // stopped for the click to cost the reader nothing.
+      expect(await fireEvent.mouseDown(anchorIn(container))).toBe(false);
+      expect(await fireEvent.click(anchorIn(container))).toBe(false);
+
+      expect(open).toHaveBeenCalledWith('https://example.com', '_blank', 'noopener,noreferrer');
+      expect(screen.queryByRole('menu', { name: 'Link' })).toBeNull();
+      // …and nothing about the click started an edit: no focus, no toolbar.
+      expect(document.activeElement).not.toBe(container.querySelector('.tiptap'));
+      expect(screen.queryByRole('toolbar')).toBeNull();
+      open.mockRestore();
+    });
+
+    it('follows a mailto in place when the editor is not being edited', async () => {
+      const open = vi.spyOn(window, 'open').mockImplementation(() => null);
+      const mailtoDoc: components['schemas']['TiptapDoc'] = {
+        type: 'doc',
+        content: [
+          {
+            type: 'paragraph',
+            content: [
+              {
+                type: 'text',
+                text: 'mail me',
+                marks: [{ type: 'link', attrs: { href: 'mailto:ada@example.com' } }],
+              },
+            ],
+          },
+        ],
+      };
+      const { container } = await editorWithLink({ content: mailtoDoc });
+
+      await fireEvent.click(anchorIn(container));
+
+      expect(open).toHaveBeenCalledWith('mailto:ada@example.com', '_self');
+      expect(screen.queryByRole('menu', { name: 'Link' })).toBeNull();
+      open.mockRestore();
     });
   });
 
