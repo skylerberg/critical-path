@@ -81,16 +81,17 @@
   let savedTimer: ReturnType<typeof setTimeout> | null = null;
   let lastSaved = 'null';
 
-  // The toolbar is hidden until the editor is first focused and then stays: it is
-  // rebuilt per card, so a card opens quiet and stops rearranging once in use.
+  // "The user is working in this text", in two slices, both written by the
+  // editor's own onFocus/onBlur below rather than asked of the view:
+  // view.hasFocus() also demands a DOM selection, which is stricter than
+  // either slice means. `focused` is now — plain state, read only by the
+  // link-click handlers choosing between following a link and opening its
+  // menu. `everFocused` is sticky and reactive — the toolbar appears on first
+  // focus and stays: the editor is rebuilt per card, so a card opens quiet and
+  // stops rearranging once in use.
+  let focused = false;
   let everFocused = $state(false);
   const showToolbar = $derived(!readonly && everFocused);
-
-  // DOM focus, tracked through the editor's own callbacks rather than asked of
-  // the view: hasFocus also demands a DOM selection, which is more than "the
-  // user is working in this text" means. Read only by the link-click handlers,
-  // which decide between following a link and opening its menu on it.
-  let focused = false;
 
   function setSaveState(next: SaveState): void {
     if (savedTimer !== null) {
@@ -362,6 +363,12 @@
           },
           onFocus: () => {
             focused = true;
+            // Deferred for the same reason the mention close on blur is: this
+            // handler runs inside a dispatched transaction, and a focus
+            // arriving mid-flush would make the reactive write unsafe.
+            queueMicrotask(() => {
+              everFocused = true;
+            });
           },
           // The suggestion plugin only closes on a transaction and a blur is not
           // one, so the menu would otherwise outlive the editor's focus and hang
@@ -599,7 +606,6 @@
     : ''} {readonly
     ? ''
     : 'focus-within:border-accent focus-within:ring-2 focus-within:ring-accent/30'}"
-  onfocusin={() => (everFocused = true)}
 >
   {#if showToolbar}
     <div
