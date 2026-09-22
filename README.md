@@ -11,11 +11,11 @@ critical-path highlighting — in one repository with four packages.
 | `preview-edge/` | the Cloud Run worker that serves PR previews    | `preview-edge/README.md`         |
 
 Two directories are not packages. `infra/terraform/` is the terraform for all of
-it — the load balancer that fronts `api/` and `web/`, the bucket the web build is
-uploaded to, the Cloud Run service that serves previews. `docs/` is the prose
+it — the load balancer that fronts `api/` and `web/`, the bucket the web build
+is uploaded to, the Cloud Run service that serves previews. `docs/` holds prose
 about the product rather than about one package: `docs/feature-research.md`
-surveys the category and records the accepted/declined decision on all 251
-features, which is where the roadmap comes from.
+surveys the category and records the build/decline decision on every feature,
+which is where the roadmap comes from.
 
 `AGENTS.md` at the root is the working manual for anyone — human or agent —
 changing code here. It is worth reading before the first pull request.
@@ -33,17 +33,15 @@ A fresh clone reaches a state that can run the tests in one command:
 scripts/bootstrap.sh
 ```
 
-It seeds the untracked `.env` files from their tracked examples without
-overwriting one that is already there, reports whatever prerequisite this
-machine is missing before spending anything on installs, installs all four
-packages, migrates the test database and fetches Playwright's browsers. Running
-it a second time is safe. `scripts/README.md` covers each of those steps.
+It seeds the untracked `.env` files from their tracked examples, reports
+missing prerequisites, installs all four packages, migrates the test database
+and fetches Playwright's browsers. Running it a second time is safe.
 
 Underneath it, and worth knowing before the first one goes wrong:
 
 **This is not a pnpm workspace.** There is no root `package.json`, no root
-`node_modules` and no root `pnpm-workspace.yaml` — install each package where it
-lives, and never add a workspace file at the top. `AGENTS.md` explains what
+`node_modules` and no root `pnpm-workspace.yaml` — install each package where
+it lives, and never add a workspace file at the top. `AGENTS.md` explains what
 happens if you do, which is worse than it sounds: the install reports success.
 
 ```sh
@@ -53,8 +51,8 @@ pnpm -C cli install
 pnpm -C preview-edge install
 ```
 
-For a branch, use `scripts/new-worktree.sh <branch>` instead — it does all four,
-plus the untracked `.env` files. See below.
+For a branch, use `scripts/new-worktree.sh <branch>` instead — it does all
+four, plus the untracked `.env` files.
 
 ## Running the API and the web app together
 
@@ -66,8 +64,8 @@ pnpm -C api run dev     # http://localhost:3001
 pnpm -C web run dev     # http://localhost:5173
 ```
 
-The API has to be up first: Vite proxies `/api` and `/ws` from 5173 to 3001, and
-`API_PROXY_TARGET` moves that proxy if the API is on another port.
+The API has to be up first: Vite proxies `/api` and `/ws` from 5173 to 3001,
+and `API_PROXY_TARGET` moves that proxy if the API is on another port.
 
 ## The CLI
 
@@ -83,91 +81,44 @@ experimenting. `cli/README.md` is the command reference.
 
 `web/` and `cli/` each generate their API client from `api/`'s OpenAPI and
 realtime documents, and the four generated files are committed. One command
-rebuilds all of them:
+rebuilds all of them, from any directory:
 
 ```sh
 scripts/generate-clients.sh
 ```
 
-Run it after changing an API schema or a realtime payload, and commit its output
-with the change. It works from any directory and needs no `.env`, no database
-and no running server. `codegen-ci.yaml` runs the same script and fails a pull
+Run it after changing an API schema or a realtime payload, and commit its
+output with the change. `codegen-ci.yaml` runs the same script and fails a pull
 request whose committed clients do not match.
-
-## What else is in `scripts/`
-
-It belongs to no package and is not one itself.
-
-```sh
-scripts/bootstrap.sh                          # a clone that can run the tests
-scripts/check-all.sh [--fast]                 # every check, cheapest first
-scripts/new-worktree.sh <branch> [base-ref]   # or --only api,web
-node scripts/check-comments.mjs               # the prose gate; about a second
-```
-
-`new-worktree.sh` creates `~/.worktrees/<repo>/<branch>` — outside the
-repository, so that no recursive search finds a second copy of the codebase —
-copies the untracked `.env` files, which live in `api/` rather than at the
-checkout root, and installs every package. Make every worktree with it; a
-hand-made one fails the checks for reasons unrelated to the change in it.
-
-`bootstrap.sh` and `check-all.sh` are the two ends of a working session: the
-first is step one on a machine that has never built this, the last is what to
-run before pushing. Neither knows anything a package does not — both sequence
-the packages' own scripts, and `scripts/README.md` says what each covers and,
-for `check-all.sh`, what it deliberately leaves to CI.
-
-`check-comments.mjs` reads every package's comments and markdown and fails on
-two things a reviewer cannot check by eye: one rationale living in two files,
-and a file or symbol that prose names but that does not resolve.
-`scripts/README.md` covers both in full.
 
 ## Checks
 
 Before pushing, one command runs every check CI runs that a laptop can:
 
 ```sh
-scripts/check-all.sh          # ~9m30s
-scripts/check-all.sh --fast   # ~1m, stopping short of the suites and the probes
+scripts/check-all.sh
+scripts/check-all.sh --fast   # stops short of the suites and the probes
 ```
 
-Its header names what a green run there still does not promise — the two image
-builds, the manifest validation, the terraform and the two pinned linters, each
-wanting a tool the Requirements above do not ask for.
+Its header names what a green run still does not promise. Each package also
+runs its own, from its own directory, under the same name in all four:
+`pnpm -C <pkg> run check:all`; `type-check`, `lint` and `format:check` mean the
+same thing everywhere too (web's type checker is `svelte-check`).
 
-Each package runs its own, from its own directory. One name each, and the
-same name in all four: `pnpm -C api run check:all`, `pnpm -C web run check:all`,
-`pnpm -C cli run check:all`, `pnpm -C preview-edge run check:all`. Under them
-`type-check`, `lint` and `format:check` also mean the same thing everywhere —
-web's type checker is `svelte-check` rather than `tsc`, and that is the whole of
-the difference.
+CI mirrors that split across path-filtered workflows, and `ci-gate.yaml` is the
+one unfiltered one: it reads the others' results and fails if any did not
+pass. Require its **`ci-gate`** job in branch protection and nothing else — the
+root `AGENTS.md` explains why nothing else can be required.
 
-CI mirrors that split across twelve workflows, each filtered to the paths it
-covers: `api-ci.yaml` and `web-ci.yaml` for the two large packages, plus
-`codegen-ci.yaml` for the generated clients, `repo-ci.yaml` for `.githooks/`,
-`scripts/` and the workflow files, `k8s-ci.yaml` for the manifests and
-`infra-ci.yaml` for the terraform. Because every one of those is path-filtered,
-none can be a required status check on its own — a workflow its filter excludes
-produces no check run at all, and GitHub waits on it forever. `ci-gate.yaml` is
-unfiltered, reads the others' results and fails if any of them did not pass.
-Require its **`ci-gate`** job in branch protection and require nothing else —
-it reports on behalf of all the others. Making that setting is a click in
-GitHub's Settings UI; nothing in the repository can do it.
-
-Do not run `prettier --write` or `eslint --fix` by hand. `.githooks/post-commit`
-runs each package's own formatter over the files that package's commits touched
-and amends the result in.
+Do not run `prettier --write` or `eslint --fix` by hand:
+`.githooks/post-commit` runs each package's own formatter over the files that
+commit touched and amends the result in.
 
 ## Two merges, api first
 
 **An endpoint and the web code that calls it must not land in the same merge.**
-One push starts both production deploys, web finishes roughly two minutes ahead
-of api, and for that window real users load a bundle calling an endpoint the
-running pods do not serve yet. Merge the api half, wait for it, then open the
-web half. Deletions run in the opposite order. Two commits in one pull request
-do not satisfy this.
-
-This is the rule most likely to be broken by accident here, because nothing
-enforces it and nothing turns red when it is violated. `AGENTS.md` has the
-measurements behind it, the reason the generated clients are exempt, and the
-matching discipline for database migrations.
+One push starts both production deploys and web's finishes first, so for that
+window the deployed bundle calls an API that has not restarted yet. Merge the
+api half, wait for it, then open the web half; deletions run in the opposite
+order, and two commits in one pull request do not count. The root `AGENTS.md`
+has the full rule, including why the generated clients are exempt.

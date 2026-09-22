@@ -8,7 +8,7 @@ change a read path, add an index, or want to know what a bigger customer would
 feel.
 
 ```sh
-pnpm run bench                     # fast tier, ~37k cards, seeds in ~4s
+pnpm run bench                     # fast tier, ~37k cards, seeds in seconds
 pnpm run bench:heavy               # heavy tier, ~400k cards, seeds in a few minutes
 pnpm run bench --explain        # add the query plan for each scenario's slowest statement
 pnpm run bench --only=projects  # just the scenarios whose name or group matches
@@ -25,11 +25,11 @@ spent inside Postgres, and the response size.
 The status column is there because a scenario that quietly started returning 404
 is otherwise indistinguishable from one that got fast. Any non-2xx is flagged.
 
-Wall clock on a laptop is not a production number. What the harness is actually
-for is the shape of the curve: the statement count says whether a request is
-O(1) or O(rows), the database share says whether a regression is in SQL or in
-serialization, and running both tiers says whether a path grows with the
-instance.
+Wall clock on a laptop is not a production number. What the harness is
+actually for is the shape of the curve: the statement count says whether a
+request is O(1) or O(rows), the database share says whether a regression is in
+SQL or in serialization, and running both tiers says whether a path grows with
+the instance.
 
 ## The tiers
 

@@ -43,12 +43,11 @@ placeholder terraform seeds the secret with, and matches the presented one under
 a constant-time comparison of SHA-256 digests. Missing configuration therefore
 denies everyone rather than admitting everyone.
 
-That direction is load-bearing rather than a preference. What the gate keeps out
-is unreviewed, unmerged code on a guessable subdomain of the production domain,
-wired to the production API — so an open gate is not a mild default, and an open
-gate nobody notices is worse. `PLACEHOLDER_CREDENTIAL` is recognised for the
-same reason: a value that lives in this repository must never be presentable as
-a credential.
+That direction is load-bearing. What the gate keeps out is unreviewed,
+unmerged code on a guessable subdomain of the production domain, wired to the
+production API — so an open gate is not a mild default, and an open gate nobody
+notices is worse. `PLACEHOLDER_CREDENTIAL` is recognised for the same reason: a
+value that lives in this repository must never be presentable as a credential.
 
 `PREVIEW_AUTH` is the one environment variable the service does **not** require
 at startup, unlike `WEB_BUCKET` and `PREVIEW_HOST_SUFFIX`. A revision that

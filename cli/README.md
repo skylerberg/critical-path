@@ -82,30 +82,24 @@ Entity references accept a UUID, a unique id prefix (>= 4 chars), an exact
 name/title (case-insensitive), or a unique substring; ambiguity is an error
 listing the candidates. A user reference additionally accepts an email address,
 which is tried first and matched by the server, since no user record the CLI
-receives carries one; an address naming nobody visible falls through to the
-name tiers rather than failing outright. Project and task references
-additionally accept the
-22-character short alias the web app puts in its URLs; column, label,
-invitation and user references do not. The alias is base64url of the id's 16
-raw bytes and is **case sensitive** — one flipped letter is a different
-reference, and a non-canonical spelling is rejected rather than silently
-resolving to the same card. A task alias names the card outright, so it needs
-no `--project`; what it does not do is let a board mutation reach an archived
-card. Task references resolve against the board, which has no archived cards in
-it, so `task show`, `task duplicate`, `task archive`, `task restore`, `task delete`
+receives carries one. Project and task references additionally accept the
+22-character short alias the web app puts in its URLs; it is base64url of the
+id's 16 raw bytes and is **case sensitive**. A task alias names the card
+outright, so it needs no `--project`.
+
+Task references resolve against the board, which has no archived cards in it,
+so `task show`, `task duplicate`, `task archive`, `task restore`, `task delete`
 and `task url` fall back to the archive on a miss; every board-shaped mutation
 (`move`, `done`, `update`, `label`, `assign`, `block`) deliberately does not,
-and answers `No task matching` for an archived card — by alias and id just as
-by title. Task descriptions are Markdown in and out, converted to the API's
-restricted Tiptap JSON (`--description-json` is the raw escape hatch). A due
-date is one calendar day and `--due` accepts `YYYY-MM-DD` only — there is no
-shorthand parsing.
+and answers `No task matching` for an archived card. Task descriptions are
+Markdown in and out, converted to the API's restricted Tiptap JSON
+(`--description-json` is the raw escape hatch). `--due` accepts `YYYY-MM-DD`
+only — there is no shorthand parsing.
 
 Markdown is a one-way door for mentions: `task show` and `comment list` print
-one as `@label`, and writing that text back with `task update --description` or
-`comment edit` stores plain text, dropping the link to the person for everyone.
-`--description-json` is the lossless path; comment bodies have no equivalent,
-so edit one from the web app if it contains a mention.
+one as `@label`, and writing that text back stores plain text, dropping the
+link to the person. `--description-json` is the lossless path; comment bodies
+have no equivalent, so edit one from the web app if it contains a mention.
 
 ## Checklists
 
@@ -139,47 +133,37 @@ usage/ambiguous reference, 3 auth, 4 not found, 5 conflict, 6 invalid input.
 ## Watching realtime events
 
 `cpath watch` opens the API's `/ws` connection and prints every delivered event
-to stdout as newline-delimited JSON — one compact object per line, exactly the
-frame the server sent, in the `{ type, project_id, data }` envelope the
-Realtime section of `api/README.md` catalogs. Everything else (the startup
-summary, connection notices, errors) goes to stderr, so `cpath watch | jq …` is
-the intended shape. `--json` and `--no-color` have no effect: the output is
-always NDJSON.
+to stdout as newline-delimited JSON — one compact object per line in the
+`{ type, project_id, data }` envelope the Realtime section of `api/README.md`
+catalogs. Everything else (the startup summary, connection notices, errors)
+goes to stderr, so `cpath watch | jq …` is the intended shape. `--json` and
+`--no-color` have no effect: the output is always NDJSON.
 
 `--project` narrows the stream to one project. Unlike every other command it
 does **not** fall back to `CRITICAL_PATH_PROJECT` or the configured
 `default-project` — without the flag, `watch` follows every accessible
-project, including ones created while it runs, and each line's `project_id`
-disambiguates. Scoping to a project also drops the account-scoped events —
-`user_updated` and `account_updated` — which carry `project_id: null` and belong
-to no project. Unscoped, note that `account_updated` puts your own email address
-on stdout; it is the only event `watch` prints that contains one.
+project, and each line's `project_id` disambiguates. Scoping to a project also
+drops the account-scoped events (`user_updated`, `account_updated`), which
+carry `project_id: null`. Unscoped, note that `account_updated` puts your own
+email address on stdout; it is the only event `watch` prints that contains one.
 
-The connection reconnects on its own with exponential backoff (1s doubling to
-30s) and resubscribes each time, re-listing projects first when it is
-following all of them. **Reconnects are normal, not exceptional**:
-production's load balancer caps a WebSocket at one hour, so a day-long
-`watch` reconnects roughly two dozen times.
+The connection reconnects on its own with exponential backoff and resubscribes
+each time. **Reconnects are normal**: production's load balancer caps a
+WebSocket at one hour.
 
 **There is no replay.** The server keeps no event log, so events published
-while disconnected are lost — a predictable, recurring gap, not a rare
-failure. `watch` is a live tap, not an event ledger; treat the "Connection
-restored" line on stderr as the cue to resync with `cpath board`.
+while disconnected are lost. `watch` is a live tap, not an event ledger; treat
+the "Connection restored" line on stderr as the cue to resync with `cpath
+board`.
 
-A close code of 4401 is confirmed with one HTTP request before the process
-gives up, because the server also sends it for transient auth-protocol
-closes. A genuinely revoked or expired session exits 3 with the usual login
-hint.
-
-A close code of 4429 stops the watch instead. The account was over the API's
-per-account socket ceiling — the Realtime section of `api/README.md` states the
-number — and this connection was the oldest, so the credential is still good;
-reconnecting would only take the slot back off whichever client the server
-handed it to, which reconnects and takes it back. A watcher is a
-process someone started, so it says so and exits rather than idling. Close
-another client and start it again. It exits 3, the same code an expired
-session gives, but without the login hint — the message is what tells the two
-apart. Any other close code reconnects.
+A close code of 4401 is confirmed with one HTTP request before giving up,
+because the server also sends it for transient auth-protocol closes; a
+genuinely revoked or expired session exits 3 with the usual login hint. A close
+code of 4429 stops the watch instead: the account was over the API's
+per-account socket ceiling (the Realtime section of `api/README.md` states the
+number) and this connection was the oldest, so reconnecting would only take the
+slot back off whichever client the server handed it to. Close another client
+and start it again. Any other close code reconnects.
 
 ## Shell completion
 
@@ -195,16 +179,12 @@ cpath completion -s fish > ~/.config/fish/completions/cpath.fish
 ```
 
 TAB completes subcommands and flags, and — where a reference is expected —
-project, column, label, task and member names, taken from the
-project named on the command line or, failing that, from
-`CRITICAL_PATH_PROJECT` / the configured `default-project`. Those lookups are
-cached for ~30 seconds under the config directory and fail silently: an
-unreachable server or an expired session just means no suggestions, never an
-error in the middle of your prompt.
+project, column, label, task and member names. Those lookups are cached for
+~30 seconds under the config directory and fail silently: an unreachable server
+just means no suggestions, never an error in the middle of your prompt.
 
 The bash and zsh scripts are verified against bash 3.2 and zsh 5.9. **The fish
-script is untested** — it was written from the documented behavior of
-`commandline` and has never been run against a real fish.
+script is untested.**
 
 ## Which server it talks to
 
@@ -226,6 +206,4 @@ pnpm -C api test           # the CLI's own tests run in api's vitest, not here
 ```
 
 `AGENTS.md` in this directory explains both — why the tests live in the api
-package's suite, how the committed client under `src/api/` is regenerated, and
-which of this package's config files exist only because a config search that
-walks up out of `cli/` finds nothing.
+package's suite and how the committed client under `src/api/` is regenerated.

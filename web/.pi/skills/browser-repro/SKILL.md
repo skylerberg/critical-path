@@ -6,11 +6,9 @@ description: Reproduce and debug layout, focus and other bugs against the REAL c
 # Browser repro for layout bugs
 
 jsdom (the vitest environment) has **no box model** — it cannot catch layout
-bugs, and a hand-authored fixture can pass while the real app fails (this is
-exactly how the mobile bottom-nav bug shipped: a fixture without the real
-component's absolutely-positioned children passed, while production broke). For
-any layout/visual bug, reproduce against the **real component** in a real
-browser before diagnosing.
+bugs, and a hand-authored fixture can pass while the real app fails. For any
+layout/visual bug, reproduce against the **real component** in a real browser
+before diagnosing.
 
 Everything here rides on Playwright (already a dev dependency): it drives a
 pinned headless Chromium via `scripts/lib/browser.mjs`. First-time local setup:
@@ -98,7 +96,7 @@ const b = await createBrowser({ engine: 'webkit' });
 Do it for anything touching focus, the on-screen keyboard, or what an unmount
 does to a focused field: the two engines disagree there, Chromium is the
 optimistic one, and a green Chromium run on its own is not an answer. AGENTS.md's
-"Checking what jsdom cannot model" has the specific difference and what it cost.
+"Checking what jsdom cannot model" has the specific difference.
 
 ## Guardrails
 
