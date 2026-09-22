@@ -14,6 +14,9 @@ export const boardLabelSchema = type({
   id: 'string',
   name: 'string',
   color: 'string',
+  // Nullable until the label sort_key enforcement migration lands; see
+  // labelSchema in schemas/labels.ts.
+  sort_key: 'string | null',
 });
 
 export type BoardLabel = typeof boardLabelSchema.infer;

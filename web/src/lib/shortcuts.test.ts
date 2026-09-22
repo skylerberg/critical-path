@@ -8,6 +8,7 @@ import { session } from './session.svelte';
 import { projectHref, publicBoardHref, taskHref } from './short-links';
 import { testUuid } from './test-ids';
 import type { BoardTask } from './board-types';
+import { testSortKey } from './test-ids';
 
 const me = {
   id: 'u-me',
@@ -76,7 +77,7 @@ beforeEach(() => {
     { id: 'done', name: 'Done', sort_key: 'V0000020001', is_done: true },
   ];
   board.tasks = [task(TASK_1, 'c1', 1000, 'A'), task(TASK_2, 'c1', 2000, 'B')];
-  board.labels = [{ id: 'lab', name: 'art', color: '#ff0000' }];
+  board.labels = [{ id: 'lab', name: 'art', color: '#ff0000', sort_key: testSortKey(0) }];
   // Navigating rather than assigning `current` keeps `router.path` in step, which the
   // store needs to rewrite the query string when a shortcut changes a filter.
   router.navigate(BOARD_PATH, { replace: true });

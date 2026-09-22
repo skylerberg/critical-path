@@ -305,7 +305,7 @@ export async function copyProject(db: Kysely<DB>, input: CopyProjectInput): Prom
 
   const labels = await db
     .selectFrom('label')
-    .select(['id', 'name', 'color'])
+    .select(['id', 'name', 'color', 'sort_key'])
     .where('project_id', '=', input.sourceProjectId)
     .execute();
   const labelIdMap = new Map(labels.map((label) => [label.id, crypto.randomUUID()]));
@@ -319,6 +319,10 @@ export async function copyProject(db: Kysely<DB>, input: CopyProjectInput): Prom
           project_id: input.id,
           name: label.name,
           color: label.color,
+          // The keys carry over unchanged: the copy is a fresh scope, so keys
+          // that were unique in the source cannot collide in it, and the copy
+          // keeps the source's label order.
+          sort_key: label.sort_key,
         }))
       )
       .execute();

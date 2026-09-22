@@ -221,9 +221,11 @@ export async function getBoardPayload(
 
   const labels = await db
     .selectFrom('label')
-    .select(['id', 'name', 'color'])
+    .select(['id', 'name', 'color', 'sort_key'])
     .where('project_id', '=', projectId)
-    .orderBy('name')
+    // Rows a previous pod wrote mid-deploy have no key and read last, matching
+    // the clients' byRank; the id tiebreak keeps even that order stable.
+    .orderBy('sort_key')
     .orderBy('id')
     .execute();
 
@@ -351,6 +353,7 @@ function toPublicBoard(
       id: label.id,
       name: label.name,
       color: label.color,
+      sort_key: label.sort_key,
     })),
     users: users.map((user) => ({
       id: user.id,

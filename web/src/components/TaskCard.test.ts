@@ -16,6 +16,7 @@ import { publicTaskHref, taskHref } from '../lib/short-links';
 import { testUuid } from '../lib/test-ids';
 import { TASK_TITLE_MAX_LENGTH, TITLE_DISPLAY_LIMIT, truncateTitle } from '../lib/titles';
 import { users } from '../lib/users.svelte';
+import { testSortKey } from '../lib/test-ids';
 
 const PROJECT_ID = testUuid('p1');
 const TASK_ID = testUuid('t1');
@@ -97,7 +98,7 @@ describe('TaskCard', () => {
     render(TaskCard, {
       task,
       projectId: PROJECT_ID,
-      labels: [{ id: 'l1', name: 'art', color: '#ff0000' }],
+      labels: [{ id: 'l1', name: 'art', color: '#ff0000', sort_key: testSortKey(0) }],
       blockedCount: 2,
     });
 
@@ -393,7 +394,7 @@ describe('TaskCard', () => {
       task,
       projectId: PROJECT_ID,
       readonly: true,
-      labels: [{ id: 'l1', name: 'art', color: '#ff0000' }],
+      labels: [{ id: 'l1', name: 'art', color: '#ff0000', sort_key: testSortKey(1) }],
       blockedCount: 2,
     });
 

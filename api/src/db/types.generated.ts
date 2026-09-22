@@ -87,6 +87,7 @@ export interface Label {
   id: string;
   name: string;
   project_id: string;
+  sort_key: string | null;
 }
 
 export interface PendingAssignmentNotification {

@@ -58,6 +58,7 @@ const SCOPES = {
   checklist_item: 'task_id',
   project_user_position: 'user_id',
   task_series_checklist_item: 'series_id',
+  label: 'project_id',
 } as const;
 
 export type SortKeyTable = keyof typeof SCOPES;

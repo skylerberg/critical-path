@@ -20,6 +20,7 @@ import { taskRoute } from '../lib/task-route.svelte';
 import { testUuid } from '../lib/test-ids';
 import { stubClipboard } from '../lib/test-stubs';
 import { toasts } from '../lib/toasts.svelte';
+import { testSortKey } from '../lib/test-ids';
 
 const DEBOUNCE_MS = 250;
 
@@ -178,8 +179,8 @@ beforeEach(() => {
     { id: 'done', name: 'Done', sort_key: 'V0000020001', is_done: true },
   ];
   board.labels = [
-    { id: 'l1', name: 'art', color: '#ff0000' },
-    { id: 'l2', name: 'rules', color: '#00ff00' },
+    { id: 'l1', name: 'art', color: '#ff0000', sort_key: testSortKey(0) },
+    { id: 'l2', name: 'rules', color: '#00ff00', sort_key: testSortKey(1) },
   ];
   board.tasks = [task(TASK_1, 'c1', 1000, 'Design cards'), task(TASK_2, 'done', 1000, 'Ship it')];
   projects.projects = [project(PROJECT_ID, 'Game'), project(OTHER_PROJECT_ID, 'Atlas')];

@@ -7,6 +7,7 @@ import { connectivity } from '../lib/connectivity.svelte';
 import { outbox } from '../lib/outbox.svelte';
 import { toasts } from '../lib/toasts.svelte';
 import type { BoardPayload } from '../lib/board-types';
+import { testSortKey } from '../lib/test-ids';
 
 const PROJECT_ID = 'p1';
 
@@ -26,7 +27,7 @@ function payload(): BoardPayload {
     },
     columns: [{ id: 'c1', name: 'Todo', sort_key: 'V0000010001', is_done: false }],
     tasks: [],
-    labels: [{ id: 'l1', name: 'art', color: '#ff0000' }],
+    labels: [{ id: 'l1', name: 'art', color: '#ff0000', sort_key: testSortKey(0) }],
     changed_task_ids: [],
   };
 }
@@ -72,7 +73,7 @@ beforeEach(() => {
     toasts.dismiss(toast.id);
   }
   board.currentProjectId = PROJECT_ID;
-  board.labels = [{ id: 'l1', name: 'art', color: '#ff0000' }];
+  board.labels = [{ id: 'l1', name: 'art', color: '#ff0000', sort_key: testSortKey(1) }];
   mockRoutes();
 });
 
@@ -154,8 +155,8 @@ describe('LabelManager', () => {
 
   it('deletes the label the row belongs to', async () => {
     board.labels = [
-      { id: 'l1', name: 'art', color: '#ff0000' },
-      { id: 'l2', name: 'code', color: '#00ff00' },
+      { id: 'l1', name: 'art', color: '#ff0000', sort_key: testSortKey(2) },
+      { id: 'l2', name: 'code', color: '#00ff00', sort_key: testSortKey(3) },
     ];
 
     open();

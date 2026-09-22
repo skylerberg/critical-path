@@ -122,8 +122,8 @@ describe('GET /api/projects/:id board payload', () => {
     });
 
     expect(payload.labels).toEqual([
-      { id: usedLabelId, name: 'bug', color: '#aa0000' },
-      { id: unusedLabelId, name: 'idea', color: '#00bb00' },
+      { id: usedLabelId, name: 'bug', color: '#aa0000', sort_key: expect.any(String) },
+      { id: unusedLabelId, name: 'idea', color: '#00bb00', sort_key: expect.any(String) },
     ]);
   });
 

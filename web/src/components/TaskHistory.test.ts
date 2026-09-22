@@ -11,6 +11,7 @@ import { stubClipboard } from '../lib/test-stubs';
 import { toasts } from '../lib/toasts.svelte';
 import { users } from '../lib/users.svelte';
 import type { BoardTask } from '../lib/board-types';
+import { testSortKey } from '../lib/test-ids';
 
 function task(commentCount: number): BoardTask {
   return {
@@ -283,7 +284,7 @@ describe('TaskHistory', () => {
   });
 
   it('shows a label’s color only while the label still exists', () => {
-    board.labels = [{ id: 'l1', name: 'bug', color: '#ff0000' }];
+    board.labels = [{ id: 'l1', name: 'bug', color: '#ff0000', sort_key: testSortKey(0) }];
     taskActivity.entries = [
       entry('a1', 'label_added', { new_value: { id: 'l1', name: 'bug' } }),
       entry('a2', 'label_removed', { old_value: { id: 'l2', name: 'gone' } }),

@@ -1258,7 +1258,7 @@ export interface paths {
     put?: never;
     /**
      * Create label
-     * @description Create a label in a project. The client supplies the label id. Label names are unique per project. Returns 404 when the referenced project is unknown or inaccessible.
+     * @description Create a label in a project. The client supplies the label id. Label names are unique per project. Without a sort_key the label goes to the end of the project’s label list; a sort_key already taken ranks it immediately after the label holding it. Returns 404 when the referenced project is unknown or inaccessible.
      */
     post: operations['postApiLabels'];
     delete?: never;
@@ -1286,7 +1286,7 @@ export interface paths {
     head?: never;
     /**
      * Update label
-     * @description Rename or recolor a label. Label names are unique per project.
+     * @description Rename, recolor, or move a label. Label names are unique per project. A sort_key already taken in the project ranks the label immediately after the one holding it rather than failing, so the echoed sort_key is not always the one that was sent.
      */
     patch: operations['patchApiLabelsById'];
     trace?: never;
@@ -1983,6 +1983,7 @@ export interface components {
       color: string;
       id: string;
       name: string;
+      sort_key: string | null;
     };
     Project: {
       archived_at: string | null;
@@ -2539,6 +2540,7 @@ export interface components {
       id: string;
       name: string;
       project_id: string;
+      sort_key: string | null;
     };
     CreateLabel: {
       color: string;
@@ -2547,10 +2549,14 @@ export interface components {
       name: string;
       /** Format: uuid */
       project_id: string;
+      /** @description a sort key */
+      sort_key?: string;
     };
     PatchLabel: {
       color?: string;
       name?: string;
+      /** @description a sort key */
+      sort_key?: string;
     };
     CreateComment: {
       body: components['schemas']['TiptapDoc'];

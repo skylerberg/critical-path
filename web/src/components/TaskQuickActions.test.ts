@@ -51,7 +51,7 @@ beforeEach(() => {
     { id: 'c1', name: 'Todo', sort_key: 'V0000010001', is_done: false },
     { id: 'c2', name: 'Done', sort_key: 'V0000010002', is_done: true },
   ];
-  board.labels = [{ id: 'l1', name: 'art', color: '#ff0000' }];
+  board.labels = [{ id: 'l1', name: 'art', color: '#ff0000', sort_key: testSortKey(0) }];
   board.tasks = [{ ...task }];
   users.setForProject('p1', [{ id: 'u-ada', name: 'Ada Lovelace', avatar_url: null }]);
 });

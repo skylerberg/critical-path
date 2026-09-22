@@ -6,6 +6,7 @@ import { AppError, isUniqueViolation } from '../utils/errors';
 import { assertProjectWrite } from '../services/authorization';
 import { assertLabelWrite, LABEL_NOT_FOUND } from '../services/labels';
 import { publishAfterCommit } from '../services/realtime/index';
+import { appendKeys, resolveSortKey } from '../services/sortKey';
 import { recordTaskActivity } from '../services/taskActivity';
 import {
   createLabelSchema,
@@ -25,6 +26,7 @@ import {
   internalServerErrorResponse,
 } from '../schemas/index';
 import { AppHono } from '../types/index';
+import type { ResolvedSortKey } from '../db/types';
 
 const router: AppHono = new Hono();
 
@@ -37,7 +39,9 @@ router.post(
     summary: 'Create label',
     description:
       'Create a label in a project. The client supplies the label id. Label names are unique per ' +
-      'project. Returns 404 when the referenced project is unknown or inaccessible.',
+      'project. Without a sort_key the label goes to the end of the project’s label list; a ' +
+      'sort_key already taken ranks it immediately after the label holding it. Returns 404 when ' +
+      'the referenced project is unknown or inaccessible.',
     security: [{ bearerAuth: [] }],
     responses: {
       ...createLabelResponses,
@@ -51,16 +55,21 @@ router.post(
   }),
   jsonValidator(createLabelSchema),
   async (c): Promise<Returned<typeof createLabelResponses>> => {
-    const { id, project_id, name, color } = c.req.valid('json');
+    const { id, project_id, name, color, sort_key } = c.req.valid('json');
     const db = c.get('db');
     const user = c.get('user');
 
     await assertProjectWrite(db, user.id, project_id);
 
+    const resolved =
+      sort_key === undefined
+        ? (await appendKeys(db, 'label', project_id))[0]!
+        : await resolveSortKey(db, 'label', project_id, sort_key);
+
     try {
       const label = await db
         .insertInto('label')
-        .values({ id, project_id, name, color })
+        .values({ id, project_id, name, color, sort_key: resolved })
         .returningAll()
         .executeTakeFirstOrThrow();
       publishAfterCommit(c, 'label_created', project_id, label);
@@ -81,7 +90,10 @@ router.patch(
   describeRoute({
     tags: ['Labels'],
     summary: 'Update label',
-    description: 'Rename or recolor a label. Label names are unique per project.',
+    description:
+      'Rename, recolor, or move a label. Label names are unique per project. A sort_key already ' +
+      'taken in the project ranks the label immediately after the one holding it rather than ' +
+      'failing, so the echoed sort_key is not always the one that was sent.',
     security: [{ bearerAuth: [] }],
     responses: {
       ...patchLabelResponses,
@@ -104,9 +116,12 @@ router.patch(
 
     const existing = await assertLabelWrite(db, user.id, id);
 
-    const updates: { name?: string; color?: string } = {};
+    const updates: { name?: string; color?: string; sort_key?: ResolvedSortKey } = {};
     if (body.name !== undefined) updates.name = body.name;
     if (body.color !== undefined) updates.color = body.color;
+    if (body.sort_key !== undefined) {
+      updates.sort_key = await resolveSortKey(db, 'label', existing.project_id, body.sort_key);
+    }
 
     if (Object.keys(updates).length === 0) {
       return c.json(existing, 200);
