@@ -7,6 +7,7 @@ import { board, type TaskComment } from '../lib/board.svelte';
 import { projects } from '../lib/projects.svelte';
 import { session } from '../lib/session.svelte';
 import { taskActivity, type TaskActivityEntry } from '../lib/taskActivity.svelte';
+import { stubClipboard } from '../lib/test-stubs';
 import { toasts } from '../lib/toasts.svelte';
 import { users } from '../lib/users.svelte';
 import type { BoardTask } from '../lib/board-types';
@@ -80,15 +81,6 @@ const previousDoc = {
     },
   ],
 };
-
-// Spreading navigator to stub it would drop the prototype getters the editor
-// reads, so only the one property moves.
-function stubClipboard(writeText: (text: string) => Promise<void>): void {
-  Object.defineProperty(navigator, 'clipboard', {
-    value: { writeText },
-    configurable: true,
-  });
-}
 
 const dateFormat = new Intl.DateTimeFormat(undefined, {
   dateStyle: 'medium',
