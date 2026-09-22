@@ -17,9 +17,6 @@ about the product rather than about one package: `docs/feature-research.md`
 surveys the category and records the build/decline decision on every feature,
 which is where the roadmap comes from.
 
-`AGENTS.md` at the root is the working manual for anyone — human or agent —
-changing code here. It is worth reading before the first pull request.
-
 ## Requirements
 
 Node.js >= 22, pnpm (each package pins its own version via `packageManager`),
@@ -100,25 +97,13 @@ scripts/check-all.sh
 scripts/check-all.sh --fast   # stops short of the suites and the probes
 ```
 
-Its header names what a green run still does not promise. Each package also
-runs its own, from its own directory, under the same name in all four:
-`pnpm -C <pkg> run check:all`; `type-check`, `lint` and `format:check` mean the
-same thing everywhere too (web's type checker is `svelte-check`).
+Each package also has its own `check:all` (`pnpm -C <pkg> run check:all`), and
+`type-check`, `lint` and `format:check` mean the same thing in all four.
 
-CI mirrors that split across path-filtered workflows, and `ci-gate.yaml` is the
-one unfiltered one: it reads the others' results and fails if any did not
-pass. Require its **`ci-gate`** job in branch protection and nothing else — the
-root `AGENTS.md` explains why nothing else can be required.
+## Working in this repository
 
-Do not run `prettier --write` or `eslint --fix` by hand:
-`.githooks/post-commit` runs each package's own formatter over the files that
-commit touched and amends the result in.
-
-## Two merges, api first
-
-**An endpoint and the web code that calls it must not land in the same merge.**
-One push starts both production deploys and web's finishes first, so for that
-window the deployed bundle calls an API that has not restarted yet. Merge the
-api half, wait for it, then open the web half; deletions run in the opposite
-order, and two commits in one pull request do not count. The root `AGENTS.md`
-has the full rule, including why the generated clients are exempt.
+`AGENTS.md` at the root is the manual for changing code here: the workspace
+rules, the commit hooks that run the formatters for you, how CI is wired, how
+to stay current with a fast-moving `main`, and the **two-commit deploy rule** —
+an API endpoint and the web code that calls it must land in separate merges,
+api first. Read it before your first pull request.

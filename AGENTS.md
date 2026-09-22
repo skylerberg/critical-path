@@ -2,22 +2,23 @@
 
 One repository, four packages, **no root package and no root `node_modules`**.
 
-| Package         | What it is                                   | Its docs                        |
-| --------------- | -------------------------------------------- | ------------------------------- |
+| Package         | What it is                                   | Its docs                         |
+| --------------- | -------------------------------------------- | -------------------------------- |
 | `api/`          | Hono + Kysely + Postgres backend             | `api/AGENTS.md`, `api/README.md` |
 | `web/`          | Svelte 5 (runes) + Vite SPA/PWA frontend     | `web/AGENTS.md`, `web/README.md` |
 | `cli/`          | `cpath`, a command-line client for the API   | `cli/AGENTS.md`, `cli/README.md` |
-| `preview-edge/` | the Cloud Run worker that serves PR previews | `preview-edge/README.md`        |
+| `preview-edge/` | the Cloud Run worker that serves PR previews | `preview-edge/README.md`         |
 
-Each package's own docs are its operating manual; this file holds only what is
-true at the root.
+Each package's own docs are its operating manual; this file holds what is true
+across all of them. Read it before your first change.
 
 `infra/terraform/` is not a fifth package. It is the terraform for the whole
-repository — the global load balancer and its URL map, the web bucket and CDN,
-the preview-edge Cloud Run service, the certificates, the Artifact Registry
-repository, the monitoring, and four api-only resources (its service account,
-workload-identity binding, uploads bucket and that bucket's IAM member).
-`infra-ci.yaml` is its CI; `infra/terraform/README.md` is its operating manual.
+repository — the load balancer and URL map, the web bucket and CDN, the
+preview-edge Cloud Run service, certificates, Artifact Registry, monitoring,
+and four api-only resources. `infra-ci.yaml` is its CI;
+`infra/terraform/README.md` is its operating manual. `docs/` holds prose about
+the product rather than about one package; `scripts/` holds shared tooling and
+has its own README.
 
 ## This is not a pnpm workspace, and must never become one
 
@@ -40,6 +41,14 @@ cannot-find-module in a package whose install reported success. The four
 lockfiles also keep each deploy workflow's path filter exact: a shared one
 would make a CLI dependency bump redeploy the production API.
 
+Each package's `pnpm-workspace.yaml` is a settings file, not a workspace
+declaration — none has a `packages:` key. pnpm 11 reads settings from nowhere
+else (not `.npmrc` beyond auth and registry, not package.json's `pnpm` field),
+and **keys are camelCase**: a kebab-case key is dropped silently. `allowBuilds`
+gates whether a dependency may run install scripts, with `strictDepBuilds`
+failing the install on any unlisted one — adding a dependency that builds means
+listing it there in the same commit.
+
 ## Toolchain and command names
 
 **The shared toolchain is pinned to an exact version in every `package.json`:**
@@ -49,9 +58,8 @@ check is green, and a range makes the answer depend on when a lockfile was last
 written. It binds harder here because `api/tsconfig.json` includes
 `../cli/**/*`: the CLI's sources are type-checked twice, under each package's
 `@types/node`, and only a pin makes those two runs the same run.
-`openapi-typescript` is pinned for a different reason: it writes four committed
-files that `codegen-ci.yaml` re-derives and diffs, so two packages floating
-apart on it surfaces as an unreadable drift failure. Libraries are not pinned.
+`openapi-typescript` is pinned because it writes four committed files that
+`codegen-ci.yaml` re-derives and diffs. Libraries are not pinned.
 
 **A command name means one thing in every package.** `type-check`, `lint`,
 `lint:fix`, `format`, `format:check` and `check:all` exist in all four; web's
@@ -90,59 +98,65 @@ This is the client half of the rolling-deploy discipline in `api/AGENTS.md`'s
 migration workflow: old and new have to interoperate across a window whose
 length you do not control.
 
-## One `main` serves both projects
+## Staying current with main
 
-`git rev-list --count HEAD..origin/main` counts the other package's traffic
-too, so it is almost never 0. Ask about your own side:
+`main` moves fast, so a branch cut an hour ago is routinely behind, and nothing
+tells you until a rebase conflicts or CI fails on a rule your base predates.
+Rebase onto `main` (not merge: branches are rebased, only the PR itself lands
+as a merge commit) and check at three points: **before starting** (also run
+`gh pr list` — the fix may already be open), **before running a full suite**,
+and **before pushing** (`gh pr view <n> --json mergeStateStatus` reports
+`CLEAN` only for a branch that still applies).
+
+**Scope the staleness check to your side of the tree.** The bare
+`git rev-list --count HEAD..origin/main` counts every package's traffic, so it
+is almost never 0 and says nothing about your base. Ask:
 
 ```sh
-git fetch origin && git rev-list --count HEAD..origin/main -- api/   # or -- web/
+git fetch origin && git rev-list --count HEAD..origin/main -- api/   # or -- web/, -- cli/
 ```
 
-`api/AGENTS.md`'s "Staying current with main" is the full version;
-`web/AGENTS.md`'s section of that name is the frontend's half.
+Drop the pathspec deliberately when the change spans packages, and read the
+answer as two numbers. Being behind on a package you are not touching is a
+reason to rebase before you push, not mid-change.
+
+After any rebase, re-run the checks rather than trusting the pre-rebase pass,
+and re-run whatever generation the change involves **after** the rebase, not
+before — a rebase can bring in a schema change that silently invalidates a
+committed generated file, and regenerating early produces a misleading diff on
+a dirty tree that `git rebase` then refuses.
+
+Two traps that produce *wrong* conclusions rather than failures:
+
+- **Comments about build configuration go stale.** Read `package.json` and
+  `tsconfig.json` rather than a comment describing them.
+- **"No diff" is not a passing check.** `git diff --quiet <file>` is vacuously
+  clean for a gitignored file, and for one a failed command never wrote —
+  `openapi.json` and `realtime-events.json` are both gitignored. Assert the
+  positive: the command exited 0, the file was written, the content is what you
+  expected.
+
+One conflict resolves wrongly by default: a branch cut before those two dumps
+were untracked still carries the tracked copy, so merging main raises a
+modify/delete conflict on it. Keep the deletion — the file is a dump now.
 
 ## The root `scripts/` directory
 
-`scripts/README.md` is the directory's index. The short version:
-
-- `scripts/generate-clients.sh` regenerates all four committed API clients; run
-  it after any schema or realtime-payload change and commit its output with the
-  change.
-- `scripts/new-worktree.sh <branch>` is the worktree bootstrap for all four
-  packages. Make every worktree with it — a hand-made one fails the checks for
-  reasons unrelated to the change in it. It sits at the root, not in
-  `api/scripts/`, because `api-deploy.yaml` filters on `api/scripts/**`.
-- `scripts/check-comments.mjs` is the prose gate: it reports one sentence
-  living in two files, and a file or symbol that prose names but that does not
-  resolve. `scripts/comment-allowlist.txt` is the narrow escape hatch, and a
-  stale entry there is itself reported.
-- `scripts/lib/` holds the OpenAPI client generator both client packages run;
-  each package owns only a wrapper supplying `openapi-typescript` and an output
-  path.
+`scripts/README.md` is the index. Two rules hold the directory together:
 
 **It is not a package and must never become one.** No `package.json`, no
 `node_modules`, no lockfile — so **a file under `scripts/` may import node
 builtins and its own siblings, nothing else.** Bare specifiers resolve upward
 from the importing file, and the root has no `node_modules` to find. Nothing
-formats or lints this directory: match the shared prettier style by hand (100
+formats or lints the `.mjs` here: match the shared prettier style by hand (100
 columns, single quotes, semicolons, two-space indent). `repo-ci.yaml` does
-shellcheck the `.sh` here, and the comment check reads the `.mjs` for prose.
+shellcheck the `.sh`, and the comment check reads the `.mjs` for prose.
 
-## The root `docs/` directory
-
-Prose about the product rather than about one package.
-`docs/feature-research.md` is the survey of the category with the owner's
-build/decline decision on every feature — the roadmap the whole repository
-works from.
-
-The test for what belongs here is who the reader is, not where the subject is
-implemented: `api/docs/scaling.md` stays in `api/` because it is keyed to
-`api/bench/` and means nothing to `web/`.
-
-A commit touching only this directory matches no package's `paths:` filter, but
-it is not unchecked: `repo-ci.yaml` carries no filter, and its comment job
-holds this prose to the files and symbols it names.
+**`node scripts/check-comments.mjs` is the prose gate for the whole tree.** It
+reports one sentence living in two files, and a file or symbol that prose names
+but that does not resolve. Run it after moving a rule between documents (and
+`--selftest` after changing what it asserts). `scripts/comment-allowlist.txt`
+is the narrow escape hatch, and a stale entry there is itself reported.
 
 ## Git hooks and workflows
 
@@ -152,19 +166,14 @@ runs). `post-commit` and `post-rewrite` hand the paths a commit touched to
 `format-touched`, which buckets each by its first segment and runs **that
 package's own** eslint and prettier; a package with no config or no installed
 binary is named in a warning and skipped. **Never run `prettier --write` or
-`eslint --fix` by hand.**
+`eslint --fix` by hand.** One consequence: `format:check` is only meaningful on
+a *committed* tree — failing it on uncommitted edits means nothing has fixed
+them yet.
 
-That script has tests — `.githooks/tests/format-touched.test.sh`, run by
-`repo-ci.yaml` and by nothing else. They stub `git` and `pnpm` onto PATH, so
-they need no repository, no `node_modules` and no network:
-
-```sh
-sh .githooks/tests/format-touched.test.sh
-```
-
-Add a case for anything you change in a hook. One known limitation: a path
-containing a space reaches the fixers split in two, is reported, and is left
-unformatted.
+The hook has tests — `sh .githooks/tests/format-touched.test.sh`, run by
+`repo-ci.yaml` and by nothing else. Add a case for anything you change in a
+hook. One known limitation: a path containing a space reaches the fixers split
+in two and is left unformatted.
 
 Every workflow under `.github/workflows/` is filtered to the packages it
 checks. No pnpm command in CI runs at the root, and every `setup-node` that
@@ -172,10 +181,8 @@ caches names an explicit `cache-dependency-path`, because there is no root
 lockfile. `repo-ci.yaml` carries no `paths:` at all: its `repo-files` job
 covers `.githooks/**`, `scripts/**` and `.github/workflows/**`, and its
 `comments` job reads every package's prose at once. `k8s-ci.yaml` validates
-`api/k8s/**`, which sits inside api-ci's filter but is read by no job there.
-`infra-ci.yaml` covers `infra/**`: `terraform fmt -check`, `init
--backend=false` and `validate` — it cannot plan, so it catches a broken
-configuration and not a wrong one.
+`api/k8s/**`; `infra-ci.yaml` validates the terraform (fmt/init/validate — it
+cannot plan, so it catches a broken configuration and not a wrong one).
 
 Every workflow that checks something must also be named in `ci-gate.yaml`'s
 `is_blocking` (or `is_advisory`). An unlisted name fails the gate by design, so

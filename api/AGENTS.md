@@ -3,65 +3,35 @@
 Backend for "Critical Path". Plain Postgres + Kysely — no Supabase, no Docker,
 no OpenTelemetry.
 
-This is one package of four in a monorepo (`api/`, `web/`, `cli/`,
-`preview-edge/`). The root `AGENTS.md` carries what is true across all of them —
-in particular the **two-commit deploy rule**, which this package's changes are
-half of. `web/AGENTS.md` is the frontend's manual.
+This is one package of four in a monorepo. **Read the root `AGENTS.md`
+first** — it owns the cross-package rules: the pnpm workspace trap, the pinned
+toolchain, the two-commit deploy rule (which this package's changes are half
+of), staying current with `main`, and the commit hooks. `README.md` here covers
+running and testing the package; this file covers changing it.
 
-**Where commands run.** Unless it says otherwise, a bare `pnpm run …` or
-`pnpm test` in this file is an api-package command: run it from `api/`, or as
-`pnpm -C api run …` from the repository root. Anything naming another package
-(`pnpm -C cli …`, `pnpm -C web …`) is written from the repository root; from
-inside `api/` those are `pnpm -C ../cli …`.
-
-# Package manager
-
-pnpm, pinned by `packageManager` in each package.json. Four packages, four
-lockfiles, four `pnpm-workspace.yaml` files, and no root workspace file — the
-root `AGENTS.md` covers why.
-
-`pnpm-workspace.yaml` is a settings file here, not a workspace declaration: none
-of the four has a `packages:` key. pnpm 11 reads settings from nowhere else —
-not `.npmrc` beyond auth and registry, not package.json's `pnpm` field. Keys are
-camelCase; a kebab-case one is dropped without a word.
-
-All four files turn `verifyDepsBeforeRun` **off** — the two failures behind that
-are recorded in `api/pnpm-workspace.yaml`'s comment. `allowBuilds` gates whether
-a dependency may run install scripts, and `strictDepBuilds` fails the install on
-any that is unlisted — a denial counts, an omission does not. Adding a
-dependency that builds means listing it there in the same commit.
+**Where commands run.** A bare `pnpm run …` or `pnpm test` in this file is an
+api-package command: run it from `api/`, or as `pnpm -C api run …` from the
+repository root. Anything naming another package (`pnpm -C cli …`) is written
+from the repository root; from inside `api/` those are `pnpm -C ../cli …`.
 
 # The two clients
 
-`web/` is the Svelte 5 frontend for this API. Run the API first
-(`pnpm -C api run dev`, port 3001), then the web app (`pnpm -C web run dev`,
-port 5173) — Vite proxies `/api` and `/ws` to `localhost:3001`.
-
-Both the web app and the `cli/` package generate their API client from this
-package's OpenAPI spec: **a request/response schema change and both regenerated
-clients belong in one commit.** One command does all of it, from any directory:
-
-```sh
-scripts/generate-clients.sh
-```
-
-`codegen-ci.yaml` runs the same script and fails if the committed clients
-differ, so this is not optional. Committing them beside the api change does not
-violate the two-commit deploy rule — the generated files declare types and no
-runtime values; it is the *call sites* that wait for the second merge.
-
-The script needs no `pnpm run openapi:dump` first — every generator re-dumps
-before reading, and all of them resolve this package by a fixed in-repo path,
-so a missing `api/` is a fatal error rather than a quiet fallback to the
-deployed API. The generators are one program in `scripts/lib/` at the
-repository root; each package keeps only its `openapi-typescript` dependency
-and the path it writes.
+`web/` and `cli/` each generate their API client from this package's OpenAPI
+spec: **a request/response schema change and both regenerated clients belong in
+one commit** (`scripts/generate-clients.sh`, runnable from anywhere).
+`codegen-ci.yaml` re-runs it and fails on a diff, so this is not optional.
+Committing the clients beside the api change does not violate the two-commit
+deploy rule — the generated files declare types and no runtime values; it is
+the *call sites* that wait for the second merge.
 
 Realtime and webhook event types come from a second document,
 `realtime-events.json`, because `/ws` has no HTTP request or response to put in
-the OpenAPI spec — see convention 14. It is dumped locally to `api/` and
-gitignored, and served at `GET /api/realtime-events.json` so a client can
-generate against a deployed API without a checkout.
+the OpenAPI spec — see convention 14. Both documents are gitignored dumps that
+every generator re-creates for itself from `api/src`, resolved by a fixed
+in-repo path, so a missing `api/` is a fatal error rather than a quiet fallback
+to the deployed API. `realtime-events.json` is additionally served at
+`GET /api/realtime-events.json` so a client can generate against a deployed API
+without a checkout.
 
 # Conventions
 
@@ -150,8 +120,7 @@ generate against a deployed API without a checkout.
     series sweep, the unfurl job) to name someone; `publishAfterCommit`
     therefore takes `CallerPayload<T>`, the payload minus that field.
     After changing a payload run `scripts/generate-clients.sh` and commit the
-    regenerated clients in the same commit. The dump itself is gitignored like
-    `openapi.json`.
+    regenerated clients in the same commit.
 15. Every `sort_key` is unique within its scope, and the `task` index spans
     archived rows on purpose, so a key a client computed — ranked against only
     the rows that client can see — is a request, not a value to store. The
@@ -189,35 +158,22 @@ generate against a deployed API without a checkout.
 
 # Realtime, email, and password reset
 
-- WebSockets are served at `/ws` on the raw HTTP upgrade (see
-  `src/services/realtime/transport.ts`); `/ws` is never part of the OpenAPI
-  spec. Handshake: `{ type: 'auth', token }` within 10s, then
-  `subscribe`/`unsubscribe` with a `project_id`; ping/pong heartbeat every 30s.
-  The handshake token is either a session token or a personal access token.
-  Three ceilings bound what one caller holds open: 200 live sockets per source
-  address (refused in the handshake with 429 and then destroyed — `end()` alone
-  half-closes), 20 per account (oldest closed with 4429, so a reconnect is
-  never refused by the socket it is replacing), and 1000 subscriptions per
-  socket. A `subscribe` naming anything that is not a uuid is ignored, and one
-  that is gets lower-cased — a differently-cased one names a room no publish
-  can reach. Only one `auth` frame per socket is ever acted on. All three
-  ceilings are per process, so the fleet-wide figure is times the replica
-  count — they bound what one process can be made to hold, not what one person
-  may have.
-  Credential revocation publishes `sessions_revoked` on the realtime bus, which
-  closes sockets with code 4401: `{ user_id }` reaches that user's session
-  sockets, and adding `personal_access_token_id` or `session_id` narrows it.
-  Any new publisher must keep sending `user_id` — it is the dispatch fallback
-  in `handleBusEntry`.
-  Both application close codes are one table,
-  `src/services/realtime/closeCodes.ts`, which `src/spec/realtime-events.ts`
-  publishes as `RealtimeCloseCode`: a code added at a close site and not in
-  that table reaches no client at all. The ping interval crosses the same way,
-  from `src/services/realtime/heartbeat.ts` as `RealtimeHeartbeatMs` — a
-  literal type, never a runtime value, that a client annotates its own copy of
-  the number with, so raising it breaks the client's compile. Both changes
-  carry the same `scripts/generate-clients.sh` obligation a payload change
-  does.
+The `/ws` protocol itself — handshake, ceilings, close codes, event envelopes —
+is specified in the README's Realtime section and in `realtime-events.json`;
+what follows is what only someone changing this package needs.
+
+- The socket layer lives in `src/services/realtime/`. Two facts that bite:
+  a handshake refused for too many sockets must be answered 429 **and then
+  destroyed** (`end()` alone half-closes), and only one `auth` frame per socket
+  is ever acted on, because frames from one read dispatch synchronously and two
+  resolving together would double-register. Credential revocation publishes
+  `sessions_revoked` on the bus, which closes sockets with code 4401; any new
+  publisher must keep sending `user_id` — it is the dispatch fallback in
+  `handleBusEntry`. Close codes added at a close site but not in
+  `src/services/realtime/closeCodes.ts` reach no client, and the heartbeat
+  interval crosses to clients as the literal type `RealtimeHeartbeatMs`, so
+  raising it breaks their compile — both changes carry the same
+  `scripts/generate-clients.sh` obligation a payload change does.
 - The realtime bus is in-process by default; when `REDIS_URL` is set (as in
   production, which runs 2+ replicas) publishes fan out via Redis pub/sub so
   every replica delivers to its own sockets. Rate limits also share Redis
@@ -231,11 +187,7 @@ generate against a deployed API without a checkout.
   TTL. Every link the server mails is built in `src/services/webLinks.ts` from
   `APP_URL_BASE`, never in the service that sends it: the paths are pinned
   there and again in `web/src/lib/router.test.ts`, so a route rename and its
-  pin land in one commit. `POST /api/auth/forgot-password` answers 204 and
-  enqueues the send for an address that has an account, 404 for one that does
-  not, and 429 past either reset budget. It is deliberately informative:
-  signup already answers 409 for an address in use, unauthenticated, so a
-  non-revealing forgot-password would buy nothing.
+  pin land in one commit.
 - Every mailed-link token — password reset, email verification, unsubscribe —
   is one codec, `src/services/signedToken.ts`
   (`base64url(claims).base64url(hmac)`). The families share a secret
@@ -274,53 +226,6 @@ api-package facts and so belong here:
   that separation is what leaves `api-deploy.yaml`'s path filter unable to see
   a CLI dependency bump. Never add a CLI dependency to `package.json` here.
 
-# Staying current with main
-
-`main` moves fast, so a branch cut an hour ago is routinely behind, and nothing
-tells you until a rebase conflicts or CI fails on a rule your base predates.
-Rebase onto `main` (not merge: branches are rebased, only the PR itself lands
-as a merge commit) and check at three points:
-
-```sh
-git fetch origin && git rev-list --count HEAD..origin/main -- api/   # 0 means current
-```
-
-**The pathspec is what makes that number mean anything** — one `main` serves
-both projects, so the bare count is red almost always (root `AGENTS.md`). Drop
-the pathspec deliberately when the change spans both packages, and read the
-answer as two numbers. Being behind on the *other* package is not a reason to
-rebase mid-change; it is a reason to rebase before you push.
-
-1. **Before starting.** A stale base means writing against code that has moved.
-   Run `gh pr list` and `git branch -a` too — the fix you are about to write
-   may already be open.
-2. **Before the full suite.** A minutes-long run against a stale base proves
-   nothing about the merge.
-3. **Before pushing, and again before merging.** `gh pr view <n> --json
-   mergeStateStatus` reports `CLEAN` only for a branch that still applies.
-
-After any rebase, re-run the checks rather than trusting the pre-rebase pass,
-and re-run whatever generation the change involves — a rebase can bring in a
-schema change that silently invalidates a committed generated file.
-
-One conflict resolves wrongly by default: a branch cut before `openapi.json` or
-`realtime-events.json` was untracked still carries the tracked copy, so merging
-main raises a modify/delete conflict on it. Keep the deletion — the file is a
-dump now. Taking "modified" silently puts a large generated file back under
-version control, and `tests/unit/generatedDocuments.test.ts` is what fails when
-it does. That guard scans the whole repository, matching by basename, so a
-tracked dump under any package or at the root fails it.
-
-Two ways a stale base produces *wrong* conclusions:
-
-- **Comments about build configuration go stale.** Read `package.json` and
-  `tsconfig.json` rather than a comment describing them.
-- **"No diff" is not a passing check.** `git diff --quiet <file>` is vacuously
-  clean for a gitignored file, and for one a failed command never wrote —
-  `openapi.json` and `realtime-events.json` are both gitignored. Assert the
-  positive: the command exited 0, the file was written, the content is what you
-  expected.
-
 # Running things
 
 - `pnpm run dev` — API on port 3001.
@@ -328,12 +233,7 @@ Two ways a stale base produces *wrong* conclusions:
   file or directory is
   `node --env-file=.env.test node_modules/vitest/vitest.mjs run <path>`, run from
   `api/`, and takes seconds. A CLI test file is reached the same way with the
-  `../` prefix, because those files are collected by this package's vitest. The
-  full `pnpm test` takes minutes and needs the machine mostly to itself:
-  several e2e tests drive dozens of sequential requests inside one `it` against
-  a 30s `testTimeout`, and a browser or benchmark running alongside fails them
-  at exactly that timeout, which reads like a hang and is not one. Re-run a
-  failure alone before believing it.
+  `../` prefix, because those files are collected by this package's vitest.
 - `pnpm run test:changed` answers "which files is that" for you: it diffs
   against `origin/main` (pass another base as an argument), including
   uncommitted and untracked files, and runs every test that reaches one through
@@ -341,41 +241,19 @@ Two ways a stale base produces *wrong* conclusions:
   paths you name yourself. Neither replaces the suite: a file nothing imports
   yet resolves to no tests, and a test that breaks through shared state rather
   than an import is invisible to both.
+- The full `pnpm test` takes minutes and needs the machine mostly to itself:
+  several e2e tests drive dozens of sequential requests inside one `it` against
+  a 30s `testTimeout`, and a browser or benchmark running alongside fails them
+  at exactly that timeout, which reads like a hang and is not one. Re-run a
+  failure alone before believing it.
 - Reporters are chosen in `vitest.config.ts` by whether stdout is a terminal.
   Never read a run through `| tail` — a pipe shows nothing until the command
   exits, whatever the reporter.
-- `tests/setup/resetProcessState.ts` clears the process-global state no test
-  owns before every file and every test — the README's Testing section covers
-  what is in it, what is deliberately not, and why plain
-  `--sequence.shuffle` does not pass.
-- The test database name is derived, never configured: `vitest.config.ts`
-  appends this package directory's name and a sha256 of its absolute path to
-  the `_test`-suffixed base in `.env.test`, and `globalSetup` creates it. That
-  is what lets parallel worktrees run the suite at once — the opening
-  `TRUNCATE` would otherwise wipe or block a suite running beside it. The
-  readable half is `api` in every worktree, so two parallel runs differ only in
-  the hash; `COMMENT ON DATABASE` records the checkout each belongs to. Never
-  set `DB_DATABASE` to reach a specific database — the config and the workers
-  assert the derived name. Two suites in the *same* checkout would still share
-  one database, so `globalSetup` takes a Postgres advisory lock keyed to that
-  name and the second run refuses to start. Run suites from separate worktrees
-  to get them in parallel. `pnpm run test:db:prune` clears databases whose
-  checkout is gone (add `--legacy` for unstamped leftovers).
-- **Never run `prettier --write` or `eslint --fix` by hand.** The
-  repository-root `.githooks/post-commit` runs each package's own fixers over
-  the files that commit touched and amends the result in, and
-  `.githooks/post-rewrite` covers a rebase. Two consequences: `format:check` is
-  only meaningful on a *committed* tree — failing it on uncommitted edits means
-  nothing has fixed them yet — and an import-order lint error mid-edit is the
-  unfixed state rather than a decision waiting on you.
-- Two files check the shared Redis path against a real server and skip without
-  `REDIS_TEST_URL` in `.env.test` (`redis://127.0.0.1:6379/15`); CI has one and
-  fails there rather than skipping. Never put `REDIS_URL` in `.env.test` —
-  that puts the whole suite on one shared signup budget and it collapses into
-  429s.
+- The README's Testing section owns the test-database derivation, the process
+  state reset and the Redis setup; the root `AGENTS.md` owns the commit hooks
+  and why `format:check` only means anything on a committed tree.
 - `pnpm run check:all` is `type-check`, `lint`, `format:check`, `knip` plus
-  `pnpm test`; api-ci then hands off to `pnpm -C cli run check:all`. Not
-  `pnpm run format`: that is the fixer, and the bullet above says who owns it.
+  `pnpm test`; api-ci then hands off to `pnpm -C cli run check:all`.
   `type-check` covers `src/`, `tests/`, `scripts/`, `vitest.config.ts` and
   `../cli/`; `pnpm run build` uses `tsconfig.build.json`, which is `src/` only.
   `cli/tsconfig.json` is a self-contained copy of these same options, so the
@@ -385,14 +263,10 @@ Two ways a stale base produces *wrong* conclusions:
   depend on either. In tests `res.json()` is deliberately `any` (`JsonBody` in
   `tests/setup/testContext.ts`): name the shape with `res.json<T>()` where it
   matters.
-- **`../scripts/new-worktree.sh [--only <pkg>[,<pkg>]] <branch> [base-ref]`** —
-  at the repository root, not this package's `scripts/`. It branches, adds the
-  worktree under `~/.worktrees/<repo>/<branch>`, installs every package and
-  copies the untracked `.env` files, which live at `api/.env` and
-  `api/.env.test`. Make every worktree with it; a hand-made one fails the
-  checks for reasons unrelated to the change in it — an uninstalled `cli/`
-  fails only the CLI tests, deep into an api run. Do not symlink `node_modules`
-  from the main checkout, and never put a worktree inside the repository.
+- **`../scripts/new-worktree.sh <branch>`** — at the repository root, not this
+  package's `scripts/` — creates a worktree with all four packages installed
+  and the untracked `.env` files copied. Make every worktree with it; a
+  hand-made one fails the checks for reasons unrelated to the change in it.
 
 # Health, and which build is running
 

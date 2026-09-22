@@ -104,8 +104,8 @@ hand. Two mechanisms keep those honest:
   generated client at all.
 
 The `/ws` protocol is the other half of the contract and has no OpenAPI request
-or response to describe it — `api/AGENTS.md`'s realtime conventions are where
-it is specified, and `src/watch.ts` is written against them.
+or response to describe it — the Realtime section of `api/README.md` is where
+it is specified, and `src/watch.ts` is written against it.
 
 # Style
 

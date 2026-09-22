@@ -74,7 +74,7 @@ Every mutation publishes an event via `publishAfterCommit` from
 rollback). Snapshot `recipientUserIds` inside the transaction for events about
 rows/access that are gone post-commit (`project_deleted`, membership evictions);
 for live rows the delivery layer re-checks access per event.
-The event catalog and envelope are in `README.md`.
+The event catalog and envelope are in the README's Realtime section.
 
 ## 9. Response shape
 
