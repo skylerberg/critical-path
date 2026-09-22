@@ -3,6 +3,13 @@
 # Shared by post-commit and post-rewrite, which differ only in how they arrive at
 # the file list and in when amending HEAD is safe.
 #
+# `--no-amend` is the pre-commit entry point, reached through
+# scripts/format-changed.sh: the same buckets and the same fixers, but nothing
+# is staged or amended, and files with unstaged changes are formatted rather
+# than skipped — the skip below exists to keep the amend from swallowing WIP,
+# and with no amend there is nothing to protect. A dirty working-tree file is
+# exactly what that mode is for.
+#
 # Arguments are repo-root-relative paths, which is what git reports. There is no
 # repo-root node_modules and deliberately never will be (four packages, four
 # lockfiles, no pnpm workspace), so a path is bucketed by its first segment and
@@ -16,6 +23,12 @@
 # expand, which is the one thing SC2086 exists to flag. Disabled for the file so
 # the reason sits here rather than four times below.
 # shellcheck disable=SC2086
+
+no_amend=0
+if [ "${1:-}" = "--no-amend" ]; then
+  no_amend=1
+  shift
+fi
 
 [ $# -eq 0 ] && exit 0
 
@@ -103,7 +116,9 @@ preview_edge_targets=''
 for f in "$@"; do
   [ -f "$f" ] || continue
   # Leave files with unstaged WIP alone so the amend doesn't swallow it.
-  git diff --quiet -- "$f" || continue
+  if [ "$no_amend" -eq 0 ]; then
+    git diff --quiet -- "$f" || continue
+  fi
   rel=${f#*/}
   case $f in
     # One extension list per bucket, and .svelte is the only entry that differs
@@ -149,6 +164,8 @@ fix_package api $api_targets
 fix_package web $web_targets
 fix_package cli $cli_targets
 fix_package preview-edge $preview_edge_targets
+
+[ "$no_amend" -eq 1 ] && exit 0
 
 changed=''
 for f in $targets; do

@@ -110,6 +110,8 @@ it is specified, and `src/watch.ts` is written against it.
 # Style
 
 Prettier's settings are in `.prettierrc.json`, and `format:check` covers
-`src/`, `tests/`, `bin/` and `scripts/`. Never run `prettier --write` or
-`eslint --fix` by hand: the root `.githooks/post-commit` hands each commit's
-paths to this package's own pair and amends the result in.
+`src/`, `tests/`, `bin/` and `scripts/`. Fix formatting with
+`scripts/format-changed.sh`, never a direct `prettier --write` or
+`eslint --fix`: the root `.githooks/post-commit` hands each commit's paths to
+this package's own pair and amends the result in, and that wrapper runs the
+same dispatch over the working tree ahead of the commit.

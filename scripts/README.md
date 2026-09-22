@@ -94,6 +94,23 @@ a realtime payload, and commit `web/src/api/*.generated.ts` and
 the committed clients differ from what it produces. It needs no `.env`, no
 database and no running server.
 
+## `format-changed.sh`
+
+Formats the working tree's modified and untracked files with the commit hook's
+own machinery — `.githooks/format-touched --no-amend` — so `format:check`
+passes before the commit, not only after the hook's amend.
+
+```sh
+scripts/format-changed.sh
+```
+
+This is the one sanctioned way to fix formatting by hand. Each package pins its
+own prettier and eslint and only web's prettier can parse `.svelte`, so the
+files are bucketed to the package that owns them; running a package's fixers
+directly bypasses exactly that dispatch. Files the branch already committed are
+not revisited — the hook formatted them when they were committed. Tested in
+`.githooks/tests/format-touched.test.sh`, alongside the hook it wraps.
+
 ## `lib/`
 
 The OpenAPI client generator itself, shared by `web/` and `cli/`.
