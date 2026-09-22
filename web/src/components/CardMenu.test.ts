@@ -13,6 +13,7 @@ import { shortcuts } from '../lib/shortcuts.svelte';
 import { testUuid } from '../lib/test-ids';
 import { stubClipboard } from '../lib/test-stubs';
 import { toasts } from '../lib/toasts.svelte';
+import { testSortKey } from '../lib/test-ids';
 
 const me = { id: 'u-me', name: 'Ada', email: 'ada@example.com', avatar_url: null };
 const PROJECT_ID = testUuid('p1');
@@ -226,7 +227,7 @@ describe('CardMenu', () => {
   });
 
   it('carries the live filters into the card links', () => {
-    board.labels = [{ id: 'l1', name: 'art', color: '#ff0000' }];
+    board.labels = [{ id: 'l1', name: 'art', color: '#ff0000', sort_key: testSortKey(0) }];
     board.setFilters({ labelIds: ['l1'], assigneeIds: [], query: 'boss' });
     open();
 
@@ -240,7 +241,7 @@ describe('CardMenu', () => {
 
   it('points at the public path on a public board', () => {
     board.readonly = true;
-    board.labels = [{ id: 'l1', name: 'art', color: '#ff0000' }];
+    board.labels = [{ id: 'l1', name: 'art', color: '#ff0000', sort_key: testSortKey(1) }];
     board.setFilters({ labelIds: ['l1'], assigneeIds: [], query: 'boss' });
     open(false);
 
@@ -263,7 +264,7 @@ describe('CardMenu', () => {
   it('copies an absolute url stripped of the filters, and says so', async () => {
     const writeText = vi.fn().mockResolvedValue(undefined);
     stubClipboard(writeText);
-    board.labels = [{ id: 'l1', name: 'art', color: '#ff0000' }];
+    board.labels = [{ id: 'l1', name: 'art', color: '#ff0000', sort_key: testSortKey(2) }];
     board.setFilters({ labelIds: ['l1'], assigneeIds: [], query: 'boss' });
     open();
 

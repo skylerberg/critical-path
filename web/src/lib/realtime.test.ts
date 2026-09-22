@@ -19,6 +19,7 @@ import { users } from './users.svelte';
 import { realtimeEvent } from './realtime-test-events';
 import type { RealtimeEventType } from './realtime-types';
 import { FakeWebSocket } from './fake-websocket';
+import { testSortKey } from './test-ids';
 
 // Annotated, not inferred: an inferred literal reaches `realtimeEvent()` as a
 // function return, where excess-property checking no longer applies and a field
@@ -499,7 +500,11 @@ describe('board event application', () => {
     board.tasks = [{ ...task('t1'), label_ids: ['l1'] }];
     board.filterLabelIds = ['l1'];
     board.applyRealtime(
-      realtimeEvent('label_created', { id: 'l1', name: 'art', color: '#f00' }, 'p1')
+      realtimeEvent(
+        'label_created',
+        { id: 'l1', name: 'art', color: '#f00', sort_key: testSortKey(0) },
+        'p1'
+      )
     );
     expect(board.labels).toHaveLength(1);
     board.applyRealtime(realtimeEvent('label_deleted', { id: 'l1' }, 'p1'));

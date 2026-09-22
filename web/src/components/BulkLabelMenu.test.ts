@@ -6,6 +6,7 @@ import { board } from '../lib/board.svelte';
 import { selection } from '../lib/selection.svelte';
 import { session } from '../lib/session.svelte';
 import { bulkTask, seedBulkBoard } from './bulkTestSetup';
+import { testSortKey } from '../lib/test-ids';
 
 const ART = 'l-art';
 const BUG = 'l-bug';
@@ -20,8 +21,8 @@ function seed(): void {
     ['t1', 't2']
   );
   board.labels = [
-    { id: ART, name: 'art', color: '#ff0000' },
-    { id: BUG, name: 'bug', color: '#00ff00' },
+    { id: ART, name: 'art', color: '#ff0000', sort_key: testSortKey(0) },
+    { id: BUG, name: 'bug', color: '#00ff00', sort_key: testSortKey(1) },
   ];
 }
 
@@ -86,7 +87,10 @@ describe('BulkLabelMenu', () => {
       render(BulkLabelMenu, { onclose: () => {} });
 
       await fireEvent.keyDown(filter(), { key: 'ArrowDown' });
-      board.labels = [{ id: 'l-new', name: 'aardvark', color: '#0000ff' }, ...board.labels];
+      board.labels = [
+        { id: 'l-new', name: 'aardvark', color: '#0000ff', sort_key: testSortKey(2) },
+        ...board.labels,
+      ];
       await fireEvent.keyDown(filter(), { key: 'Enter' });
 
       expect(bulkSetLabel).toHaveBeenCalledWith(['t1', 't2'], BUG, true);
@@ -149,7 +153,7 @@ describe('BulkLabelMenu', () => {
 
   it('reports none when no selected card carries the label', () => {
     seedBulkBoard([bulkTask('t1'), bulkTask('t2', 'c1', 2000)], ['t1', 't2']);
-    board.labels = [{ id: ART, name: 'art', color: '#ff0000' }];
+    board.labels = [{ id: ART, name: 'art', color: '#ff0000', sort_key: testSortKey(3) }];
 
     render(BulkLabelMenu, { onclose: () => {} });
 

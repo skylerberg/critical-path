@@ -10,6 +10,7 @@ import { session } from './session.svelte';
 import { projectHref, taskHref } from './short-links';
 import { testUuid } from './test-ids';
 import { users } from './users.svelte';
+import { testSortKey } from './test-ids';
 
 const PROJECT = testUuid('p1');
 const ME = 'u-me';
@@ -274,7 +275,12 @@ describe('announcing a teammate’s board changes', () => {
       theirs('column_tasks_reordered', { column_id: TODO, moved_tasks: [moved('t1', TODO)] }),
       theirs('column_updated', column(TODO, 'Doing')),
       theirs('comment_created', { id: 'cm1', task_id: 't1', comment_count: 1 }),
-      theirs('label_created', { id: 'l1', name: 'Urgent', color: '#ef4444' })
+      theirs('label_created', {
+        id: 'l1',
+        name: 'Urgent',
+        color: '#ef4444',
+        sort_key: testSortKey(0),
+      })
     );
 
     expect(boardAnnouncer.message).toBe('');

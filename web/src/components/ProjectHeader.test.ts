@@ -13,6 +13,7 @@ import { users } from '../lib/users.svelte';
 import { webhooks } from '../lib/webhooks.svelte';
 import type { BoardTask } from '../lib/board-types';
 import { realtimeEvent } from '../lib/realtime-test-events';
+import { testSortKey } from '../lib/test-ids';
 
 const me = {
   id: 'u1',
@@ -121,7 +122,7 @@ beforeEach(() => {
     created_at: '2026-01-01T00:00:00Z',
   };
   board.columns = [{ id: 'c1', name: 'Todo', sort_key: 'V0000010001', is_done: false }];
-  board.labels = [{ id: 'l1', name: 'art', color: '#ff0000' }];
+  board.labels = [{ id: 'l1', name: 'art', color: '#ff0000', sort_key: testSortKey(0) }];
   board.tasks = [task('t1', 'Design cards', ['l1'], ['u1'])];
   users.users = [me];
 });

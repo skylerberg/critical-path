@@ -19,6 +19,7 @@ import { router } from '../lib/router.svelte';
 import { projectHref } from '../lib/short-links';
 import { testUuid } from '../lib/test-ids';
 import { viewport } from '../lib/viewport.svelte';
+import { testSortKey } from '../lib/test-ids';
 
 const { zoneOptions } = vi.hoisted(() => ({ zoneOptions: [] as Options[] }));
 
@@ -149,7 +150,7 @@ describe('Nav sidebar', () => {
 
   it('dots a colored board and leaves an uncolored one bare', () => {
     projects.projects = [
-      project({ id: SOLO_ID, name: 'Solo Game', color: 'rose' }),
+      project({ id: SOLO_ID, name: 'Solo Game', color: 'rose', sort_key: testSortKey(0) }),
       project({ id: TEAM_ID, name: 'Team Game', created_at: '2026-01-02T00:00:00.000Z' }),
     ];
 

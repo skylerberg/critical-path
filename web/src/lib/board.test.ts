@@ -19,6 +19,7 @@ import { taskActivity } from './taskActivity.svelte';
 import { toasts } from './toasts.svelte';
 import { users } from './users.svelte';
 import { realtimeEvent } from './realtime-test-events';
+import { testSortKey } from './test-ids';
 
 const CYCLE_ERROR = 'Adding this blocker would create a dependency cycle';
 const SERVER_CREATED_AT = '2026-01-15T00:00:00Z';
@@ -121,7 +122,7 @@ function payload(): BoardPayload {
       { id: 'c3', name: 'Empty', sort_key: 'V0000030001', is_done: false },
     ],
     tasks: [task('t2', 'c1', 2000, 'B'), task('t1', 'c1', 1000, 'A'), task('t3', 'c2', 1000, 'C')],
-    labels: [{ id: 'l1', name: 'art', color: '#ff0000' }],
+    labels: [{ id: 'l1', name: 'art', color: '#ff0000', sort_key: testSortKey(0) }],
     changed_task_ids: [],
   };
 }
@@ -734,7 +735,7 @@ describe('board store readonly mode', () => {
         attachment_count: 0,
       },
     ],
-    labels: [{ id: 'l1', name: 'art', color: '#ff0000' }],
+    labels: [{ id: 'l1', name: 'art', color: '#ff0000', sort_key: testSortKey(1) }],
     users: [
       { id: 'u-ada', name: 'Ada', avatar_url: null },
       { id: 'u-bo', name: 'Bo', avatar_url: null },

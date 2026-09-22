@@ -30,6 +30,7 @@ import { testUuid } from '../lib/test-ids';
 import { TASK_TITLE_MAX_LENGTH, truncateTitle } from '../lib/titles';
 import { users } from '../lib/users.svelte';
 import type { BoardTask } from '../lib/board-types';
+import { testSortKey } from '../lib/test-ids';
 
 const PROJECT_ID = testUuid('p1');
 const PROJECT_NAME = 'Game';
@@ -187,8 +188,8 @@ beforeEach(() => {
     task(T4, 'c1', 'Playtest session', { blocker_ids: [T1] }),
   ];
   board.labels = [
-    { id: 'l1', name: 'art', color: '#ff0000' },
-    { id: 'l2', name: 'rules', color: '#00ff00' },
+    { id: 'l1', name: 'art', color: '#ff0000', sort_key: testSortKey(0) },
+    { id: 'l2', name: 'rules', color: '#00ff00', sort_key: testSortKey(1) },
   ];
   users.users = [{ id: 'u1', name: 'Ada Lovelace', avatar_url: null }];
   mockRoutes();

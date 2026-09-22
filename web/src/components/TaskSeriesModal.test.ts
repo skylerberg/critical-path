@@ -8,6 +8,7 @@ import { taskSeries, type TaskSeries } from '../lib/taskSeries.svelte';
 import { users } from '../lib/users.svelte';
 import { realtimeEvent } from '../lib/realtime-test-events';
 import type { PayloadOf, RealtimeEventType } from '../lib/realtime-types';
+import { testSortKey } from '../lib/test-ids';
 
 function series(overrides: Partial<TaskSeries> = {}): TaskSeries {
   return {
@@ -64,7 +65,7 @@ function asEditor(): void {
     { id: 'c-1', name: 'Todo', sort_key: 'V0000010001', is_done: false },
     { id: 'c-2', name: 'Done', sort_key: 'V0000020001', is_done: true },
   ];
-  board.labels = [{ id: 'l-1', name: 'ops', color: '#ff0000' }];
+  board.labels = [{ id: 'l-1', name: 'ops', color: '#ff0000', sort_key: testSortKey(0) }];
 }
 
 function asViewer(): void {

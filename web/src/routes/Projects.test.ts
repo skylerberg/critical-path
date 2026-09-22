@@ -10,6 +10,7 @@ import { session } from '../lib/session.svelte';
 import { projectHref } from '../lib/short-links';
 import { testUuid } from '../lib/test-ids';
 import { users } from '../lib/users.svelte';
+import { testSortKey } from '../lib/test-ids';
 
 // jsdom does not implement <dialog> show/close methods.
 HTMLDialogElement.prototype.showModal = function (this: HTMLDialogElement) {
@@ -304,7 +305,12 @@ describe('Projects', () => {
   });
 
   it('rails a colored card and leaves an uncolored one bare', async () => {
-    const colored = project({ id: testUuid('p-hue'), name: 'Hued', color: 'fuchsia' });
+    const colored = project({
+      id: testUuid('p-hue'),
+      name: 'Hued',
+      color: 'fuchsia',
+      sort_key: testSortKey(0),
+    });
     fetchMock.mockImplementation(async () =>
       jsonResponse(200, { projects: [activeProject, colored] })
     );

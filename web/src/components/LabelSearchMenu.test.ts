@@ -4,6 +4,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import LabelSearchMenu from './LabelSearchMenu.svelte';
 import { board } from '../lib/board.svelte';
 import type { BoardTask } from '../lib/board-types';
+import { testSortKey } from '../lib/test-ids';
 
 const task: BoardTask = {
   id: 't1',
@@ -32,8 +33,8 @@ beforeEach(() => {
   board.reset();
   board.currentProjectId = 'p1';
   board.labels = [
-    { id: 'l1', name: 'art', color: '#ff0000' },
-    { id: 'l2', name: 'rules', color: '#00ff00' },
+    { id: 'l1', name: 'art', color: '#ff0000', sort_key: testSortKey(0) },
+    { id: 'l2', name: 'rules', color: '#00ff00', sort_key: testSortKey(1) },
   ];
   board.tasks = [{ ...task }];
 });
@@ -132,7 +133,7 @@ describe('LabelSearchMenu', () => {
   it('waits for the label to be created before applying it to the task', async () => {
     let releaseCreate: () => void = () => {};
     const createSpy = vi.spyOn(board, 'createLabel').mockImplementation((name, color) => {
-      board.labels = [...board.labels, { id: 'l-new', name, color }];
+      board.labels = [...board.labels, { id: 'l-new', name, color, sort_key: null }];
       return new Promise<void>((resolve) => {
         releaseCreate = resolve;
       });

@@ -11,6 +11,7 @@ import { shortcuts } from '../lib/shortcuts.svelte';
 import { testUuid } from '../lib/test-ids';
 import { users } from '../lib/users.svelte';
 import type { BoardTask } from '../lib/board-types';
+import { testSortKey } from '../lib/test-ids';
 
 const PROJECT_ID = testUuid('p1');
 const BOARD_PATH = projectHref(PROJECT_ID, 'Game');
@@ -63,7 +64,7 @@ beforeEach(() => {
   shortcuts.reset();
   board.currentProjectId = PROJECT_ID;
   board.columns = [{ id: 'c1', name: 'Todo', sort_key: 'V0000010001', is_done: false }];
-  board.labels = [{ id: 'l1', name: 'art', color: '#ff0000' }];
+  board.labels = [{ id: 'l1', name: 'art', color: '#ff0000', sort_key: testSortKey(0) }];
   users.users = [ADA];
   users.setForProject(PROJECT_ID, [ADA]);
 });

@@ -7,13 +7,14 @@ import { selection } from '../lib/selection.svelte';
 import { session } from '../lib/session.svelte';
 import { users } from '../lib/users.svelte';
 import { ME, bulkTask, seedBulkBoard } from './bulkTestSetup';
+import { testSortKey } from '../lib/test-ids';
 
 beforeEach(() => {
   users.reset();
   fetchMock.mockReset();
   fetchMock.mockImplementation(async () => jsonResponse(200, { users: [] }));
   seedBulkBoard([bulkTask('t1'), bulkTask('t2', 'c1', 2000)], ['t1', 't2']);
-  board.labels = [{ id: 'l1', name: 'art', color: '#ff0000' }];
+  board.labels = [{ id: 'l1', name: 'art', color: '#ff0000', sort_key: testSortKey(0) }];
 });
 
 afterEach(() => {
