@@ -159,8 +159,8 @@ jobs:
           #                     their own filter.
           #   api/docs/**       scaling.md, the bench harness's write-up. The
           #                     Dockerfile copies only package.json, the
-          #                     lockfile, pnpm-workspace.yaml, scripts/ and
-          #                     src/, so it is not build input either. The
+          #                     lockfile, pnpm-workspace.yaml and src/, so
+          #                     it is not build input either. The
           #                     product-wide feature research that used to sit
           #                     beside it is at `docs/feature-research.md` now,
           #                     outside `api/**` and so outside this workflow.
