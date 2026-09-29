@@ -12,6 +12,7 @@
     type DndEvent,
   } from 'svelte-dnd-action';
   import { focusIf, scrollToTopOn } from '../lib/actions';
+  import { announcer } from '../lib/announcer.svelte';
   import { board, placementAfterDrop } from '../lib/board.svelte';
   import type { BoardColumn, BoardLabel, BoardTask } from '../lib/board-types';
   import { cardMenu, TOUCH_DRAG_DELAY_MS } from '../lib/card-menu.svelte';
@@ -33,6 +34,8 @@
     SWIPE_VELOCITY_SAMPLE_MS,
   } from '../lib/board-swipe';
   import { motion } from '../lib/motion.svelte';
+  import { neighborsAfterDrop } from '../lib/ranks';
+  import { selection } from '../lib/selection.svelte';
   import { shortcuts } from '../lib/shortcuts.svelte';
   import { truncateTitle } from '../lib/titles';
   import CardMenu from '../components/CardMenu.svelte';
@@ -127,6 +130,62 @@
   let keyboardDragging = $state(false);
   let dragOrigin: { columnId: string; index: number } | null = null;
   let columnDragOrigin: number | null = null;
+
+  // The selected cards travelling with the one in flight, `leadId`, in the order
+  // the set lands in. Null while a card is dragged on its own. The rest leave
+  // their columns for the length of the drag, so the gap the placeholder holds is
+  // where the whole set will go, and a drop reads its anchors off cards that are
+  // staying put.
+  let groupDrag = $state.raw<{ leadId: string; ids: string[] } | null>(null);
+
+  const GROUP_BADGE_CLASS =
+    'pointer-events-none absolute -top-2 -right-2 z-20 flex h-6 min-w-6 items-center justify-center rounded-full bg-accent px-1.5 text-xs font-semibold text-on-accent shadow';
+  // A second card's edge peeking out from behind the first.
+  const GROUP_STACK_SHADOW =
+    '6px 6px 0 -1px var(--cp-canvas), 6px 6px 0 0 color-mix(in srgb, var(--cp-muted) 60%, transparent)';
+
+  // The floating copy of a pointer drag is cloned before the drag reaches the
+  // handlers below, so it cannot pick the badge up from the template the way the
+  // card a keyboard drag moves in place does. The library calls this on every
+  // re-layout of the zone the copy is over, hence the guard.
+  function markGroupDrag(element?: HTMLElement): void {
+    const group = groupDrag;
+    if (
+      element === undefined ||
+      group === null ||
+      element.querySelector('[data-drag-count]') !== null
+    ) {
+      return;
+    }
+    const badge = document.createElement('span');
+    badge.dataset.dragCount = '';
+    badge.setAttribute('aria-hidden', 'true');
+    badge.className = GROUP_BADGE_CLASS;
+    badge.textContent = String(group.ids.length);
+    element.append(badge);
+    element.style.boxShadow = GROUP_STACK_SHADOW;
+  }
+
+  // Returns the origin column's items with the rest of the set taken out.
+  function liftGroup(columnId: string, leadId: string, items: BoardTask[]): BoardTask[] {
+    const ids = selection.targetsFor(leadId);
+    if (ids.length < 2) {
+      groupDrag = null;
+      return items;
+    }
+    groupDrag = { leadId, ids };
+    const riders = new Set(ids.filter((id) => id !== leadId));
+    for (const [otherId, tasks] of localTasks) {
+      if (otherId !== columnId && tasks.some((task) => riders.has(task.id))) {
+        localTasks.set(
+          otherId,
+          tasks.filter((task) => !riders.has(task.id))
+        );
+      }
+    }
+    void announcer.announce(`Dragging ${String(ids.length)} cards`);
+    return items.filter((task) => !riders.has(task.id));
+  }
 
   // -1 unless the board is readonly, because otherwise the "+ Add column" tile is
   // the last snap target and no column ends the board. `columnSnapAlign` in
@@ -728,18 +787,24 @@
   }
 
   function handleTaskConsider(columnId: string, event: CustomEvent<DndEvent<BoardTask>>): void {
+    let items = event.detail.items;
     if (event.detail.info.trigger === TRIGGERS.DRAG_STARTED) {
+      const leadId = event.detail.info.id;
       keyboardDragging = event.detail.info.source === SOURCES.KEYBOARD;
       centeringTarget = null; // a new drag cancels any pending drop-center
+      items = liftGroup(columnId, leadId, items);
+      // Counted in the list the drop will be compared against, which a set has
+      // already left. A pointer drag has swapped the card for its placeholder here.
       dragOrigin = {
         columnId,
-        index: (localTasks.get(columnId) ?? []).findIndex(
-          (task) => task.id === event.detail.info.id
-        ),
+        index: items.findIndex((task) => task.id === leadId || isDragShadow(task)),
       };
     }
     taskDragging = event.detail.info.trigger !== TRIGGERS.DRAG_STOPPED;
-    localTasks.set(columnId, event.detail.items);
+    if (!taskDragging) {
+      groupDrag = null;
+    }
+    localTasks.set(columnId, items);
   }
 
   function handleTaskFinalize(columnId: string, event: CustomEvent<DndEvent<BoardTask>>): void {
@@ -752,27 +817,59 @@
       taskDragging = event.detail.info.source === SOURCES.KEYBOARD;
     }
     if (event.detail.info.trigger === TRIGGERS.DROPPED_INTO_ZONE) {
+      const leadId = event.detail.info.id;
       const origin = dragOrigin;
       dragOrigin = null;
       // A card put back exactly where it was is not a move: writing one would
-      // renumber it and log it for nothing.
+      // renumber it and log it for nothing. A set put back is not one either, even
+      // though landing it there would gather it: a long press opening the card
+      // menu unwinds its drag through here, and must not move the cards it
+      // happened to be selected with.
       const unmoved =
         origin?.columnId === columnId &&
-        origin.index === items.findIndex((task) => task.id === event.detail.info.id);
-      const drop = unmoved ? null : placementAfterDrop(items, event.detail.info.id);
+        origin.index === items.findIndex((task) => task.id === leadId);
+      const moved = unmoved
+        ? false
+        : groupDrag === null
+          ? moveOne(leadId, columnId, items)
+          : moveGroup(groupDrag.ids, columnId, items, leadId);
       // A drag that scrolled parked the board off every snap position, so it is
       // landed on one even when nothing moved — but only then, because a long
       // press opening the card menu unwinds its drag through here and must not
       // slide the board under the menu it just anchored to the finger. The edge
       // scroller refuses to run for a pending or open press, so that unwind
       // arrives here with `dragScrolled` false.
-      if (event.detail.info.source === SOURCES.POINTER && (drop !== null || dragScrolled)) {
+      if (event.detail.info.source === SOURCES.POINTER && (moved || dragScrolled)) {
         centeringTarget = columnId;
       }
-      if (drop !== null) {
-        void board.moveTask(event.detail.info.id, columnId, drop.placement, drop.intent);
-      }
     }
+    if (!taskDragging) {
+      groupDrag = null;
+    }
+  }
+
+  function moveOne(taskId: string, columnId: string, items: BoardTask[]): boolean {
+    const drop = placementAfterDrop(items, taskId);
+    if (drop === null) {
+      return false;
+    }
+    void board.moveTask(taskId, columnId, drop.placement, drop.intent);
+    return true;
+  }
+
+  function moveGroup(ids: string[], columnId: string, items: BoardTask[], leadId: string): boolean {
+    const intent = neighborsAfterDrop(items, leadId);
+    if (intent === null) {
+      return false;
+    }
+    void board.bulkMoveTasks(ids, columnId, intent);
+    // A keyboard drag commits on every arrow, and the library already says where
+    // the card went each time.
+    if (!keyboardDragging) {
+      const name = board.columns.find((column) => column.id === columnId)?.name ?? 'the column';
+      void announcer.announce(`Moved ${String(ids.length)} cards to ${name}`);
+    }
+    return true;
   }
 
   function startNewColumn(): void {
@@ -807,6 +904,9 @@
     dimmed={board.hasActiveFilters && !board.taskMatchesFilters(task)}
     changed={board.changedTaskIds.has(task.id)}
   />
+  {#if groupDrag?.leadId === task.id}
+    <span data-drag-count aria-hidden="true" class={GROUP_BADGE_CLASS}>{groupDrag.ids.length}</span>
+  {/if}
   <!-- The gap the card in flight leaves behind, drawn rather than left blank. The
        card is still rendered under it and is what gives the gap the height of the
        card being dropped; svelte-dnd-action hides the item it renders for the
@@ -911,6 +1011,7 @@
                 // next column while the center, which is what decides by default,
                 // is still inside this one. That drop bounces back.
                 useCursorForDetection: true,
+                transformDraggedElement: markGroupDrag,
                 zoneItemTabIndex: readonly ? -1 : 0,
                 dragDisabled: readonly,
                 dropFromOthersDisabled: readonly,
@@ -924,7 +1025,9 @@
                     animate:flip={{ duration: flipDuration() }}
                     data-task-id={task.id}
                     aria-label={truncateTitle(task.title)}
-                    class="{cardClass} {isDragShadow(task) ? 'relative' : ''}"
+                    class="{cardClass} {isDragShadow(task) || groupDrag?.leadId === task.id
+                      ? 'relative'
+                      : ''}"
                   >
                     {@render card(task)}
                   </div>
@@ -934,7 +1037,9 @@
                   <div
                     data-task-id={task.id}
                     aria-label={truncateTitle(task.title)}
-                    class="{cardClass} {isDragShadow(task) ? 'relative' : ''}"
+                    class="{cardClass} {isDragShadow(task) || groupDrag?.leadId === task.id
+                      ? 'relative'
+                      : ''}"
                   >
                     {@render card(task)}
                   </div>

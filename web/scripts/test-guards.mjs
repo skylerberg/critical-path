@@ -164,12 +164,11 @@ export const guards = [
     name: 'a dropped card queues the cards it landed between',
     testName: 'queues the cards the dropped card landed between',
     file: 'src/routes/Board.svelte',
-    find: '      void board.moveTask(event.detail.info.id, columnId, drop.placement, drop.intent);',
+    find: '    void board.moveTask(taskId, columnId, drop.placement, drop.intent);',
     // The regression this is aimed at is not "the argument goes away" — the type
     // refuses that now — but an append passed because it compiles, which is what
     // the missing argument used to mean and what nothing used to notice.
-    replace:
-      "      void board.moveTask(event.detail.info.id, columnId, drop.placement, { kind: 'append' });",
+    replace: "    void board.moveTask(taskId, columnId, drop.placement, { kind: 'append' });",
     tests: ['src/routes/Board.test.ts'],
   },
   {
@@ -578,10 +577,50 @@ export const guards = [
     name: 'a drop that commits no move still lands a scrolled board on a snap position',
     testName: 'slides onto the column even when the card is dropped where it was picked up',
     file: 'src/routes/Board.svelte',
-    find: '      if (event.detail.info.source === SOURCES.POINTER && (drop !== null || dragScrolled)) {\n        centeringTarget = columnId;',
+    find: '      if (event.detail.info.source === SOURCES.POINTER && (moved || dragScrolled)) {\n        centeringTarget = columnId;',
     replace:
-      '      if (event.detail.info.source === SOURCES.POINTER && drop !== null) {\n        centeringTarget = columnId;',
+      '      if (event.detail.info.source === SOURCES.POINTER && moved) {\n        centeringTarget = columnId;',
     tests: ['src/routes/Board.test.ts'],
+  },
+  {
+    name: 'a drag from a selected card carries the rest of the set',
+    testName: 'lands the whole set where the card was dropped',
+    file: 'src/routes/Board.svelte',
+    find: '    const ids = selection.targetsFor(leadId);',
+    replace: '    const ids = [leadId];',
+    tests: ['src/routes/Board.test.ts'],
+  },
+  {
+    // Counted before the set left, the card's own slot reads as a move and a card
+    // dropped one place down reads as put back.
+    name: 'where a set drag started is counted in the list the set has left',
+    testName: 'writes nothing when the card is put back where it was picked up',
+    file: 'src/routes/Board.svelte',
+    find: '        index: items.findIndex((task) => task.id === leadId || isDragShadow(task)),',
+    replace:
+      '        index: (localTasks.get(columnId) ?? []).findIndex((task) => task.id === leadId),',
+    tests: ['src/routes/Board.test.ts'],
+  },
+  {
+    // The card-menu long press unwinds its drag through the drop, and a set
+    // gathered there would be the cards the press happened to be selected with.
+    name: 'a set put back where its card was picked up is not gathered there',
+    testName: 'writes nothing when the card is put back where it was picked up',
+    file: 'src/routes/Board.svelte',
+    find: '      const moved = unmoved\n        ? false\n        : groupDrag === null',
+    replace:
+      '      const moved = unmoved && groupDrag === null\n        ? false\n        : groupDrag === null',
+    tests: ['src/routes/Board.test.ts'],
+  },
+  {
+    // The midpoint of the pair lands the set on a card that has arrived between
+    // them since the drop, where the server lands it straight after the upper one.
+    name: 'a run lands straight after its upper anchor, as the server lands it',
+    testName: 'keeps straight after afterId when a card sits between the anchors',
+    file: 'src/lib/ranks.ts',
+    find: "    return run(after, adjacentSibling(siblings, after, 'after'), count);",
+    replace: '    return run(after, siblings.find((item) => item.id === beforeId) ?? null, count);',
+    tests: ['src/lib/ranks.test.ts'],
   },
   {
     // A keyboard drag finalizes on every arrow press, so this reads as the end of
@@ -1041,7 +1080,7 @@ export const guards = [
   },
   {
     // `board.tasks` is insertion-ordered — a card created mid-session sits at the
-    // end — and `bulkMoveTasks` appends in the order it is sent, so a set read
+    // end — and `bulkMoveTasks` lands a set in the order it is sent, so a set read
     // off it reshuffles the cards on arrival.
     name: 'the selected ids come out in board order, column by column',
     testName: 'reports rank order even when the board rows are not in it',

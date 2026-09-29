@@ -201,7 +201,7 @@ describe('selection store', () => {
 
     // Board order is rank order per column, not the order the rows arrived in:
     // a card created mid-session sits at the end of `board.tasks`, and
-    // `bulkMoveTasks` appends in the order it is sent.
+    // `bulkMoveTasks` lands a set in the order it is sent.
     it('reports rank order even when the board rows are not in it', () => {
       board.tasks = [task('t2', 'c1', 2000), task('t1', 'c1', 1000)];
 

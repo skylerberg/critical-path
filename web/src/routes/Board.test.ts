@@ -4,6 +4,7 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/sve
 import { tick } from 'svelte';
 import { SHADOW_PLACEHOLDER_ITEM_ID, SOURCES, TRIGGERS, type Options } from 'svelte-dnd-action';
 import Board from './Board.svelte';
+import { announcer } from '../lib/announcer.svelte';
 import { board } from '../lib/board.svelte';
 import { SWIPE_COMMIT_PX, SWIPE_SETTLE_MS } from '../lib/board-swipe';
 import { cardMenu } from '../lib/card-menu.svelte';
@@ -1276,6 +1277,201 @@ describe('Board pointer drops', () => {
     expect(scroller().className).toContain('snap-mandatory');
     // The move still commits: we skipped the scroll, not the write.
     await vi.waitFor(() => expect(patchRequests()).toHaveLength(1));
+  });
+});
+
+// A drag that starts on a selected card carries the whole set, the way the bulk
+// move menu does: the rest leave their columns while it is in flight, and the drop
+// lands them together in the gap the placeholder held.
+describe('Board group drags', () => {
+  const ME = 'u-me';
+
+  beforeEach(() => {
+    board.currentProjectId = PROJECT_ID;
+    board.project = {
+      id: PROJECT_ID,
+      name: 'Game',
+      description: '',
+      archived_at: null,
+      created_by: ME,
+      member_ids: [],
+      members: [],
+      is_public: false,
+      color: null,
+      created_at: '2026-07-15T00:00:00Z',
+    };
+    session.user = {
+      id: ME,
+      name: 'Ada',
+      email: 'ada@example.com',
+      avatar_url: null,
+      email_verified: false,
+    };
+    board.columns = [
+      { id: 'c1', name: 'Todo', sort_key: 'V0000010001', is_done: false },
+      { id: 'c2', name: 'Doing', sort_key: 'V0000020001', is_done: false },
+    ];
+    board.tasks = [
+      ...board.tasks,
+      task(T5, 'c2', 1000, 'doing one'),
+      task(T6, 'c2', 2000, 'doing two'),
+    ];
+    // Echoes the board's own optimistic stamp, which is what the server hands back
+    // for a set it moved whole.
+    fetchMock.mockImplementation(async (input) => {
+      const request = input as Request;
+      if (new URL(request.url).pathname !== '/api/tasks/bulk-move') {
+        return jsonResponse(200, { users: [] });
+      }
+      const body = (await request.clone().json()) as { task_ids: string[] };
+      return jsonResponse(200, {
+        moved_tasks: board.tasks
+          .filter((t) => body.task_ids.includes(t.id))
+          .map(({ id, column_id, sort_key }) => ({ id, column_id, sort_key })),
+        skipped_task_ids: [],
+      });
+    });
+  });
+
+  function select(...ids: string[]): void {
+    for (const id of ids) {
+      selection.toggle(id);
+    }
+  }
+
+  function bulkMoves(): Request[] {
+    return fetchMock.mock.calls
+      .map((call) => call[0] as Request)
+      .filter((request) => new URL(request.url).pathname === '/api/tasks/bulk-move');
+  }
+
+  function doingIds(): string[] {
+    return [...taskList('Doing tasks').querySelectorAll<HTMLElement>('[data-task-id]')].map(
+      (card) => card.dataset.taskId ?? ''
+    );
+  }
+
+  it('lifts the rest of the set out of every column along with the card', async () => {
+    select(T1, T3, T6);
+    render(Board, { props: { projectId: PROJECT_ID } });
+    await screen.findByText('plain one');
+
+    pickUp(T3);
+    await tick();
+
+    expect(renderedTaskIds()).toEqual([T2, SHADOW_PLACEHOLDER_ITEM_ID, T4]);
+    expect(doingIds()).toEqual([T5]);
+    await vi.waitFor(() => expect(announcer.message).toBe('Dragging 3 cards'));
+  });
+
+  it('lands the whole set where the card was dropped, in board order, in one request', async () => {
+    select(T1, T3, T6);
+    render(Board, { props: { projectId: PROJECT_ID } });
+    await screen.findByText('plain one');
+    const byId = new Map(board.tasks.map((t) => [t.id, t]));
+
+    pickUp(T3);
+    await tick();
+    drop(T3, [byId.get(T2)!, byId.get(T4)!, byId.get(T3)!]);
+
+    await vi.waitFor(() => expect(bulkMoves()).toHaveLength(1));
+    expect(await bulkMoves()[0]!.clone().json()).toEqual({
+      project_id: PROJECT_ID,
+      task_ids: [T1, T3, T6],
+      column_id: 'c1',
+      after_task_id: T4,
+    });
+    expect(patchRequests()).toHaveLength(0);
+    await vi.waitFor(() => expect(renderedTaskIds()).toEqual([T2, T4, T1, T3, T6]));
+    expect(doingIds()).toEqual([T5]);
+    // Kept, as the move menu keeps it: the set is still what the next action acts on.
+    expect(selection.selectedIds).toEqual([T1, T3, T6]);
+    await vi.waitFor(() => expect(announcer.message).toBe('Moved 3 cards to Todo'));
+  });
+
+  it('lands the set in another column, anchored on the card above the drop', async () => {
+    select(T1, T3);
+    render(Board, { props: { projectId: PROJECT_ID } });
+    await screen.findByText('plain one');
+    const byId = new Map(board.tasks.map((t) => [t.id, t]));
+
+    pickUp(T3);
+    await tick();
+    drop(T3, [byId.get(T5)!, byId.get(T3)!, byId.get(T6)!], 'Doing tasks');
+
+    await vi.waitFor(() => expect(bulkMoves()).toHaveLength(1));
+    expect(await bulkMoves()[0]!.clone().json()).toEqual({
+      project_id: PROJECT_ID,
+      task_ids: [T1, T3],
+      column_id: 'c2',
+      after_task_id: T5,
+      before_task_id: T6,
+    });
+    await vi.waitFor(() => expect(doingIds()).toEqual([T5, T1, T3, T6]));
+    expect(renderedTaskIds()).toEqual([T2, T4]);
+  });
+
+  it('writes nothing when the card is put back where it was picked up', async () => {
+    select(T1, T3, T6);
+    render(Board, { props: { projectId: PROJECT_ID } });
+    await screen.findByText('plain one');
+    const byId = new Map(board.tasks.map((t) => [t.id, t]));
+
+    pickUp(T3);
+    await tick();
+    drop(T3, [byId.get(T2)!, byId.get(T3)!, byId.get(T4)!]);
+    await tick();
+
+    expect(bulkMoves()).toHaveLength(0);
+    expect(patchRequests()).toHaveLength(0);
+    await vi.waitFor(() => expect(renderedTaskIds()).toEqual([T1, T2, T3, T4]));
+    expect(doingIds()).toEqual([T5, T6]);
+  });
+
+  it('drags a card outside the set on its own and leaves the set alone', async () => {
+    select(T1, T3);
+    render(Board, { props: { projectId: PROJECT_ID } });
+    await screen.findByText('plain one');
+    const [first, second, third, fourth] = board.tasksInColumn('c1');
+
+    pickUp(T2);
+    await tick();
+    expect(renderedTaskIds()).toEqual([T1, SHADOW_PLACEHOLDER_ITEM_ID, T3, T4]);
+    drop(T2, [first!, third!, fourth!, second!]);
+
+    await vi.waitFor(() => expect(patchRequests()).toHaveLength(1));
+    expect(new URL(patchRequests()[0]!.url).pathname).toBe(`/api/tasks/${T2}`);
+    expect(bulkMoves()).toHaveLength(0);
+    expect(document.querySelector('[data-drag-count]')).toBeNull();
+  });
+
+  it('moves the set on every arrow of a keyboard drag and puts it back on the drop', async () => {
+    select(T1, T3);
+    render(Board, { props: { projectId: PROJECT_ID } });
+    const item = await screen.findByRole('listitem', { name: 'plain two' });
+    item.focus();
+
+    await fireEvent.keyDown(item, { key: 'Enter' });
+    await vi.waitFor(() => expect(board.dragging).toBe(true));
+    await vi.waitFor(() => expect(cardTitles()).toEqual(['match a', 'plain two', 'match b']));
+    expect(item.querySelector('[data-drag-count]')).toHaveTextContent('2');
+
+    await fireEvent.keyDown(item, { key: 'ArrowDown' });
+    await vi.waitFor(() => expect(bulkMoves()).toHaveLength(1));
+    expect(await bulkMoves()[0]!.clone().json()).toMatchObject({
+      task_ids: [T1, T3],
+      column_id: 'c1',
+      after_task_id: T4,
+    });
+    expect(board.dragging).toBe(true);
+
+    await fireEvent.keyDown(item, { key: 'Enter' });
+    await vi.waitFor(() => expect(board.dragging).toBe(false));
+    await vi.waitFor(() =>
+      expect(cardTitles()).toEqual(['match a', 'match b', 'plain one', 'plain two'])
+    );
+    expect(document.querySelector('[data-drag-count]')).toBeNull();
+    expect(patchRequests()).toHaveLength(0);
   });
 });
 

@@ -40,6 +40,7 @@ import {
   neighborsAfterDrop,
   placeAtIndex,
   placeBetweenNeighbors,
+  placeRunBetweenNeighbors,
   restack,
   type Keyed,
   type Neighbors,
@@ -123,6 +124,14 @@ export function placementAfterDrop(
   }
   const others = items.filter((item) => item.id !== movedId);
   return { placement: placeBetweenNeighbors(others, intent).placement, intent };
+}
+
+function anchorsOf(intent: Neighbors): { after_task_id?: string; before_task_id?: string } {
+  const { afterId, beforeId } = neighborIds(intent);
+  return {
+    ...(afterId === null ? {} : { after_task_id: afterId }),
+    ...(beforeId === null ? {} : { before_task_id: beforeId }),
+  };
 }
 
 // How long the payload that located a card may stand in for the card's own first
@@ -1384,14 +1393,27 @@ class BoardStore {
     }
   }
 
-  // The caller passes ids in board order and the server appends in that order,
+  // The caller passes ids in board order and the server lands them in that order,
   // so the optimistic stamp and the commit agree and nothing visibly reshuffles.
-  async bulkMoveTasks(taskIds: readonly string[], columnId: string): Promise<void> {
+  //
+  // `intent` travels as anchors rather than keys, and the server resolves them on
+  // arrival, which is what lets a queued drag replay as recorded: unlike
+  // `moveTask`, nothing here needs rekeying against a fresh board first.
+  async bulkMoveTasks(
+    taskIds: readonly string[],
+    columnId: string,
+    intent: Neighbors
+  ): Promise<void> {
     const projectId = this.currentProjectId;
     if (projectId === null || taskIds.length === 0) {
       return;
     }
-    const run = appendRun(this.tasksInColumn(columnId), taskIds.length);
+    const moving = new Set(taskIds);
+    const run = placeRunBetweenNeighbors(
+      this.tasksInColumn(columnId).filter((task) => !moving.has(task.id)),
+      intent,
+      taskIds.length
+    );
     const optimistic = new Map(taskIds.map((id, index) => [id, run[index]!]));
     this.tasks = this.tasks.map((task) => {
       const placement = optimistic.get(task.id);
@@ -1403,7 +1425,12 @@ class BoardStore {
       request: {
         method: 'POST',
         path: '/api/tasks/bulk-move',
-        body: { project_id: projectId, task_ids: [...taskIds], column_id: columnId },
+        body: {
+          project_id: projectId,
+          task_ids: [...taskIds],
+          column_id: columnId,
+          ...anchorsOf(intent),
+        },
       },
     });
     if (result.status === 'sent') {

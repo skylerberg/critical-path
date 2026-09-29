@@ -3031,7 +3031,7 @@ describe('selection bulk actions', () => {
         skipped_task_ids: [],
       });
 
-      const pending = board.bulkMoveTasks(['t2', 't1'], 'c2');
+      const pending = board.bulkMoveTasks(['t2', 't1'], 'c2', { kind: 'append' });
 
       expect(board.tasksInColumn('c2').map((t) => t.id)).toEqual(['t3', 't2', 't1']);
 
@@ -3046,13 +3046,63 @@ describe('selection bulk actions', () => {
       expect(pathsRequested()).toEqual(['/api/tasks/bulk-move']);
     });
 
+    it('lands the set between the cards it was dropped between and names them', async () => {
+      board.tasks = [...board.tasks, task('t4', 'c2', 3000, 'D')];
+      answer('/api/tasks/bulk-move', {
+        moved_tasks: [
+          { id: 't1', column_id: 'c2', sort_key: 'V0000015001' },
+          { id: 't2', column_id: 'c2', sort_key: 'V0000020001' },
+        ],
+        skipped_task_ids: [],
+      });
+
+      const pending = board.bulkMoveTasks(['t1', 't2'], 'c2', {
+        kind: 'between',
+        afterId: 't3',
+        beforeId: 't4',
+      });
+
+      expect(board.tasksInColumn('c2').map((t) => t.id)).toEqual(['t3', 't1', 't2', 't4']);
+
+      await pending;
+
+      expect(await requestAt(0).json()).toEqual({
+        project_id: 'p1',
+        task_ids: ['t1', 't2'],
+        column_id: 'c2',
+        after_task_id: 't3',
+        before_task_id: 't4',
+      });
+      expect(board.tasksInColumn('c2').map((t) => t.id)).toEqual(['t3', 't1', 't2', 't4']);
+    });
+
+    it('sends only the anchor a drop at the top of a column has', async () => {
+      board.tasks = [...board.tasks, task('t5', 'c1', 3000, 'E')];
+      answer('/api/tasks/bulk-move', { moved_tasks: [], skipped_task_ids: [] });
+
+      const pending = board.bulkMoveTasks(['t2', 't5'], 'c1', {
+        kind: 'between',
+        afterId: null,
+        beforeId: 't1',
+      });
+
+      expect(board.tasksInColumn('c1').map((t) => t.id)).toEqual(['t2', 't5', 't1']);
+      await pending;
+      expect(await requestAt(0).json()).toEqual({
+        project_id: 'p1',
+        task_ids: ['t2', 't5'],
+        column_id: 'c1',
+        before_task_id: 't1',
+      });
+    });
+
     it('names the counts and resyncs when the server skipped a card', async () => {
       answer('/api/tasks/bulk-move', {
         moved_tasks: [{ id: 't1', column_id: 'c2', sort_key: 'V0000070001' }],
         skipped_task_ids: ['t2'],
       });
 
-      await board.bulkMoveTasks(['t1', 't2'], 'c2');
+      await board.bulkMoveTasks(['t1', 't2'], 'c2', { kind: 'append' });
 
       expect(toasts.toasts.map((t) => t.message)).toContain(
         'Moved 1 of 2 cards. 1 changed before the action ran.'
@@ -3069,7 +3119,7 @@ describe('selection bulk actions', () => {
         skipped_task_ids: [],
       });
 
-      await board.bulkMoveTasks(['t1'], 'c2');
+      await board.bulkMoveTasks(['t1'], 'c2', { kind: 'append' });
 
       expect(pathsRequested()).toEqual(['/api/tasks/bulk-move', '/api/projects/p1']);
     });
@@ -3081,14 +3131,14 @@ describe('selection bulk actions', () => {
           : undefined
       );
 
-      await board.bulkMoveTasks(['t1'], 'c2');
+      await board.bulkMoveTasks(['t1'], 'c2', { kind: 'append' });
 
       expect(toasts.toasts.map((t) => t.message)).toContain('boom');
       expect(pathsRequested()).toContain('/api/projects/p1');
     });
 
     it('issues no request for an empty selection', async () => {
-      await board.bulkMoveTasks([], 'c2');
+      await board.bulkMoveTasks([], 'c2', { kind: 'append' });
 
       expect(fetchMock).not.toHaveBeenCalled();
     });

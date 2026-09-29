@@ -88,6 +88,23 @@ window.fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Res
     );
   }
 
+  // The store adopts `moved_tasks` from this, and resyncs when a card it sent is
+  // missing from it, so the echo below would replace the board it is measuring.
+  // The answer lives with the store, in board-probe.ts: nothing here may import
+  // the board, which reaches the api client before this module has run.
+  if (request.method === 'POST' && url.pathname === '/api/tasks/bulk-move') {
+    const answer = (window as unknown as { __bulkMoveAnswer?: (ids: string[]) => unknown })
+      .__bulkMoveAnswer;
+    const requested = body?.task_ids;
+    const taskIds = Array.isArray(requested)
+      ? requested.filter((id): id is string => typeof id === 'string')
+      : [];
+    return new Response(
+      JSON.stringify({ moved_tasks: answer?.(taskIds) ?? [], skipped_task_ids: [] }),
+      { status: 200, headers: { 'content-type': 'application/json' } }
+    );
+  }
+
   // Everything else is answered, including requests no case expects, because a
   // refusal is not inert: the board reports it, resyncs, and asks again, so one
   // unexpected call becomes a cascade that buries the assertion meant to catch

@@ -34,7 +34,7 @@ describe('BulkMoveMenu', () => {
     ];
     await fireEvent.keyDown(search, { key: 'Enter' });
 
-    expect(bulkMoveTasks).toHaveBeenCalledWith(['t1', 't2'], 'c2');
+    expect(bulkMoveTasks).toHaveBeenCalledWith(['t1', 't2'], 'c2', { kind: 'append' });
   });
 
   // Its row is gone; the neighbour that slid into it is not a safe guess when
@@ -71,7 +71,7 @@ describe('BulkMoveMenu', () => {
     await fireEvent.keyDown(search, { key: 'ArrowUp' });
     await fireEvent.keyDown(search, { key: 'Enter' });
 
-    expect(bulkMoveTasks).toHaveBeenCalledWith(['t1', 't2'], 'c1');
+    expect(bulkMoveTasks).toHaveBeenCalledWith(['t1', 't2'], 'c1', { kind: 'append' });
   });
 
   // Consumed while there are rows to walk, or the caret jumps to the end of the
@@ -113,7 +113,7 @@ describe('BulkMoveMenu', () => {
     await fireEvent.click(screen.getByRole('button', { name: 'Done' }));
 
     expect(bulkMoveTasks).toHaveBeenCalledTimes(1);
-    expect(bulkMoveTasks).toHaveBeenCalledWith(['t1', 't2'], 'c2');
+    expect(bulkMoveTasks).toHaveBeenCalledWith(['t1', 't2'], 'c2', { kind: 'append' });
     expect(onclose).toHaveBeenCalled();
     await vi.waitFor(() => expect(announcer.message).toBe('Moved 2 cards to Done'));
   });
@@ -145,6 +145,6 @@ describe('BulkMoveMenu', () => {
     await fireEvent.keyDown(search, { key: 'ArrowDown' });
     await fireEvent.keyDown(search, { key: 'Enter' });
 
-    expect(bulkMoveTasks).toHaveBeenCalledWith(['t1', 't2'], 'c2');
+    expect(bulkMoveTasks).toHaveBeenCalledWith(['t1', 't2'], 'c2', { kind: 'append' });
   });
 });
