@@ -5,8 +5,8 @@ COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 RUN pnpm install --frozen-lockfile
 COPY index.ts auth.ts tsconfig.json ./
 RUN pnpm run build
-# See the api Dockerfile: a second --prod install, not a prune.
-RUN pnpm install --frozen-lockfile --prod
+# See the api Dockerfile for why node_modules is removed first.
+RUN rm -rf node_modules && pnpm install --frozen-lockfile --prod --offline
 
 FROM node:24-alpine
 WORKDIR /app

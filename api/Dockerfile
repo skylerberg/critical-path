@@ -11,10 +11,11 @@ COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 RUN pnpm install --frozen-lockfile
 COPY src ./src
 RUN pnpm run build:prod
-# A second, --prod install rather than a prune: pnpm's own docs steer away from prune,
-# and re-resolving against the same frozen lockfile drops the devDependencies for the
-# runtime stage below.
-RUN pnpm install --frozen-lockfile --prod
+# A --prod install over the existing tree only unlinks the devDependencies from the top
+# level; every one of them stays in node_modules/.pnpm and would ship. Starting from an
+# empty node_modules is what leaves them out. --offline relinks from the store the first
+# install filled, and fails rather than re-downloading if that store is ever gone.
+RUN rm -rf node_modules && pnpm install --frozen-lockfile --prod --offline
 
 FROM node:24-alpine
 WORKDIR /app
