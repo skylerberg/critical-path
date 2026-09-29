@@ -314,7 +314,10 @@ unredeemable by a rotation of the signing secret. Every write publishes
   come back in `skipped_task_ids` and the rest commits, and an id in another
   project is indistinguishable from an unknown one, so the skip list is no
   cross-project existence oracle. Labels and assignees are deltas, not
-  replaces. There is deliberately no bulk delete. Each emits one batched event,
+  replaces. `bulk-move` appends unless it is named the cards either side of a
+  drop (`after_task_id`, `before_task_id`), which it resolves on arrival rather
+  than trusting a key ranked against a board that has since moved. There is
+  deliberately no bulk delete. Each emits one batched event,
   except `tasks/batch`, which emits one `task_created` per card.
 - **A project holds at most 5,000 tasks** (`MAX_TASKS_PER_PROJECT`), archived
   cards included; every create path answers 422 past it. The single-create path

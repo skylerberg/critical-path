@@ -3,7 +3,7 @@ import { describeRoute } from 'hono-openapi';
 import { sql } from 'kysely';
 import { jsonValidator } from '../middleware/jsonValidator';
 import { dedupe } from '../utils/arrays';
-import { AppError } from '../utils/errors';
+import { AppError, isUniqueViolation } from '../utils/errors';
 import { recordBulkAssignments } from '../services/assignmentDigest';
 import { assertProjectWrite } from '../services/authorization';
 import { assertColumnInProject, lockColumnTail } from '../services/boardColumns';
@@ -36,6 +36,7 @@ import {
   notFoundErrorResponse,
   validationOrUnprocessableErrorResponse,
   internalServerErrorResponse,
+  positionConflictErrorResponse,
   type BulkTaskRelations,
 } from '../schemas/index';
 import { AppHono } from '../types/index';
@@ -90,8 +91,15 @@ router.post(
     summary: 'Move a selection of tasks to a column',
     description:
       'Move any number of a project’s tasks into one of its columns in a single transaction. ' +
-      'The tasks are appended after the target column’s existing cards, keeping the order the ' +
-      'ids were sent in, so the caller decides where the selection lands. Archived tasks are ' +
+      'The tasks land contiguously in the order the ids were sent. By default they are ' +
+      'appended after the target column’s existing cards; after_task_id and before_task_id, ' +
+      'both optional, instead name the cards the caller saw on either side of where the ' +
+      'selection was dropped, and are resolved against the column as it is when the request ' +
+      'lands: the selection goes straight after after_task_id while that is still a live card ' +
+      'of the target column, otherwise straight before before_task_id on the same terms, and ' +
+      'is appended when neither is — so an anchor deleted, archived or moved away in the ' +
+      'meantime degrades the drop rather than failing it. An anchor that is also one of ' +
+      'task_ids returns 422. Archived tasks are ' +
       'skipped: an archived card has no board position, and restoring one is contracted to ' +
       'return it to the column it was archived from. A card already in the target column is ' +
       're-stamped so the selection lands contiguous, but keeps its column_since and records no ' +
@@ -102,6 +110,7 @@ router.post(
     responses: {
       ...bulkMoveResponses,
       ...errorResponses,
+      ...positionConflictErrorResponse,
     },
   }),
   jsonValidator(bulkMoveTasksSchema),
@@ -111,6 +120,13 @@ router.post(
     const user = c.get('user');
 
     const project = await assertProjectWrite(db, user.id, body.project_id);
+    const moving = new Set(body.task_ids);
+    for (const field of ['after_task_id', 'before_task_id'] as const) {
+      const anchor = body[field];
+      if (anchor !== undefined && moving.has(anchor)) {
+        throw new AppError(422, `${field} must not be one of task_ids`);
+      }
+    }
     // Before the row locks, not after: the column routes take this lock first
     // and reach the same rows through their own write, so acquiring the two in
     // the other order here deadlocks a drag against a column emptied into the
@@ -127,7 +143,17 @@ router.post(
       return c.json({ moved_tasks: [], skipped_task_ids: skipped }, 200);
     }
 
-    const moved_tasks = await relocateSelectedTasks(db, user.id, project.id, rows, target);
+    const moved_tasks = await relocateSelectedTasks(db, user.id, project.id, rows, target, {
+      afterTaskId: body.after_task_id,
+      beforeTaskId: body.before_task_id,
+    }).catch((err: unknown) => {
+      // A single-card move does not take the tail lock, so nothing holds the
+      // gap between reading its bounds and writing into it.
+      if (isUniqueViolation(err)) {
+        throw new AppError(409, 'That position was taken while the move was in flight');
+      }
+      throw err;
+    });
     // A selection can span columns on both sides of the done line, so unlike the
     // column-scoped moves there is no single before-state to compare against.
     await syncCrossProjectBlockers(c, db, { taskIds: moved_tasks.map((task) => task.id) });
