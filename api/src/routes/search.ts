@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { describeRoute } from 'hono-openapi';
 import { queryValidator } from '../middleware/requestValidator';
+import { assertProjectAccess } from '../services/authorization';
 import { SEARCH_RESULT_LIMIT, searchTasks } from '../services/search';
 import {
   SEARCH_QUERY_MAX_LENGTH,
@@ -11,6 +12,7 @@ import {
   type Returned,
   badRequestErrorResponse,
   unauthorizedErrorResponse,
+  notFoundErrorResponse,
   internalServerErrorResponse,
 } from '../schemas/index';
 import { AppHono } from '../types/index';
@@ -36,20 +38,27 @@ router.get(
       'outgrown the indexed word, which drops out until it is finished (a card titled "Fix ' +
       'the login test" matches test and testing but not testi). Mentions match on the name ' +
       `they display. Ranked with title matches above description matches, capped at ` +
-      `${SEARCH_RESULT_LIMIT} results with truncated set when more matched.`,
+      `${SEARCH_RESULT_LIMIT} results with truncated set when more matched. project_id narrows ` +
+      'the search to that one project, which the caller must have access to (404 otherwise); ' +
+      'an archived project answers no results, as it does unnarrowed.',
     security: [{ bearerAuth: [] }],
     responses: {
       ...searchTasksResponses,
       ...badRequestErrorResponse,
       ...unauthorizedErrorResponse,
+      ...notFoundErrorResponse,
       ...internalServerErrorResponse,
     },
   }),
   queryValidator(searchQuerySchema),
   async (c): Promise<Returned<typeof searchTasksResponses>> => {
-    const { q } = c.req.valid('query');
+    const { q, project_id } = c.req.valid('query');
+    const db = c.get('db');
     const user = c.get('user');
-    return c.json(await searchTasks(c.get('db'), user.id, q), 200);
+    if (project_id !== undefined) {
+      await assertProjectAccess(db, user.id, project_id);
+    }
+    return c.json(await searchTasks(db, user.id, q, project_id), 200);
   }
 );
 

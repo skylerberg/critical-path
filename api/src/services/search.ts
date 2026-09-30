@@ -9,7 +9,8 @@ export const SEARCH_RESULT_LIMIT = 50;
 export async function searchTasks(
   db: Kysely<DB>,
   userId: string,
-  query: string
+  query: string,
+  projectId?: string
 ): Promise<SearchResponse> {
   // The task vector carries english-stemmed lexemes in its A/B arms.
   const matcher = prefixTsquery(query, { stemWith: 'english' });
@@ -29,6 +30,7 @@ export async function searchTasks(
     .where('task.archived_at', 'is', null)
     .where('project.archived_at', 'is', null)
     .where(accessibleProjectsFilter(userId))
+    .where((eb) => eb.and(projectId === undefined ? [] : [eb('task.project_id', '=', projectId)]))
     .where(sql<SqlBool>`task.search_vector @@ ${matcher}`)
     .orderBy(sql`search_rank`, 'desc')
     .orderBy('task.updated_at', 'desc')

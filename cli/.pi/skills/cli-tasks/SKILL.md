@@ -60,6 +60,7 @@ any ref form, board mutations (`move`, `done`, `update`, `label`, `assign`,
 cpath board                          # full board for the default project
 cpath ready --project "Critical Path"   # unblocked, unfinished tasks
 cpath mine                           # your tasks everywhere, by who you block
+cpath task search "login bug"        # titles and descriptions, every project unless --project
 cpath task show "<title>"            # detail incl. comments and activity
 cpath task blockers "<title>"        # what blocks it and what it blocks
 ```

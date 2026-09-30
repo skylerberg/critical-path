@@ -20,6 +20,7 @@ export type MyTasksResponse = components['schemas']['MyTasksResponse'];
 export type ProjectInvitation = components['schemas']['ProjectInvitation'];
 export type TaskDetail = components['schemas']['TaskDetailResponse'];
 export type ChecklistItem = components['schemas']['ChecklistItem'];
+export type SearchResponse = components['schemas']['SearchResponse'];
 
 export const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -398,6 +399,18 @@ export async function searchUsers(
   query: string
 ): Promise<{ users: User[]; truncated: boolean }> {
   return assertOk(await ctx.api.GET('/api/users/search', { params: { query: { q: query } } }));
+}
+
+export async function searchTasks(
+  ctx: RuntimeContext,
+  query: string,
+  projectId?: string
+): Promise<SearchResponse> {
+  return assertOk(
+    await ctx.api.GET('/api/search', {
+      params: { query: { q: query, ...(projectId == null ? {} : { project_id: projectId }) } },
+    })
+  );
 }
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;

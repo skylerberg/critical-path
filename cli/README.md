@@ -43,6 +43,8 @@ cpath project list
 cpath board "My Project"                # columns with [ready]/[blocked] markers
 cpath ready --project "My Project"      # unblocked, unfinished tasks
 cpath mine                              # your tasks everywhere, ordered by who you block
+cpath task search "login bug"           # titles and descriptions in every project, best first
+cpath task search "login" --project "My Project"   # one board; default-project never narrows it
 cpath task create "Fix the bug" --project "My Project" --description "See **notes**"
 cpath task create - --project "My Project" < titles.txt   # one card per line, max 100
 cpath task update "Fix the bug" --project "My Project" --due 2026-08-03   # --clear-due removes it

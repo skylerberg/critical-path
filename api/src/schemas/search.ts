@@ -1,11 +1,12 @@
 import { type } from 'arktype';
-import { stringWithLength } from './common';
+import { stringWithLength, uuid } from './common';
 
 export const SEARCH_QUERY_MIN_LENGTH = 1;
 export const SEARCH_QUERY_MAX_LENGTH = 200;
 
 export const searchQuerySchema = type({
   q: stringWithLength(SEARCH_QUERY_MIN_LENGTH, SEARCH_QUERY_MAX_LENGTH),
+  'project_id?': uuid,
 });
 
 export const searchResultSchema = type({

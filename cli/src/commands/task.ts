@@ -21,6 +21,7 @@ import {
   resolveTaskId,
   resolveTaskInBoard,
   resolveUser,
+  searchTasks,
   type ArchivedTask,
   type BoardColumn,
   type BoardPayload,
@@ -682,6 +683,44 @@ export function registerTask(program: Command, deps: CliDeps): void {
                 displayTitle(t.title),
               ])
             );
+          });
+        })
+      )
+  );
+
+  // Every project unless --project names one: the configured default-project
+  // scopes the board commands, but a search that silently skipped the other
+  // boards would read as "nothing matched".
+  task.addCommand(
+    leaf('search')
+      .description('Search task titles and descriptions across every project')
+      .argument('<query>', 'words that must all match, each as a prefix of a word')
+      .option('--project <project>', 'search only this project (id or name)')
+      .action(
+        withCtx(deps, async (ctx, opts, query: string) => {
+          const projectRef = opts.project as string | undefined;
+          const projectId =
+            projectRef == null ? undefined : (await resolveProject(ctx, projectRef)).id;
+          const { results, truncated } = await searchTasks(ctx, query, projectId);
+          ctx.out.data({ results, truncated }, () => {
+            if (results.length === 0) {
+              ctx.out.line('No matching tasks');
+              return;
+            }
+            ctx.out.table(
+              ['ID', 'PROJECT', 'COLUMN', 'TITLE'],
+              results.map((r) => [
+                r.task_id.slice(0, 8),
+                r.project_name,
+                r.column_name,
+                displayTitle(r.title),
+              ])
+            );
+            if (truncated) {
+              ctx.out.line(
+                ctx.out.style(['dim'], 'More matched than are shown; narrow the query to see them.')
+              );
+            }
           });
         })
       )
