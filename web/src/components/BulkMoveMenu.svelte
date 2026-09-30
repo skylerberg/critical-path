@@ -41,7 +41,7 @@
     }
     committed = true;
     const moving = [...ids];
-    void board.bulkMoveTasks(moving, column.id);
+    void board.bulkMoveTasks(moving, column.id, { kind: 'append' });
     // Close before announcing: this modal keeps the shell's live region inert.
     onclose();
     void announcer.announce(

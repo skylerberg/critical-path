@@ -8,6 +8,7 @@ import {
   neighborsAtIndex,
   placeAtIndex,
   placeBetweenNeighbors,
+  placeRunBetweenNeighbors,
   reorderRankUpdates,
   restack,
   type Keyed,
@@ -337,6 +338,69 @@ describe('placeBetweenNeighbors', () => {
   it('is exact when the end of the list is what was actually asked for', () => {
     const result = placeBetweenNeighbors([{ id: 'c', sort_key: k(5) }], { kind: 'append' });
     expect(result.exact).toBe(true);
+  });
+});
+
+describe('placeRunBetweenNeighbors', () => {
+  const keysOf = (placements: { sort_key: string }[]) => placements.map((p) => p.sort_key);
+  const ascending = (list: string[]) => list.every((key, i) => i === 0 || list[i - 1]! < key);
+
+  it('lands the run in order between both anchors', () => {
+    const run = keysOf(
+      placeRunBetweenNeighbors(
+        [item('a', k(0)), item('b', k(1)), item('c', k(2))],
+        { kind: 'between', afterId: 'a', beforeId: 'b' },
+        3
+      )
+    );
+    expect(run).toHaveLength(3);
+    expect(ascending([k(0), ...run, k(1)])).toBe(true);
+  });
+
+  // The server's rule, not the midpoint of the pair: a card that has arrived
+  // between the anchors since the drop is one the run lands ahead of.
+  it('keeps straight after afterId when a card sits between the anchors', () => {
+    const run = keysOf(
+      placeRunBetweenNeighbors(
+        ranked(item('a', k(0)), item('arrived', k(1)), item('b', k(4))),
+        { kind: 'between', afterId: 'a', beforeId: 'b' },
+        2
+      )
+    );
+    expect(ascending([k(0), ...run, k(1)])).toBe(true);
+  });
+
+  it('lands straight before beforeId once afterId has gone', () => {
+    const run = keysOf(
+      placeRunBetweenNeighbors(
+        ranked(item('x', k(0)), item('y', k(2)), item('b', k(4))),
+        { kind: 'between', afterId: 'gone', beforeId: 'b' },
+        2
+      )
+    );
+    expect(ascending([k(2), ...run, k(4)])).toBe(true);
+  });
+
+  it('lands at the top before the first card with no afterId at all', () => {
+    const run = keysOf(
+      placeRunBetweenNeighbors(
+        ranked(item('b', k(1)), item('c', k(2))),
+        { kind: 'between', afterId: null, beforeId: 'b' },
+        2
+      )
+    );
+    expect(ascending([...run, k(1)])).toBe(true);
+  });
+
+  it('appends when neither anchor is left, and for an append', () => {
+    const siblings = ranked(item('a', k(0)), item('b', k(1)));
+    for (const intent of [
+      { kind: 'between', afterId: 'gone', beforeId: 'also-gone' } as const,
+      { kind: 'append' } as const,
+    ]) {
+      const run = keysOf(placeRunBetweenNeighbors(siblings, intent, 2));
+      expect(ascending([k(1), ...run])).toBe(true);
+    }
   });
 });
 

@@ -214,5 +214,19 @@ const scrollSamples: number[] = [];
 for (let t = 0; t < SELECTED; t++) {
   selection.toggle(taskId(0, t));
 }
+// `pick=0.0,1.2` selects cards by column and index, for a set spread across
+// columns — the shape a drag of a selected card has to gather.
+for (const pair of (params.get('pick') ?? '').split(',').filter(Boolean)) {
+  const [column, index] = pair.split('.').map(Number);
+  selection.toggle(taskId(column!, index!));
+}
+
+// What board-probe-net.ts answers a bulk move with. The store has already stamped
+// the set where the drop put it by the time it asks, so handing those positions
+// back is what a server that landed it there would do.
+(window as unknown as { __bulkMoveAnswer: (ids: string[]) => unknown }).__bulkMoveAnswer = (ids) =>
+  board.tasks
+    .filter((task) => ids.includes(task.id))
+    .map(({ id, column_id, sort_key }) => ({ id, column_id, sort_key }));
 
 mount(SelectionBar, { target: shell });

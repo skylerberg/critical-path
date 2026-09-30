@@ -219,6 +219,40 @@ export function placeBetweenNeighbors(
 }
 
 /**
+ * `placeBetweenNeighbors` for a run of `count` rows landing together, by the rule
+ * `POST /api/tasks/bulk-move` resolves the same anchors with: straight after
+ * `afterId` while it is still there, else straight before `beforeId`, else the
+ * end. That rule rather than the midpoint of both anchors, so the optimistic
+ * stamp is ordered the way the commit will come back. `siblings` must not contain
+ * the rows being placed.
+ */
+export function placeRunBetweenNeighbors(
+  siblings: readonly Keyed[],
+  intent: Neighbors,
+  count: number
+): Placement[] {
+  const { afterId, beforeId } = neighborIds(intent);
+  const after = siblings.find((item) => item.id === afterId);
+  if (after !== undefined) {
+    return run(after, adjacentSibling(siblings, after, 'after'), count);
+  }
+  const before = siblings.find((item) => item.id === beforeId);
+  if (before !== undefined) {
+    return run(adjacentSibling(siblings, before, 'before'), before, count);
+  }
+  return appendRun(siblings, count);
+}
+
+// `between` for a run, with the same retreat from equal bounds.
+function run(previous: Keyed | null, next: Keyed | null, count: number): Placement[] {
+  const low = keyOf(previous);
+  const high = keyOf(next);
+  const fresh =
+    low !== null && high !== null && low >= high ? keys(low, null, count) : keys(low, high, count);
+  return fresh.map((sort_key) => ({ sort_key }));
+}
+
+/**
  * The sibling immediately on one side of `anchor` in rank order, or null at that
  * end of the list.
  *

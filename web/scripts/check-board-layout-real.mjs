@@ -1128,6 +1128,274 @@ async function runDragCases(probeUrl, { mustPass, include = () => true }) {
 console.log('\ncheck:layout:real — card drop targeting');
 failed += await runDragCases(PROBE, { mustPass: true });
 
+// --- Group drags: a drag that starts on a selected card carries the set ---
+// Everything here happens where jsdom cannot follow: the floating copy of the card
+// is cloned by the library before any handler runs, so whether it carries the
+// count is a question about the real library's call order, and whether the rest
+// of the set has left the board is a question about a DOM the library is
+// rearranging under the component at the same time.
+//
+// `pick` is the set as [column, index] pairs and `lead` the index of the card the
+// press lands on, in column `from`. `stay` releases the card where it was picked
+// up, and `menu` holds a finger still until the card menu takes the gesture over:
+// both are drops that must write nothing, and the second is the one that happens
+// by accident — the press that unwinds its drag was never meant to move anything.
+const GROUP_DRAG_PROBE = `(async (c) => {
+  const pause = (ms) => new Promise((r) => setTimeout(r, ms));
+  const cardsIn = (list) => [...list.querySelectorAll(':scope > [data-task-id]')];
+  const lists = () => Object.fromEntries(
+    [...document.querySelectorAll('[data-task-list]')].map((l) => [l.dataset.taskList, cardsIn(l).map((el) => el.dataset.taskId)])
+  );
+  const before = lists();
+  const set = [...c.pick]
+    .sort((a, b) => a[0] - b[0] || a[1] - b[1])
+    .map(([col, index]) => before['c' + col][index]);
+  const card = cardsIn(document.querySelector('[data-task-list="c' + c.from + '"]'))[c.lead];
+  const leadId = card.dataset.taskId;
+  const riders = set.filter((id) => id !== leadId);
+  const cr = card.getBoundingClientRect();
+  const grabX = Math.round(cr.right - 16);
+  const grabY = Math.round(cr.top + cr.height / 2);
+  const toX = c.stay || c.menu ? grabX : c.toX;
+
+  const touch = (target, type, x, y) => {
+    const t = new Touch({ identifier: 1, target: card, clientX: x, clientY: y });
+    target.dispatchEvent(new TouchEvent(type, {
+      bubbles: true, cancelable: true,
+      touches: type === 'touchend' ? [] : [t],
+      changedTouches: [t],
+    }));
+  };
+  const mouse = (target, type, x, y) =>
+    target.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, clientX: x, clientY: y, button: 0 }));
+  const down = (x, y) => {
+    if (c.pointer === 'touch') {
+      // The card menu's long press listens for the pointer half of a touch, which a
+      // synthetic TouchEvent does not produce — and listens on the card inside the
+      // wrapper the drag library holds, so it is sent where a finger would land.
+      document.elementFromPoint(x, y).dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerType: 'touch', isPrimary: true, clientX: x, clientY: y }));
+      touch(card, 'touchstart', x, y);
+    } else {
+      mouse(card, 'mousedown', x, y);
+    }
+  };
+  const move = (x, y) => (c.pointer === 'touch' ? touch(document, 'touchmove', x, y) : mouse(document, 'mousemove', x, y));
+  const up = (x, y) => (c.pointer === 'touch' ? touch(document, 'touchend', x, y) : mouse(document, 'mouseup', x, y));
+
+  down(grabX, grabY);
+  if (c.pointer === 'touch') await pause(320);
+  if (c.menu) {
+    // Held still, short of the long press, so the set is read while it is lifted.
+    await pause(700);
+  } else {
+    // A put-back still moves: a mouse drag arms on the first move, and a hand
+    // never holds perfectly still. Out and back by less than a card.
+    const legs = c.stay ? [grabX + 6, grabX] : [toX];
+    let fromX = grabX;
+    for (const legX of legs) {
+      const steps = Math.max(1, Math.round(Math.abs(legX - fromX) / 12));
+      for (let i = 1; i <= steps; i++) {
+        move(Math.round(fromX + ((legX - fromX) * i) / steps), grabY);
+        await pause(24);
+      }
+      fromX = legX;
+    }
+    await pause(c.hold);
+  }
+
+  const dragged = document.getElementById('dnd-action-dragged-el');
+  const badge = dragged && dragged.querySelector('[data-drag-count]');
+  const br = badge && badge.getBoundingClientRect();
+  const drawn = [...document.querySelectorAll('[data-drop-skeleton]')].filter((s) => {
+    const r = s.getBoundingClientRect();
+    return getComputedStyle(s).visibility === 'visible' && r.height > 0 && r.width > 0;
+  });
+  const held = drawn[0] && drawn[0].closest('[data-task-id]');
+  const at = {
+    leadId,
+    set,
+    before,
+    armed: !!dragged || !!document.querySelector('[data-drag-count]'),
+    during: lists(),
+    ridersShown: riders.filter((id) => document.querySelector('[data-task-list] [data-task-id="' + id + '"]')),
+    badge: badge
+      ? { text: badge.textContent, visible: getComputedStyle(badge).visibility === 'visible' && br.width > 0 && br.height > 0 }
+      : null,
+    stacked: dragged ? getComputedStyle(dragged).boxShadow !== 'none' : false,
+    skeletonIn: drawn.map((s) => s.closest('[data-task-list]').dataset.taskList),
+    placeholderIndex: held ? cardsIn(held.closest('[data-task-list]')).indexOf(held) : null,
+  };
+  if (c.menu) {
+    // ...and on past it: the menu unwinds the drag through the drop on its own.
+    await pause(1600);
+  }
+  at.menuOpen = !!document.querySelector('[role="menu"]');
+
+  up(toX, grabY);
+  await pause(700);
+
+  const isBulk = (r) => r.method === 'POST' && r.path === '/api/tasks/bulk-move';
+  const isPatch = (r) => r.method === 'PATCH';
+  return {
+    ...at,
+    after: lists(),
+    bulk: window.__requests.filter(isBulk).map((r) => r.body),
+    patches: window.__requests.filter(isPatch).map((r) => r.path),
+    other: window.__requests.filter((r) => !isBulk(r) && !isPatch(r)).map((r) => r.method + ' ' + r.path),
+    badgesLeft: document.querySelectorAll('[data-drag-count]').length,
+  };
+})`;
+
+function checkGroupDrag(d, c) {
+  const f = [];
+  if (!d.armed) f.push('the press never armed a drag');
+  if (d.ridersShown.length)
+    f.push(`the rest of the set stayed on the board during the drag (${d.ridersShown.join(', ')})`);
+  if (!d.badge) f.push('the card in flight carries no count');
+  else if (d.badge.text !== String(d.set.length) || !d.badge.visible)
+    f.push(
+      `the count on the card in flight reads ${JSON.stringify(d.badge)} (want ${d.set.length}, visible)`
+    );
+  if (!d.stacked) f.push('the card in flight is not drawn as a stack');
+  if (d.badgesLeft !== 0) f.push(`${d.badgesLeft} count badge(s) left on the board after the drop`);
+  if (d.patches.length) f.push(`a set drag moved cards one at a time (${d.patches.join(', ')})`);
+  if (d.other.length) f.push(`the drop made requests beyond the move (${d.other.join(', ')})`);
+  if (c.stay || c.menu) {
+    if (c.menu && !d.menuOpen) f.push('the long press never opened the card menu');
+    if (d.bulk.length)
+      f.push(`a set put back where it was picked up was moved (${JSON.stringify(d.bulk)})`);
+    if (JSON.stringify(d.after) !== JSON.stringify(d.before))
+      f.push('the board did not come back as it was after a put-back');
+    return f;
+  }
+  const dest = d.skeletonIn[0];
+  if (d.skeletonIn.length !== 1) f.push(`the set's place is drawn in [${d.skeletonIn.join(',')}]`);
+  if (d.bulk.length !== 1) f.push(`the drop sent ${d.bulk.length} bulk moves (want 1)`);
+  else {
+    const body = d.bulk[0];
+    if (JSON.stringify(body.task_ids) !== JSON.stringify(d.set))
+      f.push(
+        `the set was sent as ${JSON.stringify(body.task_ids)} (want ${JSON.stringify(d.set)})`
+      );
+    if (body.column_id !== dest)
+      f.push(`the set was sent to ${body.column_id} with its place drawn in ${dest}`);
+  }
+  // Contiguous, in board order, starting where the placeholder was drawn.
+  const landed = (d.after[dest] ?? []).slice(d.placeholderIndex, d.placeholderIndex + d.set.length);
+  if (JSON.stringify(landed) !== JSON.stringify(d.set))
+    f.push(
+      `${dest} reads ${JSON.stringify(d.after[dest])}; want ${JSON.stringify(d.set)} from index ${d.placeholderIndex}`
+    );
+  for (const [column, ids] of Object.entries(d.after)) {
+    if (column !== dest && ids.some((id) => d.set.includes(id)))
+      f.push(`part of the set was left behind in ${column}`);
+  }
+  return f;
+}
+
+const GROUP_DRAG_CASES = [
+  // Lead from the foot of the first column, one rider above it and one already in
+  // the destination.
+  {
+    w: 1280,
+    h: 800,
+    cols: 4,
+    tasks: 3,
+    pointer: 'mouse',
+    pick: [
+      [0, 0],
+      [0, 2],
+      [1, 1],
+    ],
+    from: 0,
+    lead: 2,
+    toX: 600,
+    hold: 400,
+  },
+  {
+    w: 768,
+    h: 900,
+    cols: 4,
+    tasks: 3,
+    pointer: 'touch',
+    pick: [
+      [0, 1],
+      [1, 0],
+    ],
+    from: 0,
+    lead: 1,
+    toX: 350,
+    hold: 400,
+  },
+  {
+    w: 1280,
+    h: 800,
+    cols: 4,
+    tasks: 3,
+    pointer: 'mouse',
+    pick: [
+      [0, 0],
+      [1, 1],
+    ],
+    from: 0,
+    lead: 0,
+    stay: true,
+    hold: 400,
+  },
+  {
+    w: 390,
+    h: 844,
+    cols: 4,
+    tasks: 3,
+    pointer: 'touch',
+    pick: [
+      [0, 0],
+      [0, 2],
+    ],
+    from: 0,
+    lead: 0,
+    menu: true,
+  },
+];
+
+function groupDragName(c) {
+  const how = c.menu ? ' held for the menu' : c.stay ? ' put back' : '';
+  return `group-drag/${c.w}x${c.h} ${c.pointer} of ${c.pick.length}${how}`;
+}
+
+async function runGroupDragCases(probeUrl, { mustPass, include = () => true }) {
+  let bad = 0;
+  for (const c of GROUP_DRAG_CASES) {
+    const name = groupDragName(c);
+    if (!only.wants(name) || !include(c)) {
+      continue;
+    }
+    await setViewport({ width: c.w, height: c.h, mobile: c.w < 1024 });
+    const pick = c.pick.map(([col, index]) => `${col}.${index}`).join(',');
+    await goto(`${probeUrl}?cols=${c.cols}&tasks=${c.tasks}&pick=${pick}`, { wait: 700 });
+    const d = await evalPage(`(${GROUP_DRAG_PROBE})(${JSON.stringify(c)})`);
+    const failures = checkGroupDrag(d, c);
+    const passed = failures.length === 0;
+    if (passed === mustPass) {
+      const how = mustPass
+        ? c.stay || c.menu
+          ? 'nothing written'
+          : `${d.set.length} cards into ${d.skeletonIn[0]} at ${d.placeholderIndex}`
+        : `should fail -> ${failures[0]}`;
+      console.log(`  ✓ ${name} (${how})`);
+      continue;
+    }
+    bad++;
+    console.log(`  ✗ ${name}${mustPass ? '' : ': should fail -> passed'}`);
+    for (const x of failures) console.log(`      - ${x}`);
+    console.log(`      metrics: ${JSON.stringify(d)}`);
+  }
+  return bad;
+}
+
+console.log('\ncheck:layout:real — group drags');
+failed += await runGroupDragCases(PROBE, { mustPass: true });
+
 // Put the board back on a bug, so the phase that catches it can be shown to. Each
 // substitution must apply EXACTLY once: without that count the selftest passes by
 // rewriting nothing the day the code it names is renamed — the same failure it
@@ -1199,6 +1467,41 @@ if (SELFTEST) {
     ]),
     DRAG_CASES.map(dragName),
     (probe) => runDragCases(probe, { mustPass: false })
+  );
+
+  // A drag that no longer gathers the set: every group case must fail, the
+  // put-backs included, since each one also reads the count the card carries.
+  failed += await runRegression(
+    regression('ungrouped', [
+      ['    const ids = selection.targetsFor(leadId);', '    const ids = [leadId];'],
+    ]),
+    GROUP_DRAG_CASES.map(groupDragName),
+    (probe) => runGroupDragCases(probe, { mustPass: false })
+  );
+
+  // ...and one that gathers it without telling the floating copy, which is the
+  // half jsdom cannot see: the copy is cloned before any handler of the board's
+  // runs, so only the library's own re-layout can mark it.
+  failed += await runRegression(
+    regression('unmarked-copy', [
+      ['                transformDraggedElement: markGroupDrag,\n', ''],
+    ]),
+    GROUP_DRAG_CASES.map(groupDragName),
+    (probe) => runGroupDragCases(probe, { mustPass: false })
+  );
+
+  // ...and one that gathers the set wherever its card is put back, which the long
+  // press for the card menu does on every set it happens to start on.
+  const putBacks = (c) => c.stay === true || c.menu === true;
+  failed += await runRegression(
+    regression('gathered-on-put-back', [
+      [
+        '      const moved = unmoved\n        ? false',
+        '      const moved = unmoved && groupDrag === null\n        ? false',
+      ],
+    ]),
+    GROUP_DRAG_CASES.filter(putBacks).map(groupDragName),
+    (probe) => runGroupDragCases(probe, { mustPass: false, include: putBacks })
   );
 
   // The drop below the cards is the reach and nothing else, so take the border it
