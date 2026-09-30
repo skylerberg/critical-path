@@ -1,7 +1,13 @@
 import { sql, type Kysely } from 'kysely';
-import type { DB } from '../db/types';
+import type { DB, ResolvedSortKey } from '../db/types';
 import type { MovedTask } from '../schemas/index';
-import { appendPositions, positionValues, type ColumnInProject } from './boardColumns';
+import {
+  appendPositions,
+  positionValues,
+  type AppendedTask,
+  type ColumnInProject,
+} from './boardColumns';
+import { keysBetween } from './sortKey';
 import { recordTaskActivity } from './taskActivity';
 
 export interface BulkTaskRow {
@@ -64,28 +70,116 @@ export async function loadBulkTargets(
 }
 
 /**
- * Appends the rows in the order they arrive, each carrying its own source column
- * into the activity log — a selection spans columns, so one source for the whole
- * batch would misreport most of it. Unlike `relocateColumnTasks` in
+ * The cards the caller saw on either side of where the selection was dropped.
+ * Either may have gone by the time the request lands, which is why there are
+ * two of them.
+ */
+export interface SelectionAnchors {
+  afterTaskId?: string;
+  beforeTaskId?: string;
+}
+
+async function liveKeyIn(
+  db: Kysely<DB>,
+  columnId: string,
+  taskId: string | undefined
+): Promise<ResolvedSortKey | null> {
+  if (taskId === undefined) {
+    return null;
+  }
+  const row = await db
+    .selectFrom('task')
+    .select('sort_key')
+    .where('id', '=', taskId)
+    .where('column_id', '=', columnId)
+    .where('archived_at', 'is', null)
+    .executeTakeFirst();
+  return row?.sort_key ?? null;
+}
+
+// Bounded by the nearest key in the whole column — archived rows and the rows
+// being moved included — so nothing sits inside the gap. That is what lets one
+// UPDATE rewrite the batch: the unique index is checked row by row as it goes,
+// and a new key equal to a moving row's old one would trip it whenever that row
+// happened to be written second.
+async function gapBeside(
+  db: Kysely<DB>,
+  columnId: string,
+  anchors: SelectionAnchors
+): Promise<{ low: string | null; high: string | null } | null> {
+  const after = await liveKeyIn(db, columnId, anchors.afterTaskId);
+  if (after !== null) {
+    const { high } = await db
+      .selectFrom('task')
+      .select((eb) => eb.fn.min<string | null>('sort_key').as('high'))
+      .where('column_id', '=', columnId)
+      .where('sort_key', '>', after)
+      .executeTakeFirstOrThrow();
+    return { low: after, high };
+  }
+  const before = await liveKeyIn(db, columnId, anchors.beforeTaskId);
+  if (before !== null) {
+    const { low } = await db
+      .selectFrom('task')
+      .select((eb) => eb.fn.max<string | null>('sort_key').as('low'))
+      .where('column_id', '=', columnId)
+      .where('sort_key', '<', before)
+      .executeTakeFirstOrThrow();
+    return { low, high: before };
+  }
+  return null;
+}
+
+// Straight after the after-anchor while it is still a live card of the column,
+// else straight before the before-anchor, else the end — the same fallbacks the
+// web client's `placeBetweenNeighbors` takes when it replays a queued drag.
+async function selectionPositions(
+  db: Kysely<DB>,
+  targetColumnId: string,
+  taskIds: readonly string[],
+  anchors: SelectionAnchors
+): Promise<AppendedTask[]> {
+  const gap = await gapBeside(db, targetColumnId, anchors);
+  if (gap === null) {
+    return appendPositions(db, targetColumnId, taskIds);
+  }
+  const keys = keysBetween(gap.low, gap.high, taskIds.length);
+  return taskIds.map((taskId, index) => ({
+    id: taskId,
+    column_id: targetColumnId,
+    sort_key: keys[index]!,
+  }));
+}
+
+/**
+ * Places the rows contiguously in the order they arrive, each carrying its own
+ * source column into the activity log — a selection spans columns, so one source
+ * for the whole batch would misreport most of it. Unlike `relocateColumnTasks` in
  * ./boardColumns, the ids come from the client and can already be in the target
  * column, which is where the project and archived predicates and the
  * column_since case come from.
+ *
+ * The caller holds the target's tail lock, which the gap read needs as much as
+ * an append does: two selections dropped into one gap would otherwise read the
+ * same bounds and generate the same keys.
  */
 export async function relocateSelectedTasks(
   db: Kysely<DB>,
   actorUserId: string,
   projectId: string,
   rows: readonly BulkTaskRow[],
-  target: ColumnInProject
+  target: ColumnInProject,
+  anchors: SelectionAnchors
 ): Promise<MovedTask[]> {
   if (rows.length === 0) {
     return [];
   }
 
-  const movedTasks = await appendPositions(
+  const movedTasks = await selectionPositions(
     db,
     target.id,
-    rows.map((row) => row.id)
+    rows.map((row) => row.id),
+    anchors
   );
 
   // The project and archived predicates guard the gap between the classifying

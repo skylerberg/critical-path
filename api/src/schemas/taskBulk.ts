@@ -18,6 +18,8 @@ export const bulkMoveTasksSchema = type({
   project_id: uuid,
   task_ids: bulkTaskIds,
   column_id: uuid,
+  'after_task_id?': uuid,
+  'before_task_id?': uuid,
 });
 
 export const bulkTaskLabelsSchema = type({

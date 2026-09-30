@@ -2,6 +2,7 @@ import { describe, it, expect, afterAll, beforeAll, vi } from 'vitest';
 import { TestContext, TestUser } from '../../setup/testContext';
 import { db } from '../../helpers/database';
 import { newId, rankKey } from '../../helpers/fixtures';
+import { keyBetween } from '../../../src/services/sortKey';
 import { ProjectFixtures } from './taskFixtures';
 import { subscribeBus, type BusEntry } from '../../../src/services/realtime/bus';
 import { notificationDelivery } from '../../../src/services/notifications';
@@ -392,6 +393,181 @@ describe('Bulk actions on a selection', () => {
           new_value: { id: doing, name: 'Doing' },
         },
       ]);
+    });
+
+    describe('with anchors', () => {
+      let columnRank = 10_000;
+
+      async function freshColumn(): Promise<string> {
+        columnRank += 1000;
+        return fixtures.createColumn(projectId, {
+          name: `Anchored ${String(columnRank)}`,
+          sortKey: rankKey(columnRank),
+        });
+      }
+
+      async function liveOrder(columnId: string): Promise<string[]> {
+        const rows = await db
+          .selectFrom('task')
+          .select('id')
+          .where('column_id', '=', columnId)
+          .where('archived_at', 'is', null)
+          .orderBy('sort_key')
+          .execute();
+        return rows.map((row) => row.id);
+      }
+
+      async function keyOf(taskId: string): Promise<string> {
+        return (await taskRow(taskId))!.sort_key;
+      }
+
+      function move(ids: string[], columnId: string, anchors: Record<string, string>) {
+        return post('bulk-move', {
+          project_id: projectId,
+          task_ids: ids,
+          column_id: columnId,
+          ...anchors,
+        });
+      }
+
+      it('lands straight after after_task_id, contiguous and in request order', async () => {
+        const target = await freshColumn();
+        const [first, second, third] = await seed(3, target, 'resident');
+        const [a, b] = await seed(2);
+        const requested = [b!, a!];
+
+        const res = await move(requested, target, {
+          after_task_id: first!,
+          before_task_id: second!,
+        });
+
+        expect(res.status).toBe(200);
+        const body = (await res.json()) as { moved_tasks: MovedTask[] };
+        expect(body.moved_tasks.map((task) => task.id)).toEqual(requested);
+        expect(await liveOrder(target)).toEqual([first, b, a, second, third]);
+      });
+
+      it('keeps to after_task_id when a card has landed between the two anchors', async () => {
+        const target = await freshColumn();
+        const [first, second] = await seed(2, target, 'resident');
+        const interloper = await fixtures.createTaskRow(projectId, target, 'arrived since', {
+          sortKey: rankKey(1500),
+        });
+        const [mover] = await seed(1);
+
+        const res = await move([mover!], target, {
+          after_task_id: first!,
+          before_task_id: second!,
+        });
+
+        expect(res.status).toBe(200);
+        expect(await liveOrder(target)).toEqual([first, mover, interloper, second]);
+      });
+
+      it('lands straight before before_task_id once after_task_id has gone', async () => {
+        const target = await freshColumn();
+        const [first, second, third] = await seed(3, target, 'resident');
+        const [elsewhere, archived] = await seed(2, target, 'former anchor');
+        await db
+          .updateTable('task')
+          .set({ column_id: todo })
+          .where('id', '=', elsewhere!)
+          .execute();
+        await db
+          .updateTable('task')
+          .set({ archived_at: new Date() })
+          .where('id', '=', archived!)
+          .execute();
+        const [a, b] = await seed(2);
+
+        for (const [gone, mover] of [
+          [elsewhere!, a!],
+          [archived!, b!],
+          [newId(), a!],
+        ] as const) {
+          const res = await move([mover], target, {
+            after_task_id: gone,
+            before_task_id: third!,
+          });
+          expect(res.status).toBe(200);
+        }
+
+        expect(await liveOrder(target)).toEqual([first, second, b, a, third]);
+      });
+
+      it('lands at the top with only before_task_id, under an archived card holding a key', async () => {
+        const target = await freshColumn();
+        const parkedKey = rankKey(100);
+        await fixtures.createTaskRow(projectId, target, 'archived at the top', {
+          sortKey: parkedKey,
+          archivedAt: new Date(),
+        });
+        const [first, second] = await seed(2, target, 'resident');
+        const [a, b] = await seed(2);
+
+        const res = await move([a!, b!], target, { before_task_id: first! });
+
+        expect(res.status).toBe(200);
+        expect(await liveOrder(target)).toEqual([a, b, first, second]);
+        const keys = [await keyOf(a!), await keyOf(b!)];
+        expect(keys.every((key) => key > parkedKey)).toBe(true);
+      });
+
+      it('appends when neither anchor is a live card of the target column', async () => {
+        const target = await freshColumn();
+        const [first, second] = await seed(2, target, 'resident');
+        const foreign = await fixtures.createTaskRow(otherProjectId, otherColumnId, 'not yours');
+        const [a, b] = await seed(2);
+
+        const res = await move([a!, b!], target, {
+          after_task_id: foreign,
+          before_task_id: newId(),
+        });
+
+        expect(res.status).toBe(200);
+        expect(await liveOrder(target)).toEqual([first, second, a, b]);
+      });
+
+      // Bounded by every row in the column, the moving ones included. A gap drawn
+      // around the moving rows would run from `first` to `last`, and its second key
+      // is their midpoint — the very key `staying` holds, handed to another row
+      // while `staying` still has it.
+      it('keys the gap short of a moving row rather than onto its old key', async () => {
+        const target = await freshColumn();
+        const firstKey = rankKey(1000);
+        const lastKey = rankKey(3000);
+        const stayingKey = keyBetween(firstKey, lastKey);
+        const first = await fixtures.createTaskRow(projectId, target, 'first', {
+          sortKey: firstKey,
+        });
+        const staying = await fixtures.createTaskRow(projectId, target, 'staying', {
+          sortKey: stayingKey,
+        });
+        const last = await fixtures.createTaskRow(projectId, target, 'last', { sortKey: lastKey });
+        const [a] = await seed(1);
+
+        const res = await move([staying, a!], target, { after_task_id: first });
+
+        expect(res.status).toBe(200);
+        expect(await liveOrder(target)).toEqual([first, staying, a, last]);
+        for (const key of [await keyOf(staying), await keyOf(a!)]) {
+          expect(key > firstKey && key < stayingKey).toBe(true);
+        }
+      });
+
+      it('answers 422 for an anchor that is also being moved, and writes nothing', async () => {
+        const target = await freshColumn();
+        const [resident] = await seed(1, target, 'resident');
+        const [a, b] = await seed(2);
+
+        for (const field of ['after_task_id', 'before_task_id']) {
+          const res = await move([a!, b!], target, { [field]: b! });
+          expect([field, res.status]).toEqual([field, 422]);
+        }
+
+        expect(await liveOrder(target)).toEqual([resident]);
+        expect((await taskRow(a!))?.column_id).toBe(todo);
+      });
     });
 
     it('publishes exactly one bulk_tasks_moved and no per-task event', async () => {

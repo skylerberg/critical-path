@@ -135,7 +135,6 @@ The absent ones are why a few modules guard on `typeof window.matchMedia`
 before reading a media query. Those guards look dead — the browser always has
 it — and are load-bearing under the test runner.
 
-<<<<<<< HEAD
 The vitest suite runs on the same jsdom, and the rich text editor concentrates
 the traps that have cost time there:
 

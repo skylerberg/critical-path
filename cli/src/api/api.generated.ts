@@ -1138,7 +1138,7 @@ export interface paths {
     put?: never;
     /**
      * Move a selection of tasks to a column
-     * @description Move any number of a project’s tasks into one of its columns in a single transaction. The tasks are appended after the target column’s existing cards, keeping the order the ids were sent in, so the caller decides where the selection lands. Archived tasks are skipped: an archived card has no board position, and restoring one is contracted to return it to the column it was archived from. A card already in the target column is re-stamped so the selection lands contiguous, but keeps its column_since and records no move in its activity log. A column_id outside the project returns 422, even when every task id was skipped. Emits one bulk_tasks_moved event and no per-task events. Ids that are unknown, in another project, or (where noted) archived are reported in `skipped_task_ids` rather than failing the call, so one card changing underneath the caller never costs them the rest of the batch. Duplicate ids are applied once. Between 1 and 100 ids; anything else is a 422.
+     * @description Move any number of a project’s tasks into one of its columns in a single transaction. The tasks land contiguously in the order the ids were sent. By default they are appended after the target column’s existing cards; after_task_id and before_task_id, both optional, instead name the cards the caller saw on either side of where the selection was dropped, and are resolved against the column as it is when the request lands: the selection goes straight after after_task_id while that is still a live card of the target column, otherwise straight before before_task_id on the same terms, and is appended when neither is — so an anchor deleted, archived or moved away in the meantime degrades the drop rather than failing it. An anchor that is also one of task_ids returns 422. Archived tasks are skipped: an archived card has no board position, and restoring one is contracted to return it to the column it was archived from. A card already in the target column is re-stamped so the selection lands contiguous, but keeps its column_since and records no move in its activity log. A column_id outside the project returns 422, even when every task id was skipped. Emits one bulk_tasks_moved event and no per-task events. Ids that are unknown, in another project, or (where noted) archived are reported in `skipped_task_ids` rather than failing the call, so one card changing underneath the caller never costs them the rest of the batch. Duplicate ids are applied once. Between 1 and 100 ids; anything else is a 422.
      */
     post: operations['postApiTasksBulkMove'];
     delete?: never;
@@ -2458,6 +2458,10 @@ export interface components {
       /** Format: uuid */
       project_id: string;
       task_ids: string[];
+      /** Format: uuid */
+      after_task_id?: string;
+      /** Format: uuid */
+      before_task_id?: string;
     };
     BulkArchivedTasksResponse: {
       skipped_task_ids: string[];
@@ -6960,6 +6964,15 @@ export interface operations {
       };
       /** @description Not Found */
       404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Error'];
+        };
+      };
+      /** @description Conflict - the position was taken while the move was in flight */
+      409: {
         headers: {
           [name: string]: unknown;
         };
