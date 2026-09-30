@@ -11,8 +11,9 @@ export const USER_SEARCH_QUERY_MAX_LENGTH = 100;
 
 // The description is not decoration. stringWithLength carries its bounds in a
 // morph, and the OpenAPI schema-name registry drops morphs, so without a
-// distinguishing keyword this emits JSON Schema identical to searchQuerySchema
-// and the registry refuses to name two schemas the same shape.
+// distinguishing keyword this emits a bare `{ q: string }` that any other
+// query holding only q would share, and the registry refuses to name two
+// schemas the same shape.
 export const userSearchQuerySchema = type({
   q: stringWithLength(USER_SEARCH_QUERY_MIN_LENGTH, USER_SEARCH_QUERY_MAX_LENGTH).configure({
     description: 'A name, or the first characters of one, matched a word at a time',

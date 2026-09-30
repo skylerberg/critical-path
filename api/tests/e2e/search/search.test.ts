@@ -76,8 +76,11 @@ describe('GET /api/search', () => {
     return { id, name, columnId, columnName };
   }
 
-  async function search(user: TestUser, q: string): Promise<SearchBody> {
-    const res = await ctx.request(user.token).get(`/api/search?q=${encodeURIComponent(q)}`);
+  async function search(user: TestUser, q: string, projectId?: string): Promise<SearchBody> {
+    const narrow = projectId === undefined ? '' : `&project_id=${projectId}`;
+    const res = await ctx
+      .request(user.token)
+      .get(`/api/search?q=${encodeURIComponent(q)}${narrow}`);
     expect(res.status).toBe(200);
     return (await res.json()) as SearchBody;
   }
@@ -333,6 +336,72 @@ describe('GET /api/search', () => {
     await fixtures.createTaskRow(archived, archivedColumn, 'Marmot retrospective');
 
     expect((await search(caller, 'marmot')).results.map((row) => row.task_id)).toEqual([liveId]);
+  });
+
+  it('narrows to one project with project_id', async () => {
+    const caller = await newCaller();
+    const alpha = await projectFor(caller, 'Alpha narrowed board');
+    const beta = await projectFor(caller, 'Beta narrowed board');
+    const alphaId = await fixtures.createTaskRow(alpha.id, alpha.columnId, 'Heron survey');
+    await fixtures.createTaskRow(beta.id, beta.columnId, 'Heron census');
+
+    expect((await search(caller, 'heron')).results).toHaveLength(2);
+    expect(await search(caller, 'heron', alpha.id)).toEqual({
+      results: [expect.objectContaining({ task_id: alphaId, project_id: alpha.id })],
+      truncated: false,
+    });
+  });
+
+  it('narrows to project_id before capping', async () => {
+    const caller = await newCaller();
+    const quiet = await projectFor(caller, 'Quiet board');
+    const busy = await projectFor(caller, 'Busy board');
+    // Seeded first, so on equal rank the `updated_at desc` tie-break puts every
+    // busy card ahead of it and the unnarrowed cap cuts it off.
+    const quietId = await fixtures.createTaskRow(quiet.id, quiet.columnId, 'Osprey note');
+    for (let i = 0; i < 51; i++) {
+      await fixtures.createTaskRow(busy.id, busy.columnId, 'Osprey note');
+    }
+
+    const everywhere = await search(caller, 'osprey');
+    expect(everywhere.truncated).toBe(true);
+    expect(everywhere.results.map((row) => row.task_id)).not.toContain(quietId);
+
+    expect(await search(caller, 'osprey', quiet.id)).toEqual({
+      results: [expect.objectContaining({ task_id: quietId })],
+      truncated: false,
+    });
+  });
+
+  it('404s a project_id the caller cannot access or that does not exist', async () => {
+    const caller = await newCaller();
+    const secret = await projectFor(stranger, 'Stranger narrowed board');
+    await fixtures.createTaskRow(secret.id, secret.columnId, 'Plover secret plan');
+
+    for (const projectId of [secret.id, newId()]) {
+      const res = await ctx
+        .request(caller.token)
+        .get(`/api/search?q=plover&project_id=${projectId}`);
+      expect(res.status).toBe(404);
+    }
+  });
+
+  it('rejects a malformed project_id', async () => {
+    const caller = await newCaller();
+    const res = await ctx.request(caller.token).get('/api/search?q=plover&project_id=not-a-uuid');
+    expect(res.status).toBe(400);
+  });
+
+  it('answers no results for an archived project_id', async () => {
+    const caller = await newCaller();
+    const archived = await fixtures.createProject('Archived narrowed board', {
+      createdBy: caller.id,
+      archivedAt: new Date(),
+    });
+    const archivedColumn = await fixtures.createColumn(archived);
+    await fixtures.createTaskRow(archived, archivedColumn, 'Wren retrospective');
+
+    expect(await search(caller, 'wren', archived)).toEqual({ results: [], truncated: false });
   });
 
   it('reflects task writes immediately', async () => {
