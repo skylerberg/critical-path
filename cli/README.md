@@ -17,7 +17,13 @@ the repository root:
 ```sh
 pnpm -C cli install --frozen-lockfile   # once; also required before the CLI tests run
 pnpm add --global ./cli                 # installs the global `cpath` command
+mkdir -p ~/.claude/skills
+ln -sfn "$PWD/cli/skill/critical-path" ~/.claude/skills/critical-path   # the agent skill
 ```
+
+`skill/critical-path/` is the agent skill for driving `cpath` from any
+repository, not only this one. An agent that reads skills from another
+directory can link it there the same way.
 
 ## Authenticating
 
@@ -141,8 +147,8 @@ catalogs. Everything else (the startup summary, connection notices, errors)
 goes to stderr, so `cpath watch | jq …` is the intended shape. `--json` and
 `--no-color` have no effect: the output is always NDJSON.
 
-`--project` narrows the stream to one project. Unlike every other command it
-does **not** fall back to `CRITICAL_PATH_PROJECT` or the configured
+`--project` narrows the stream to one project. Like `task search` and
+`user list`, it does **not** fall back to `CRITICAL_PATH_PROJECT` or the configured
 `default-project` — without the flag, `watch` follows every accessible
 project, including ones created while it runs, and each line's `project_id`
 disambiguates. Scoping to a project also

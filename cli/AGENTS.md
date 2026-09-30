@@ -107,6 +107,14 @@ The `/ws` protocol is the other half of the contract and has no OpenAPI request
 or response to describe it — the Realtime section of `api/README.md` is where
 it is specified, and `src/watch.ts` is written against it.
 
+# The agent skill
+
+`skill/critical-path/` is what an agent loads to work the board from another
+project; `README.md`'s Install section links it into `~/.claude/skills`.
+`SKILL.md` is the workflow and `commands.md` the command map. Nothing generates
+or tests either file, so a command that is added, renamed or re-scoped updates
+`commands.md` in the same change.
+
 # Style
 
 Prettier's settings are in `.prettierrc.json`, and `format:check` covers

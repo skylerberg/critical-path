@@ -20,9 +20,9 @@ export function registerWatch(program: Command, deps: CliDeps): void {
       .action(
         withCtx(deps, async (ctx, opts) => {
           const ref = opts.project as string | undefined;
-          // Unlike every other command, an absent ref stays absent instead of falling back
-          // to the configured default: silently narrowing a live stream to one project is
-          // the exact failure mode this command exists to debug.
+          // An absent ref stays absent instead of falling back to the configured default:
+          // silently narrowing a live stream to one project is the exact failure mode this
+          // command exists to debug.
           const scoped = ref == null ? null : await resolveProject(ctx, ref);
           const projectIds = scoped ? [scoped.id] : (await listProjects(ctx)).map((p) => p.id);
           const token = ctx.token;
