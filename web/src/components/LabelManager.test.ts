@@ -1,6 +1,6 @@
 import { fetchMock, jsonResponse, requestAt } from '../api/testUtils';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/svelte';
 import LabelManager from './LabelManager.svelte';
 import { board } from '../lib/board.svelte';
 import { connectivity } from '../lib/connectivity.svelte';
@@ -84,6 +84,18 @@ describe('LabelManager', () => {
     expect(screen.getByText('art')).toBeInTheDocument();
   });
 
+  it('gives every row a drag handle named for its label', () => {
+    board.labels = [
+      { id: 'l1', name: 'art', color: '#ff0000', sort_key: testSortKey(1) },
+      { id: 'l2', name: 'code', color: '#00ff00', sort_key: testSortKey(2) },
+    ];
+
+    open();
+
+    expect(screen.getByLabelText('Reorder art')).toBeInTheDocument();
+    expect(screen.getByLabelText('Reorder code')).toBeInTheDocument();
+  });
+
   it('creates a label and closes the form', async () => {
     open();
     await submitNewLabel({ name: 'design' });
@@ -104,7 +116,10 @@ describe('LabelManager', () => {
     open();
     await submitNewLabel({ name: '   ' });
 
-    expect(screen.getByRole('alert')).toHaveTextContent('Name is required');
+    // Scoped to the dialog: the drag zone mounts its own role=alert announcer.
+    expect(within(screen.getByRole('dialog')).getByRole('alert')).toHaveTextContent(
+      'Name is required'
+    );
     expect(fetchMock).not.toHaveBeenCalled();
     expect(board.labels).toHaveLength(1);
   });
@@ -113,7 +128,9 @@ describe('LabelManager', () => {
     open();
     await submitNewLabel({ name: 'design', color: 'red' });
 
-    expect(screen.getByRole('alert')).toHaveTextContent('Color must be a hex value like #4f46e5');
+    expect(within(screen.getByRole('dialog')).getByRole('alert')).toHaveTextContent(
+      'Color must be a hex value like #4f46e5'
+    );
     expect(fetchMock).not.toHaveBeenCalled();
     expect(board.labels).toHaveLength(1);
   });
@@ -128,7 +145,7 @@ describe('LabelManager', () => {
     open();
     await submitNewLabel({ name: 'art' });
 
-    expect(await screen.findByRole('alert')).toHaveTextContent(
+    expect(await within(screen.getByRole('dialog')).findByRole('alert')).toHaveTextContent(
       'A label named "art" already exists in this project'
     );
     // Left open with the name still in it: the user has to change it to get out.

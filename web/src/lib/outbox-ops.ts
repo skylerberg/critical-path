@@ -44,6 +44,7 @@ export type OpSemantics = 'create' | 'move' | 'contentEdit' | 'plain';
 export type MoveIntent =
   | { kind: 'task'; columnId: string; afterId: string | null; beforeId: string | null }
   | { kind: 'column'; afterId: string | null; beforeId: string | null }
+  | { kind: 'label'; afterId: string | null; beforeId: string | null }
   | { kind: 'checklist'; taskId: string; afterId: string | null; beforeId: string | null };
 
 /**

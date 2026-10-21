@@ -51,6 +51,25 @@ describe('label commands', () => {
     expect(human.stdout).toContain('#ff0000');
   });
 
+  it('lists labels in the project’s own order, not alphabetically', async () => {
+    for (const name of ['zebra', 'aardvark']) {
+      const res = await h.runCli([
+        'label',
+        'create',
+        name,
+        '--project',
+        projectId,
+        '--color',
+        '#00ff00',
+      ]);
+      expect(res.exitCode).toBe(0);
+    }
+
+    const list = await h.runCli(['label', 'list', '--project', projectId, '--json']);
+    const names = list.json<Label[]>().map((l) => l.name);
+    expect(names.indexOf('zebra')).toBeLessThan(names.indexOf('aardvark'));
+  });
+
   it('duplicate label name exits 5', async () => {
     const res = await h.runCli([
       'label',

@@ -15,7 +15,14 @@ export function registerLabel(program: Command, deps: CliDeps): void {
       .action(
         withCtx(deps, async (ctx, opts) => {
           const board = await resolveBoard(ctx, opts.project as string | undefined);
-          const labels = [...board.labels].sort((a, b) => a.name.localeCompare(b.name));
+          // Payload order is the project's own label order; an older pod's
+          // unkeyed rows (null sort_key) sort last, matching the web board.
+          const labels = [...board.labels].sort((a, b) => {
+            if (a.sort_key === null || b.sort_key === null) {
+              return a.sort_key === null ? (b.sort_key === null ? 0 : 1) : -1;
+            }
+            return a.sort_key < b.sort_key ? -1 : a.sort_key > b.sort_key ? 1 : 0;
+          });
           ctx.out.data(labels, () => {
             ctx.out.table(
               ['ID', 'NAME', 'COLOR'],
