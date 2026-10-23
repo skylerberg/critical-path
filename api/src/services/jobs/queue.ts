@@ -11,8 +11,8 @@ export const PERIODIC_MAX_BACKOFF_SECONDS = 600;
 export const CLAIM_BATCH = 8;
 export const MAX_CONCURRENT_JOBS = 4;
 export const MAX_HANDLER_TIMEOUT_MS = 20_000;
-// How many handlers deep a claimed row can queue, which is what turns the
-// handler timeout into a bound on the whole tick.
+// How many rounds of `MAX_CONCURRENT_JOBS` one tick may run, which is what turns
+// one handler timeout into a bound on the whole tick.
 export const ROUNDS_PER_TICK = Math.ceil(CLAIM_BATCH / MAX_CONCURRENT_JOBS);
 
 export type JobRow = Selectable<Job>;
@@ -115,8 +115,9 @@ export async function recordJobSuccess(job: JobRow): Promise<void> {
 
 export async function recordJobFailure(job: JobRow, error: string): Promise<void> {
   const lastError = error.slice(0, MAX_ERROR_CHARS);
-  // attempts is already post-increment when the claim bumped it; a caller
-  // outside the runner may hand over a row it never claimed.
+  // `attempts` is already post-increment when the claim bumped it, so step 0 is
+  // the first failure; a caller outside the runner may hand over an unclaimed
+  // row.
   const step = Math.min(Math.max(job.attempts - 1, 0), BACKOFF_SECONDS.length - 1);
   const backoff = BACKOFF_SECONDS[step];
 
@@ -159,9 +160,9 @@ export interface PeriodicJob {
   intervalSeconds: number;
 }
 
-// Re-run so a deleted schedule comes back, a changed one takes effect and a
-// dropped one goes away. run_at is left where it is: reseeding must not drag a
-// job that is backed off, or mid-lease on another replica, back to due.
+// Runs on every start, so a deleted schedule comes back, a changed one takes
+// effect and a dropped one goes away. `run_at` is left alone: reseeding must not
+// drag a job that is backed off, or mid-lease on another replica, back to due.
 export async function syncPeriodicJobs(
   periodic: PeriodicJob[],
   registeredKinds: string[]

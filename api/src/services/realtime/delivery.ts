@@ -66,7 +66,7 @@ async function deliverProjectScoped(
     .executeTakeFirst();
   if (!project) return;
 
-  // A recipient list may only narrow what the re-check already allows: it is a
+  // A recipient list may only narrow what the re-check below allows: it is a
   // publisher's opinion, and this is the layer that does not take those.
   const named = entry.recipientUserIds ? new Set(entry.recipientUserIds) : null;
   const userIds = [...new Set(candidates.map(([, state]) => state.userId))].filter(

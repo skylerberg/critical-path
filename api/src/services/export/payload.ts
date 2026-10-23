@@ -15,9 +15,9 @@ const IMAGE_EXTENSIONS: Record<string, string> = {
   'image/webp': 'webp',
 };
 
-// One folder for every entry that owns bytes, because the manifest is now one
-// list. Derived from the id, never the user-supplied filename, so an archive can
-// never carry a traversal path or two entries with the same name.
+// One folder for everything that owns bytes, since the manifest is one list.
+// The name comes from the id, never the user-supplied filename, so an archive
+// can never carry a traversal path or two entries with the same name.
 export function imageArchivePath(id: string, contentType: string): string {
   return `attachments/${id}.${IMAGE_EXTENSIONS[contentType] ?? 'bin'}`;
 }
@@ -113,9 +113,9 @@ export async function buildProjectExport(
   const attachmentsByTask = new Map<string, ProjectExport['tasks'][number]['attachments']>();
   for (const row of attachmentRows) {
     const isImage = row.kind === IMAGE_KIND;
-    // Both kinds that own bytes archive them the same way. An image's extension
-    // comes from its sniffed type, a file's from its name, and neither path is
-    // ever built from user-supplied text.
+    // Both kinds that own bytes archive them the same way: the path is the id,
+    // an image's extension comes from its sniffed type and a file's from its
+    // name after a shape check.
     const storageKey = isImage ? row.image_storage_key : row.storage_key;
     const contentType = isImage ? row.image_content_type : row.content_type;
     const hasBytes = storageKey !== null && row.filename !== null;

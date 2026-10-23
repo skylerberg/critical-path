@@ -9,10 +9,11 @@ const STORAGE_DELETE_BATCH = 25;
 // the transaction would strand every row still pointing at it if the write
 // failed afterwards.
 //
-// Settled per key rather than awaited as one Promise.all, and batched because an
-// account's keys are every image of every board it created: once the rows are
-// gone, a key that fails is only recoverable from this log line, and a rejection
-// that abandoned the rest of the batch would leak them with nothing recorded.
+// Each key settles on its own rather than one Promise.all, and the work is
+// batched because an account's keys are every image of every board it created.
+// Once the rows are gone, a failed deletion is recoverable only from its log
+// line, and a rejection that abandoned the rest of the batch would leak them
+// silently.
 export function deleteStoredObjectsAfterCommit(
   c: Pick<PublicContext, 'get'>,
   keys: readonly string[]

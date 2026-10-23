@@ -35,8 +35,8 @@ interface DirectoryRecord {
   offset: number;
 }
 
-// Deflating incompressible input expands it: zlib's raw worst case is five
-// bytes per 16 KiB stored block plus a six-byte trailer.
+// Deflating incompressible input can expand it: the bound allows five bytes of
+// stored-block header per 16383-byte block plus a six-byte trailer.
 export function zipSizeUpperBound(entries: Array<{ name: string; size: number }>): number {
   let total = END_OF_CENTRAL_DIRECTORY_BYTES;
   for (const entry of entries) {

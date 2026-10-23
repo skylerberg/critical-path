@@ -28,8 +28,9 @@ const INSERT_CHUNK = 500;
 
 export type DeliveryRow = Selectable<WebhookDelivery>;
 
-// A batch per request, not a call per event: one member removal publishes a
-// task_relations_set per stripped task, which per-event would be N selects.
+// Enqueues a batch per request rather than a call per event: one member removal
+// publishes a `task_relations_set` per stripped task, and per-event calls would
+// repeat the webhook lookup for each.
 export async function enqueueDeliveries(events: WebhookEvent[]): Promise<void> {
   if (events.length === 0) return;
 
@@ -82,10 +83,10 @@ export async function enqueueDeliveries(events: WebhookEvent[]): Promise<void> {
   }
 }
 
-// FOR UPDATE SKIP LOCKED plus the lease is what makes two replicas safe; the
+// FOR UPDATE SKIP LOCKED plus the lease is what makes two replicas safe, and the
 // row_number cap stops one flapping receiver from filling every batch. The
-// window function has to sit a level below FOR UPDATE, which Postgres rejects
-// in a select that also windows.
+// window function has to sit a level below FOR UPDATE, which Postgres rejects in
+// a select that also windows.
 export async function claimDueDeliveries(limit: number): Promise<DeliveryRow[]> {
   const result = await sql<DeliveryRow>`
     update webhook_delivery d
@@ -154,7 +155,7 @@ export async function recordFailure(
   const exhausted = delivery.attempt_count >= MAX_ATTEMPTS;
 
   return db.transaction().execute(async (trx): Promise<FailureOutcome> => {
-    // Locked, not just read: a row put back to pending on a webhook disabled
+    // Locked, not just read: a delivery left pending on a webhook disabled
     // mid-send is unreachable to both the claim and the prune.
     const webhook = await trx
       .selectFrom('project_webhook')

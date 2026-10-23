@@ -6,8 +6,8 @@ import { dateText } from '../dateText';
 import { presetFor, summarize } from './rule';
 
 // Fail closed: the column is plain text, so a value a newer release wrote — or
-// one nothing writes — reads as the state the materializer's `status = 'active'`
-// claim already puts it in, rather than as a schedule a client thinks is live.
+// one nothing writes — reads as 'ended', which is what a row the materializer
+// never claims amounts to. Only the two states the sweep knows pass through.
 function narrowSeriesStatus(status: string): TaskSeriesResponse['status'] {
   return status === 'active' || status === 'paused' ? status : 'ended';
 }
@@ -72,8 +72,8 @@ export async function fetchSeries(
           .orderBy('task_series_checklist_item.sort_key')
           .orderBy('task_series_checklist_item.id')
       ).as('checklist_rows'),
-      // The honest half of "create the next occurrence anyway": the panel says
-      // so when earlier ones are still outstanding.
+      // Counts the series' earlier occurrences still open, so the panel can say
+      // that the next one is being created while others are still outstanding.
       eb
         .selectFrom('task')
         .innerJoin('board_column', 'board_column.id', 'task.column_id')
@@ -125,14 +125,13 @@ export async function fetchSeries(
   }));
 }
 
-// Card detail only. Every board payload carrying this would mean a join and a
-// rule render per card, for a line one open card at a time ever shows.
+// Card detail only: putting this on every board payload would mean a join and a
+// rule render per card, for a line only an open card ever shows.
 //
-// The preset and the anchor ride along with the summary because the card's own
-// recurrence menu is built from them, and they cost nothing extra here: both are
-// pure functions of the rrule and start_date this row already selects. Without
-// them the card has to fetch the whole project's series list to preselect one
-// dropdown.
+// The preset and the anchor ride along with the summary because the card's
+// recurrence menu is built from them, and both are pure functions of the rrule
+// and start_date this row already selects. Without them the card would have to
+// fetch the project's whole series list to preselect one dropdown.
 export async function seriesRefForTask(
   db: Kysely<DB>,
   taskId: string

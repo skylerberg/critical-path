@@ -57,7 +57,8 @@ export async function copySeries(db: Kysely<DB>, input: CopySeriesInput): Promis
         status: exhausted ? 'ended' : series.status,
         ended_at: exhausted ? sql<Date>`now()` : null,
         next_occurrence_date: schedule.next_occurrence_date,
-        // A paused copy keeps the day it would land on but stays unclaimable.
+        // A paused copy keeps the day it would land on in next_occurrence_date
+        // but gets no next_occurrence_at, so the sweep cannot claim it.
         next_occurrence_at: series.status === 'paused' ? null : schedule.next_occurrence_at,
       })
       .execute();

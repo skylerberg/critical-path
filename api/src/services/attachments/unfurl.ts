@@ -46,7 +46,7 @@ async function storeImage(
       unfurlPolicy()
     );
     if (!sniffImageContentType(fetched.body)) return null;
-    // Without the pixel cap a kilobyte-sized bomb decodes to gigabytes.
+    // Without `limitInputPixels` a kilobyte-sized image can decode to gigabytes.
     const webp = await sharp(fetched.body, { autoOrient: true, limitInputPixels: 32_000_000 })
       .resize(dimensions[0], dimensions[1], { fit: 'inside', withoutEnlargement: true })
       .webp()
@@ -141,9 +141,9 @@ async function attempt(url: string): Promise<UnfurlOutcome> {
   }
 }
 
-// A network outcome is never a throw: a 403, a timeout, a non-HTML body or a
-// blocked address all settle the row at 'failed' and report success, so it
-// cannot sit at 'pending' behind six hours of backoff.
+// Never throws for a network outcome: a 403, a timeout, a non-HTML body or a
+// blocked address all settle the row at 'failed' and let the job succeed, so it
+// cannot sit at 'pending' through hours of retries.
 export async function runAttachmentUnfurl(attachmentId: string): Promise<void> {
   const row = await db
     .selectFrom('task_attachment')

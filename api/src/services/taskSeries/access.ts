@@ -21,7 +21,7 @@ async function loadSeriesRow(db: Kysely<DB>, seriesId: string): Promise<SeriesRo
 }
 
 // 404 for a caller with no access to the series' project, so an inaccessible
-// series stays indistinguishable from a nonexistent one; 403 for a viewer.
+// series looks nonexistent; 403 for a viewer.
 export async function assertSeriesWrite(
   db: Kysely<DB>,
   userId: string,

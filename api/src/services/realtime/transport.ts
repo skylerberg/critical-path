@@ -31,16 +31,15 @@ const MAX_MISSED_PONGS = 2;
 const MAX_MESSAGE_BYTES = 16 * 1024;
 const OPEN = 1;
 
-// Two ceilings, because they bound different things. Per credential holder: a
-// live socket costs a `credentialIsLive` query every heartbeat, so socket count
-// is a multiplier on a pool of ten connections, and one account should not be
-// able to set that number. Per source address: the pre-auth window admits a
-// socket before any account is known, so this is the only thing bounding what
-// an unauthenticated caller can hold open.
+// Two ceilings, because they bound different things. Per user: a live socket
+// costs a `credentialIsLive` query every heartbeat, so socket count multiplies
+// against a pool of ten connections and one account should not set that number.
+// Per source address: the pre-auth window admits a socket before any account is
+// known, so this is the only bound on what an unauthenticated caller holds open.
 //
-// The per-address ceiling is generous on purpose — it is the whole office
-// behind one NAT that pays for it being tight, while an attacker holding 200
-// idle sockets costs little.
+// The per-address ceiling is generous on purpose: the whole office behind one NAT
+// pays for it being tight, while an attacker holding 200 idle sockets costs
+// little.
 export const MAX_SOCKETS_PER_USER = 20;
 export const MAX_SOCKETS_PER_ADDRESS = 200;
 
@@ -151,11 +150,11 @@ function handleConnection(ws: WebSocket): void {
     const state = getSocketState(ws);
     if (!state) {
       // Set before the await and never cleared, so one socket has at most one
-      // credential lookup in flight. Frames arrive from a single read
-      // synchronously, so without it a client could put thousands of `auth`
+      // credential lookup in flight. Frames from a single read arrive
+      // synchronously, so without this a client could put thousands of `auth`
       // frames in one write and start a lookup for each against a pool of ten —
-      // and two that resolved together would both registerSocket, the second
-      // replacing the first's subscription set and stranding its rooms.
+      // and two that resolved together would both call `registerSocket`, the
+      // second replacing the first's subscription set and stranding its rooms.
       if (authenticating) {
         return;
       }
@@ -260,8 +259,8 @@ export function attachRealtime(server: UpgradableServer): RealtimeHandle {
       pathname = new URL(request.url ?? '/', 'http://localhost').pathname;
     } catch {
       // llhttp accepts request targets WHATWG-URL rejects ("//[", "/\"). The
-      // throw used to escape to the process-wide handler, leaving the socket
-      // open — one leaked descriptor per request, and no ceiling involved.
+      // throw would reach the process-wide handler and leave the socket open —
+      // one leaked descriptor per request, with no ceiling involved.
       socket.destroy();
       return;
     }
@@ -275,10 +274,10 @@ export function attachRealtime(server: UpgradableServer): RealtimeHandle {
     if (held >= MAX_SOCKETS_PER_ADDRESS) {
       // Answered rather than reset, so a client that has run itself out of
       // sockets can tell that from a network fault — but destroyed once the
-      // answer is flushed. end() alone only half-closes, and the peer decides
-      // when to close the other half: a client that never does held a
-      // descriptor this path deliberately does not count, so tripping the
-      // ceiling was the cheapest way to hold sockets outside it.
+      // answer is flushed. `end()` alone only half-closes, and the peer decides
+      // when to close the other half; a client that never does would hold a
+      // descriptor this path deliberately does not count, so tripping the ceiling
+      // would be the cheapest way to hold sockets outside it.
       socket.once('finish', () => socket.destroy());
       const body = 'Too many connections from this address';
       socket.end(

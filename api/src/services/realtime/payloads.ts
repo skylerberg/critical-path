@@ -39,10 +39,9 @@ type WithActor<T extends PayloadRows> = {
   [K in keyof T]: K extends ActorEventType ? Type<T[K]['infer'] & ActorField> : T[K];
 };
 
-// Merged from the catalog rather than restated on each of the twenty-eight
-// rows that want it: the row that says a type names its actor is then the same
-// row publishAfterCommit reads to fill it in, so a type cannot get one without
-// the other.
+// Merged from the catalog rather than restated on every row that wants it: the
+// row saying a type names its actor is the same row `publishAfterCommit` reads
+// to fill it in, so a type cannot get one without the other.
 function withActor<T extends PayloadRows>(rows: T): WithActor<T> {
   return Object.fromEntries(
     Object.entries(rows).map(([eventType, schema]) => [
@@ -72,9 +71,9 @@ export const REALTIME_PAYLOAD_SCHEMAS = withActor({
   project_deleted: idOnly,
   project_position_updated: type({ id: 'string', sort_key: 'string' }),
   project_seen: idOnly,
-  // The actor comes from the catalog like every other one; it is null when a
-  // schedule materialized the change with no caller behind it. The dot ignores
-  // its own actor, so a client compares it against its user id.
+  // The actor is merged in from the catalog like every other one; it is null
+  // when a schedule materialized the change with no caller behind it. The dot
+  // ignores its own actor, so a client compares it against its user id.
   project_changed: idOnly,
   invitations_changed: type({ project_id: 'string' }),
 
@@ -151,10 +150,10 @@ export type RealtimePayloads = {
   [K in RealtimeEventType]: (typeof REALTIME_PAYLOAD_SCHEMAS)[K]['infer'];
 };
 
-// What a publish site provides. publishAfterCommit fills actor_user_id in from
-// the session, so a caller that restated it would be restating something it
-// cannot get wrong. publish() still takes the whole payload, which is what makes
-// the two publishers outside a request name someone by hand.
+// What a publish site provides. `publishAfterCommit` fills `actor_user_id` in
+// from the session, so a caller never restates it; `publish` still takes the
+// whole payload, which is why the two publishers outside a request name the
+// actor by hand.
 export type CallerPayload<T extends RealtimeEventType> = T extends ActorEventType
   ? Omit<RealtimePayloads[T], 'actor_user_id'>
   : RealtimePayloads[T];

@@ -17,7 +17,7 @@ const CHARSET_SCAN_BYTES = 4 * 1024;
 // No HTML parser dependency: this is the one path in the product that eats
 // attacker-controlled bytes, and four fields do not justify the supply-chain
 // surface. Every pattern below is bounded and anchored so a crafted document
-// cannot make the scan superlinear. The bounds sit well above the longest value
+// cannot make the scan superlinear. The bounds are well above the longest value
 // that survives trimming, so an over-long field is truncated rather than making
 // its whole tag unmatchable and silently lost.
 const TAG_PATTERN = /<(meta|title|link)\b([^>]{0,16000})>/gi;
@@ -104,8 +104,8 @@ function decodeHead(head: Buffer, contentTypeHeader: string): string {
   }
 }
 
-// Rejects data: and every other scheme by construction: a preview src that is
-// not fetchable over http(s) is not a preview we can store.
+// Rejects data: and every other scheme by construction — a preview src that
+// cannot be fetched over http(s) is not a preview we can store.
 function resolveHttpUrl(raw: string | null, base: string): string | null {
   if (raw === null) return null;
   const trimmed = decodeEntities(raw).trim();

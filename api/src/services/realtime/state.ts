@@ -15,9 +15,9 @@ export interface SocketState {
 }
 
 // Sized for `cpath watch` with no --project, which subscribes to every board the
-// account can list and has no ceiling of its own to borrow. It is a bound on
-// unbounded growth rather than a quota: without one, a socket sending subscribe
-// frames in a loop grows both this map and the room map for as long as it stays
+// account can list and has no ceiling of its own to borrow. It bounds unbounded
+// growth rather than enforcing a quota: without it, a socket sending subscribe
+// frames in a loop grows this map and the room map for as long as it stays
 // connected.
 export const MAX_SUBSCRIPTIONS_PER_SOCKET = 1000;
 

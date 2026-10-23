@@ -69,11 +69,10 @@ async function claimCandidates(
   return rows;
 }
 
-// `now` pins which instant — and so which calendar day in each series' own zone
-// — the run is about. Production passes nothing and reads the clock per
-// statement; a caller that has to know the answer in advance passes the instant
-// it computed it from, rather than racing midnight between one statement and
-// the next.
+// `now` pins the instant the run is about, and so the calendar day in each
+// series' own zone. Production passes nothing and reads the clock per statement;
+// a caller that must know the answer in advance passes the instant it computed
+// it from, rather than racing midnight between statements.
 export async function runSeriesSweep(
   opts: { budgetMs?: number; now?: Date } = {}
 ): Promise<number> {
@@ -265,12 +264,11 @@ async function materializeSeries(
     }
 
     // Refused whole rather than filled to the ceiling: creating the occurrences
-    // that fit and advancing the schedule past the rest would drop cards with no
-    // trace anywhere. Throwing hands the series to recordSeriesFailure, which is
-    // what puts the reason in `last_error`, raises `consecutive_failures`, and
-    // pauses the series once a full board has stayed full for
-    // MAX_CONSECUTIVE_FAILURES sweeps. Until then it keeps retrying, so a board
-    // pruned back under the cap resumes on its own.
+    // that fit and advancing past the rest would drop cards with no trace.
+    // Throwing hands the series to recordSeriesFailure, which records the reason,
+    // counts the failure, and pauses the series after
+    // MAX_CONSECUTIVE_FAILURES sweeps. Until then it retries, so a board pruned
+    // back under the cap resumes on its own.
     await assertTaskCapacity(trx, series.project_id, due.length);
 
     // A series outlives the account that set it up.

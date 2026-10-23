@@ -6,8 +6,8 @@ import { logger } from '../../utils/logger';
 import { errorText } from '../../utils/errors';
 
 export class UploadCapExceededError extends Error {
-  // Which of the two caps was applied is decided after the sniff, so the cap
-  // that actually bit travels with the error; the caller cannot re-derive it.
+  // Which cap applies is only known after the sniff, so the one that bit travels
+  // with the error; a caller cannot re-derive it from the request.
   constructor(readonly limit: number) {
     super('Upload exceeded its byte cap');
   }
@@ -61,9 +61,9 @@ async function peek(
 }
 
 // Reads enough of the body to tell an image from anything else, then stores it
-// under whichever cap that answer implies. The decision is the server's: a
-// client sends bytes and is told what they turned out to be, so every client
-// gets the same answer without implementing the rule.
+// under the cap that answer implies. The server decides: a client sends bytes
+// and is told what they turned out to be, so every client gets the same answer
+// without implementing the rule.
 export async function storeSniffedUpload(
   body: ReadableStream<Uint8Array>,
   caps: { image: number; file: number },

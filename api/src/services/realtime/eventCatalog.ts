@@ -1,22 +1,19 @@
-// Every realtime event the server publishes, each classified once. The facts
-// that used to live in separate lists — that a type exists, whether it reaches
-// webhook registrations, whether it raises the unseen-changes dot, and whether
-// its payload names who made the change — are columns of one table, so a new
-// type cannot be added without deciding all of them and cannot be misspelled at
-// a publish site. README.md carries the payload catalog; this file carries the
-// classification.
+// Every realtime event the server publishes, each classified once. Whether a
+// type reaches webhook registrations, raises the unseen-changes dot, and names
+// who made the change are columns of one table, so a new type cannot be added
+// without deciding all of them, and cannot be misspelled at a publish site.
+// README.md carries the payload catalog; this file carries the classification.
 
-// No project id, so neither of the project-scoped columns applies: publishing
-// one returns before the dot and the webhook queue are ever consulted.
+// No project id, so neither project-scoped column applies: publishing one
+// returns before the dot and the webhook queue are consulted.
 //
-// What a project event answers with its project — who receives this — an
-// account event has to answer here, because the delivery layer has no room to
-// fall back to: an account entry that reaches deliverProjectScoped is dropped
-// on the null project id, silently and with nothing logged. So the column is
-// what stops that being a runtime accident. `namedRecipients` is the only kind
-// whose audience the publish site knows, and publishAfterCommit's overloads
-// require exactly that kind to carry `recipientUserIds`; the other two are
-// answered by a dedicated branch and take no publish options at all.
+// A project event answers "who receives this" with its project; an account event
+// has to answer it here, because the delivery layer has no fallback — an account
+// entry that reaches `deliverProjectScoped` is dropped on the null project id,
+// silently. `namedRecipients` is the only kind whose audience the publish site
+// knows, and `publishAfterCommit`'s overloads require exactly that kind to carry
+// `recipientUserIds`; the other two are answered by a dedicated branch and take
+// no publish options at all.
 type AccountEvent = {
   scope: 'account';
   delivery:
@@ -28,12 +25,12 @@ type AccountEvent = {
 type ProjectEvent = {
   scope: 'project';
   // Reaches webhook registrations. False for a type that targets an exact
-  // recipient list (project_position_updated, project_seen), describes a row
+  // recipient list (project_position_updated, project_seen); describes a row
   // that cannot have a registration at send time (project_created,
-  // project_deleted), restates a change that already went out under its own
-  // type (project_changed), is readable only by a subset of a project's people
-  // (invitations_changed), or is a batched envelope a consumer subscribed to
-  // per-card changes has no schema for (every column_tasks_* and bulk_tasks_*).
+  // project_deleted); restates a change already sent under its own type
+  // (project_changed); is readable only by part of a project
+  // (invitations_changed); or is a batched envelope a per-card consumer has no
+  // schema for (every column_tasks_* and bulk_tasks_*).
   webhook: boolean;
   // Raises the unseen-changes dot. False only when the type leaves behind no
   // activity or comment row, so a board read would not report it as changed
@@ -42,13 +39,12 @@ type ProjectEvent = {
   // glance, a dot missing costs the feature.
   raisesUnseenDot: boolean;
   // The payload carries actor_user_id — who made the change, or null when a
-  // schedule or a background job did. publishAfterCommit merges it in from the
-  // session, so this row is what decides whether it is there; the two publishers
-  // that bypass publishAfterCommit name someone by hand. True for the board
-  // mutations a client has to attribute, so it can skip narrating a change back
-  // at whoever made it. False where nobody would ask who: a project-list row
-  // moving in one person's own sidebar, an invitation set, or a schedule whose
-  // failure absorber has no actor to give.
+  // schedule or a background job did. `publishAfterCommit` merges it in from the
+  // session, so this row decides whether it is there; the two publishers that
+  // bypass `publishAfterCommit` name someone by hand. True for board mutations a
+  // client has to attribute, so it can skip narrating a change back at whoever
+  // made it. False where nobody would ask who: a project-list row moving in one
+  // person's own sidebar, an invitation set, or a schedule with no actor to give.
   carriesActor: boolean;
 };
 
@@ -73,10 +69,9 @@ const EVENTS = {
     carriesActor: false,
   },
   project_seen: { scope: 'project', webhook: false, raisesUnseenDot: false, carriesActor: false },
-  // Emitted by publishAfterCommit itself to carry the dot, so dotting on it
-  // would be circular. Its actor is the only one that predates this column and
-  // the only one its publishers pass by hand, both of them calling publish
-  // directly rather than reaching the merge in publishAfterCommit.
+  // Emitted by `publishAfterCommit` itself to carry the dot, so dotting on it
+  // would be circular. Its actor is passed by hand: both publishers call
+  // `publish` directly rather than reaching the merge in `publishAfterCommit`.
   project_changed: { scope: 'project', webhook: false, raisesUnseenDot: false, carriesActor: true },
   // Not board content, and the dot would be one every viewer sees for a change
   // none of them may read.
@@ -127,9 +122,8 @@ const EVENTS = {
   // a card they cannot see. No webhook, because nothing in this project changed
   // that a registration could describe; no dot, because the change writes no
   // activity or comment row here, so a board read reports nothing and the dot
-  // could never be cleared. No actor either, for the same reason the dot is
-  // absent: naming them would hand every recipient the id of someone they may
-  // share no project with.
+  // could never be cleared. No actor either: naming them would hand every
+  // recipient the id of someone they may share no project with.
   cross_project_blockers_changed: {
     scope: 'project',
     webhook: false,
@@ -232,13 +226,13 @@ type OfDelivery<D extends AccountEvent['delivery']> = {
 export type NamedRecipientEventType = OfDelivery<'namedRecipients'>;
 
 // The rest, whose audience a branch decides, so their publish sites pass no
-// options at all. Spelled as the union of the two values rather than as
+// options at all. Spelled as the union of the two values rather than
 // `Exclude<AccountEventType, NamedRecipientEventType>`: an Exclude sweeps in
 // whatever it does not recognize, so a fourth delivery value would land here
-// silently and be allowed to publish with no audience — the exact fail-open
-// this column exists to prevent, one level up. Listed by value, a new value
-// matches neither overload and its publish sites do not compile until someone
-// says which kind it is.
+// silently and be publishable with no audience — the fail-open this column
+// exists to prevent, one level up. Listed by value, a new delivery value matches
+// neither overload, and its publish sites do not compile until someone says
+// which kind it is.
 export type DispatchedEventType = OfDelivery<'projectSharers' | 'intercepted'>;
 
 export type WebhookEventType = {
