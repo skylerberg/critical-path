@@ -268,10 +268,10 @@ function myTasksRows(db: Kysely<DB>, userId: string) {
       ).as('blocking_rows'),
       hiddenEdgeCount(userId, 'blocking').as('hidden_blocking_count'),
       // The two numbers the bucket is decided by, selected so the ordering can
-      // happen in SQL. It has to: the page boundary is applied there, and a
-      // LIMIT over board position would hand back an arbitrary thousand cards
-      // rather than the thousand the caller most needs, leaving the documented
-      // order holding only within a page.
+      // happen in SQL. It has to: the page boundary is applied there, and a LIMIT
+      // over board position would hand back an arbitrary page rather than the page
+      // the caller most needs, leaving the documented order holding only within a
+      // page.
       openBlockers(eb, userId)
         .select((ib) => ib.fn.countAll<string>().as('n'))
         .as('readable_blocker_count'),

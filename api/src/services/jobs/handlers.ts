@@ -16,9 +16,9 @@ export interface JobHandler<K extends JobKind = JobKind> {
   run: (payload: JobPayloads[K]) => Promise<void>;
 }
 
-// What the registry holds. Parsing the payload against the kind's row is what
-// erases the per-kind type the registration carried, so the runner can dispatch
-// a claimed row without knowing which kind it is.
+// The kind-erased shape the registry holds: `parsePayload` re-checks a row against
+// its kind's schema at dispatch, which is what lets the runner run a claimed row
+// without knowing which kind it is.
 export interface RegisteredJobHandler {
   kind: string;
   timeoutMs: number;

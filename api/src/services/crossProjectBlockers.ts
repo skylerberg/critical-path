@@ -16,8 +16,8 @@ export interface CrossProjectCount extends CrossProjectDependent {
 
 // Named the way each caller already knows its blockers: a handful of task ids, a
 // whole column about to have its done flag flipped, or the projects a delete is
-// about to take away. The column form is what keeps a fifty-card flip to one
-// query instead of fifty ids marshaled through an `in` list.
+// about to take away. The column form keeps a bulk flip to one query instead of a
+// long id list marshaled through an `in`.
 export type CrossProjectBlockerScope =
   | { taskIds: readonly string[] }
   | { columnId: string }
@@ -98,8 +98,8 @@ export async function refreshCrossProjectBlockerCounts(
 
 // Its own event type rather than a task_relations_set fan-out: this reaches a
 // project the actor may not belong to, where the change leaves no activity or
-// comment row, so a type that raises the unseen dot would dot a board that
-// nothing in it explains and no amount of looking could clear.
+// comment row. A type that raises the unseen dot would dot a board that nothing in
+// it explains and no amount of looking could clear.
 export function publishCrossProjectBlockerCounts(
   c: Pick<PublicContext, 'get'>,
   counts: readonly CrossProjectCount[]
@@ -195,9 +195,10 @@ export async function getCrossProjectDependencies(
   };
 }
 
-// What every site that changes a task's done state, archive state or existence
-// calls. Named for the blockers whose state moved, not for the tasks that have
-// to be recounted.
+// Recounts every cross-project dependent of the blockers `scope` names, and
+// publishes what moved. Every site that changes a task's done state, archive state
+// or existence calls this; the argument names the blockers whose state moved, not
+// the tasks that have to be recounted.
 export async function syncCrossProjectBlockers(
   c: Pick<PublicContext, 'get'>,
   db: Kysely<DB>,

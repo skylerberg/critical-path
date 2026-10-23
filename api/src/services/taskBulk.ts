@@ -17,7 +17,7 @@ export interface BulkTaskRow {
 }
 
 export interface BulkTargets {
-  /** Deduped, in request order. */
+  /** The tasks the write applies to: deduped, in request order. */
   rows: BulkTaskRow[];
   skipped: string[];
 }
@@ -34,8 +34,8 @@ export interface SetDelta {
 
 /**
  * Classifies under a row lock, so the answer cannot go stale before the write
- * that follows it. An id outside the project is never returned, which is what
- * keeps it indistinguishable from an unknown one.
+ * that follows it. An id outside the project lands in `skipped` beside an unknown
+ * one, which is what keeps the two indistinguishable.
  */
 export async function loadBulkTargets(
   db: Kysely<DB>,
@@ -97,10 +97,11 @@ async function liveKeyIn(
   return row?.sort_key ?? null;
 }
 
-// Bounded by the nearest key in the whole column — archived rows and the rows
-// being moved included — so nothing sits inside the gap. That is what lets one
-// UPDATE rewrite the batch: the unique index is checked row by row as it goes,
-// and a new key equal to a moving row's old one would trip it whenever that row
+// The open interval for the batch, bounded by the nearest key anywhere in the
+// column — archived rows and the rows being moved included — so nothing else sits
+// inside it. Keeping the gap clear of every other key is what lets one UPDATE
+// rewrite the batch: the unique index is checked row by row as the statement goes,
+// so a new key equal to a moving row's old one would trip it whenever that row
 // happened to be written second.
 async function gapBeside(
   db: Kysely<DB>,

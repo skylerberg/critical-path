@@ -16,8 +16,8 @@ import type {
 } from '../schemas/notifications';
 import type { PublicContext } from '../types/index';
 
-// Membership already bounds who can be notified; this bounds the fan-out of a
-// single write on a project with a large membership.
+// Membership already bounds who can be notified; this bounds how many people one
+// write can reach.
 export const MAX_NOTIFICATION_RECIPIENTS = 100;
 
 export const NOTIFY_COLUMN = {
@@ -31,8 +31,8 @@ export type NotifyColumn = (typeof NOTIFY_COLUMN)[NotificationKind];
 
 export const NOTIFICATION_KINDS = Object.keys(NOTIFY_COLUMN) as NotificationKind[];
 
-// Everything that reads or writes the preferences goes through these two, so a
-// new kind is the `NOTIFY_COLUMN` row and its migration and nothing else.
+// Everything that reads or writes the preferences goes through these two lists, so
+// a new kind is a `NOTIFY_COLUMN` row, its migration, and nothing here.
 export const NOTIFY_COLUMNS: NotifyColumn[] = NOTIFICATION_KINDS.map((kind) => NOTIFY_COLUMN[kind]);
 
 export function toNotificationSettings(row: Record<NotifyColumn, boolean>): NotificationSettings {
@@ -83,17 +83,18 @@ export interface Recipient {
 //
 // This is the one gate every mailer passes through, so the two rules that bound
 // who a single write can reach live here rather than only in `notify`: the actor
-// is dropped, and what is left is capped. `notify` applies both again before it
-// queues anything, but a publisher that builds its own `Notification` and calls
-// `notificationDelivery.deliver` runs none of that — and "acting on yourself
-// never mails you" and "one write mails at most a hundred people" have to hold
-// for those as well. `actorUserId` is a required argument for the same reason: a
-// mailer cannot forget to pass what it has no choice about.
+// is dropped, and what is left is capped at MAX_NOTIFICATION_RECIPIENTS. `notify`
+// applies both again before it queues anything, but a publisher that builds its own
+// `Notification` and calls `notificationDelivery.deliver` runs none of that — and
+// "acting on yourself never mails you" and "one write mails at most
+// MAX_NOTIFICATION_RECIPIENTS people" have to hold for those too. `actorUserId` is
+// a required argument for the same reason: a mailer cannot forget to pass what it
+// has no choice about.
 //
-// Both bound the ids asked for rather than the ones that survive the gates
-// below, so naming 150 people of whom 60 are unverified mails 40 and not 100.
-// That keeps the ceiling a bound on the fan-out of one write, which is the thing
-// worth bounding, rather than a quota to be filled.
+// The cap applies to the ids asked for, not to the ones that survive the gates
+// below: a full batch in which most are unverified or opted out mails fewer than
+// the ceiling, never more. That keeps the ceiling a bound on the fan-out of one
+// write — the thing worth bounding — rather than a quota to be filled.
 export async function eligibleRecipients(
   kind: NotificationKind,
   project: ProjectAccessFields,
@@ -249,9 +250,9 @@ export type NotifyArgs = {
 
 export async function notify(c: Pick<PublicContext, 'get'>, args: NotifyArgs): Promise<void> {
   // Both rules are applied again in `eligibleRecipients`, which is what makes
-  // them hold for every mailer. Applying them here as well is what makes a write
-  // naming only yourself queue no hook at all, and what keeps the hundred ids
-  // this hands on from being a different hundred than the ones that get mail.
+  // them hold for every mailer. Applying them here as well is what lets a write
+  // naming only yourself queue no hook at all, and what keeps the ids this hands on
+  // from being a different set than the ones that get mail.
   const recipientUserIds = [...new Set(args.recipientUserIds)]
     .filter((id) => id !== args.actor.id)
     .slice(0, MAX_NOTIFICATION_RECIPIENTS);

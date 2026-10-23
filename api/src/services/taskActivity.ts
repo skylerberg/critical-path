@@ -9,8 +9,9 @@ export interface TaskActivityWrite {
   newValue?: ActivityValue | null;
 }
 
-// The generated Json column type has an index signature the value interfaces
-// cannot satisfy; jsonb parses the text back into the same object.
+// `ActivityValue` has no index signature, so it will not assign to the generated
+// `Json` column type; a JSON string will, and jsonb parses it back into the same
+// object.
 function serializeValue(value: ActivityValue | null | undefined): string | null {
   return value == null ? null : JSON.stringify(value);
 }
@@ -73,9 +74,10 @@ export async function recordAssigneeChanges(
 
 const DESCRIPTION_COALESCE_INTERVAL = '5 minutes';
 
-// Editors autosave on an idle debounce, so one session would otherwise append an
-// entry carrying two whole documents every few seconds. A run by a single actor
-// extends one entry instead; old_value is never rewritten, so it still holds the
+// Collapses a session of edits into one entry: editors autosave on an idle
+// debounce, so recording each write would append an entry carrying two whole
+// documents every few seconds. A run by a single actor within the window extends
+// the existing entry instead; old_value is never rewritten, so it still holds the
 // text from before the session.
 export async function recordDescriptionChange(
   db: Kysely<DB>,
@@ -91,7 +93,8 @@ export async function recordDescriptionChange(
       'id',
       'kind',
       'actor_user_id',
-      // jsonb equality, because Postgres normalizes key order on storage.
+      // Compared as jsonb rather than as text: Postgres normalizes key order on
+      // storage, so a reserialized document would not match a text comparison.
       sql<boolean>`old_value is not distinct from ${nextValue}::jsonb`.as('back_to_old_value'),
     ])
     .where('task_id', '=', taskId)
@@ -103,7 +106,8 @@ export async function recordDescriptionChange(
 
   if (last?.kind === 'description_changed' && last.actor_user_id === actorUserId) {
     if (last.back_to_old_value) {
-      // Undoing inside the window leaves the entry recording no change at all.
+      // Undoing back to the old text inside the window leaves nothing to record,
+      // so the entry goes rather than sitting there with equal values.
       await db.deleteFrom('task_activity').where('id', '=', last.id).execute();
       return;
     }

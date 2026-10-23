@@ -39,10 +39,9 @@ type WithActor<T extends PayloadRows> = {
   [K in keyof T]: K extends ActorEventType ? Type<T[K]['infer'] & ActorField> : T[K];
 };
 
-// Merged from the catalog rather than restated on each of the twenty-eight
-// rows that want it: the row that says a type names its actor is then the same
-// row publishAfterCommit reads to fill it in, so a type cannot get one without
-// the other.
+// Merged from the catalog rather than restated on every row that wants it: the row
+// that says a type names its actor is then the same row publishAfterCommit reads to
+// fill it in, so a type cannot get one without the other.
 function withActor<T extends PayloadRows>(rows: T): WithActor<T> {
   return Object.fromEntries(
     Object.entries(rows).map(([eventType, schema]) => [

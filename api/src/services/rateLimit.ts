@@ -29,8 +29,8 @@ function sweep(now: number): void {
 
 // A budget carries its own window, so budgets that reset on different schedules
 // can still be spent as one. Without that, the caller with the most to gain from
-// atomicity — the auth limiter, whose three windows are a minute, a quarter of
-// an hour and an hour — was the one caller that had to spend them one at a time.
+// atomicity — the auth limiter, whose budgets span more than one window — would be
+// the one caller that has to spend them one at a time.
 export interface Budget {
   key: string;
   max: number;
@@ -110,10 +110,10 @@ function consumeBudgetsLocal(budgets: Budget[], now: number): number {
   sweep(now);
   for (const [index, budget] of budgets.entries()) {
     const window = windows.get(budget.key);
-    // A key that is absent or past its window counts as zero, which is what the
-    // script's `GET ... or '0'` does. Reading it as "not full" instead let a
-    // budget of zero admit its first attempt here and refuse it on Redis — the
-    // fallback answering a different policy than the thing it stands in for.
+    // A key that is absent or past its window counts as zero, matching the script's
+    // `GET ... or '0'`. Treating it as "not full" instead would let a budget of zero
+    // admit its first attempt here while Redis refuses it: the fallback answering a
+    // different policy than the thing it stands in for.
     const spent = window !== undefined && window.resetAt > now ? window.count : 0;
     if (spent >= budget.max) {
       return index + 1;
@@ -182,7 +182,8 @@ async function peekRateLimitShared(key: string, maxAttempts: number): Promise<bo
   }
 }
 
-// For a budget that has to gate a call it may turn out not to be spent on.
+// Whether the budget still has room, without spending it: for a check that gates
+// a call it may turn out not to be spent on.
 export async function peekRateLimit(
   key: string,
   now = Date.now(),
@@ -256,11 +257,11 @@ export const USER_SEARCH_USER_MAX_ATTEMPTS = 100;
 const USER_SEARCH_IP_WINDOW_MS = 60 * 60_000;
 export const USER_SEARCH_IP_MAX_ATTEMPTS = 300;
 
-// This is the whole bound on scraping the user directory by name, so it is
-// keyed by address as well as by account: an account costs a signup, and signup
-// allows 50 an hour from one source, which would otherwise multiply a per-user
-// budget by fifty. Sized for an as-you-type box — a debounced keystroke run is
-// a handful of calls, so the user budget is tens of people added in a sitting.
+// The whole bound on scraping the user directory by name, so it is keyed by address
+// as well as by account: an account costs a signup, and signup allows
+// SIGNUP_IP_MAX_ATTEMPTS an hour from one source, which would otherwise multiply a
+// per-user budget by that much. Sized for an as-you-type box — a debounced keystroke
+// run is a handful of calls, so the user budget is tens of people added in a sitting.
 export async function enforceUserSearchRateLimit(c: Context, userId: string): Promise<void> {
   const now = Date.now();
   const userAllowed = await consumeRateLimit(
@@ -379,12 +380,12 @@ export async function enforceAuthRateLimit(c: Context, email: string): Promise<v
       // unauthenticated caller sets the pace of the most expensive operation in
       // the product.
       //
-      // What that costs is CPU and queue depth, not memory: the hash holds
-      // 64 MiB while it runs, but concurrency is capped by the thread pool it
-      // runs on, so peak memory is the same whether attempts arrive four at a
-      // time or sixty. It is that pool everything else — every fs read, every
-      // zlib pass — then queues behind. Sized well above an office signing in
-      // for the day and well below what keeps the pool busy.
+      // What that costs is CPU and queue depth, not memory: each verify holds its
+      // memory cost only while it runs, and concurrency is capped by the thread pool
+      // it runs on, so peak memory is the same whether attempts arrive four at a time
+      // or sixty. It is that pool everything else — every fs read, every zlib pass —
+      // then queues behind. Sized well above an office signing in for the day and
+      // well below what keeps the pool busy.
       { key: `auth-ip:${address}`, max: AUTH_IP_MAX_ATTEMPTS, windowMs: AUTH_IP_WINDOW_MS },
     ],
     Date.now()
@@ -400,8 +401,8 @@ export const SIGNUP_IP_MAX_ATTEMPTS = 50;
 
 // What bounds how many accounts one source can open on addresses it does not
 // own. The auth limiter it runs beside does spend a bucket keyed on the source,
-// but that one is sized for password hashing and sits six times higher, so this
-// is the ceiling that actually binds. It is far above a whole office signing up
+// but that one is sized for password hashing and sits far higher, so this is the
+// ceiling that actually binds. It is well above a whole office signing up
 // together.
 export async function enforceSignupRateLimit(c: Context): Promise<void> {
   const allowed = await consumeRateLimit(

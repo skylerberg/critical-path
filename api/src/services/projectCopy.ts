@@ -226,7 +226,7 @@ export async function copyTasks(
       .execute();
   }
 
-  // One routine copies all three kinds now, images included.
+  // A single routine copies every kind of attachment, images included.
   const { objectCopies } = await copyTaskAttachments(db, {
     sourceTaskIds: input.sourceTaskIds,
     taskIdMap,

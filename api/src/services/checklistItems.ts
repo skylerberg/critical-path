@@ -5,8 +5,9 @@ import { assertProjectWrite } from './authorization';
 
 export const CHECKLIST_ITEM_NOT_FOUND = 'Checklist item not found';
 
-// Checklists are card content rather than discussion, so unlike comments every
-// mutation demands write access: 404 for a caller with none, 403 for a viewer.
+// A checklist item is card content, not discussion, so every mutation demands
+// write access — unlike a comment, which its author may edit as a viewer. 404 for
+// a caller with no access to the project, 403 for a viewer.
 export async function assertChecklistItemWrite(
   db: Kysely<DB>,
   userId: string,

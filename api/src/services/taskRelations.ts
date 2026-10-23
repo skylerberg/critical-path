@@ -65,10 +65,9 @@ export async function fetchTaskRelations(
     .where('task.id', 'in', taskIds)
     .execute();
 
-  // Restored in the caller's order rather than left to whatever the scan
-  // returns: the bulk routes hand this their request order and serve the
-  // result as `{ tasks }`, so an unordered read makes that response
-  // non-deterministic for the same request.
+  // Sorted back into the caller's order, not whatever the scan returns: the bulk
+  // routes pass their request order and serve the result as `{ tasks }`, so an
+  // unordered read would make that response non-deterministic for one request.
   const requestOrder = new Map(taskIds.map((id, index) => [id, index]));
   rows.sort((a, b) => (requestOrder.get(a.id) ?? 0) - (requestOrder.get(b.id) ?? 0));
 

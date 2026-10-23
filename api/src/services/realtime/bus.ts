@@ -164,8 +164,8 @@ export function publishAfterCommit(
   const entry = {
     type,
     project_id: projectId,
-    // Merged here rather than at forty publish sites: the catalog decides
-    // which types name an actor, so a caller can neither forget nor lie.
+    // Merged here rather than at every publish site: the catalog decides which
+    // types name an actor, so a caller can neither forget nor lie.
     data: carriesActor(type) ? { ...data, actor_user_id: actorUserId } : data,
     ...opts,
   } as BusEntry;

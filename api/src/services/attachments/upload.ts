@@ -6,8 +6,8 @@ import { logger } from '../../utils/logger';
 import { errorText } from '../../utils/errors';
 
 export class UploadCapExceededError extends Error {
-  // Which of the two caps was applied is decided after the sniff, so the cap
-  // that actually bit travels with the error; the caller cannot re-derive it.
+  // The cap that was actually applied, carried on the error because which of the
+  // two applies is only known after the sniff: the caller cannot re-derive it.
   constructor(readonly limit: number) {
     super('Upload exceeded its byte cap');
   }
@@ -32,8 +32,8 @@ export async function discardStoredUpload(storageKey: string): Promise<void> {
   }
 }
 
-// Every format sniffImageContentType recognizes declares itself within twelve
-// bytes, so that is all the prefix this has to hold to decide what is arriving.
+// Every format sniffImageContentType recognizes declares itself within the first
+// few bytes, so that is all the prefix this has to hold to know what is arriving.
 const SNIFF_BYTES = 12;
 
 export interface SniffedUpload extends StoredUpload {

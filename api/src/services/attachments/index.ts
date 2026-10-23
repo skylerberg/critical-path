@@ -105,8 +105,8 @@ export async function fetchTaskAttachments(
   return rows.map(toAttachmentResponse);
 }
 
-// One query for a screen-sized set of tasks, the same shape the comment and
-// checklist readers use.
+// Every attachment for a screen-sized set of tasks in one query, the same shape the
+// comment and checklist readers use.
 export async function fetchAttachmentsForTasks(
   db: Kysely<DB>,
   taskIds: readonly string[]
@@ -146,8 +146,9 @@ async function attachmentProjectId(db: Kysely<DB>, attachmentId: string): Promis
   return row.project_id;
 }
 
-// Attachments are card content rather than discussion, so every mutation
-// demands write access: 404 for a caller with none, 403 for a viewer.
+// Attachments are card content rather than discussion, so every mutation demands
+// write access to the attachment's project: 404 for a caller with none, 403 for a
+// viewer.
 export async function assertAttachmentWrite(
   db: Kysely<DB>,
   userId: string,
@@ -190,8 +191,8 @@ export type AttachmentScope =
   | { projectId: string }
   | { projectsCreatedBy: string };
 
-// Every deletion path funnels through here, so none of them can forget one of
-// the three key columns a single row may hold.
+// Every deletion path funnels through here, so none of them can forget one of the
+// key columns a single row may hold.
 export async function attachmentStorageKeys(
   db: Kysely<DB>,
   scope: AttachmentScope

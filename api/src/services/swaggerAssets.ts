@@ -14,9 +14,9 @@ const gzip = promisify(gzipCallback);
 // is a third party holding every reader's credentials. Nothing about the page
 // is worth that, and the bytes are already on disk.
 //
-// An allow-list of exactly two names rather than a path under a root: the name
-// arrives in a URL, and this way the route is structurally incapable of
-// resolving anything else out of node_modules, traversal or no traversal.
+// An allow-list of names rather than a path under a root: the name arrives in a
+// URL, and this way the route is structurally incapable of resolving anything
+// else out of node_modules, traversal or no traversal.
 //
 // The package is reached by require.resolve rather than imported, which is not
 // a reference knip can see — hence its entry in knip's ignoreDependencies.
@@ -34,14 +34,14 @@ export function isSwaggerAssetName(name: string): name is SwaggerAssetName {
 export interface SwaggerAsset {
   contentType: string;
   body: Buffer;
-  // Compressed once at first read. The route is public and the bundle is 1.5 MB
-  // of exactly the content type the global compress() middleware acts on, so
+  // Compressed once at first read. The route is public and the bundle is a large
+  // body of exactly the content type the global compress() middleware acts on, so
   // without this every request from every reader — and every request an
-  // unauthenticated caller cares to make — costs a fresh gzip of the whole
-  // thing. Serving it pre-encoded is also what makes that middleware skip it.
+  // unauthenticated caller cares to make — costs a fresh gzip of the whole thing.
+  // Serving it pre-encoded is also what makes that middleware skip it.
   gzip: Buffer;
-  // Strong and content-derived, so a reader that already holds the bytes
-  // revalidates into a 304 rather than being sent 1.5 MB again each hour.
+  // Strong and content-derived, so a reader that already holds these bytes
+  // revalidates into a 304 instead of being sent the bundle again.
   etag: string;
 }
 

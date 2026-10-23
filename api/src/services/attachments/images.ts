@@ -2,12 +2,13 @@ import type { Kysely } from 'kysely';
 import type { DB } from '../../db/types';
 import { IMAGE_KIND } from './index';
 
-// Every write of a kind='image' row. Images live in task_attachment alongside
-// files and links, and carry their own storage and content-type columns so the
+// The cap on any kind='image' row. Images live in task_attachment alongside files
+// and links, and carry their own storage and content-type columns so the
 // unauthenticated image route can reach them without being able to reach a
 // document's bytes.
-// Images are capped below the general attachment limit: they are served inline
-// from an unauthenticated URL, so they stay small enough to be cheap to hand out.
+//
+// It sits below the general attachment limit because images are served inline from
+// an unauthenticated URL: kept small, they stay cheap to hand out.
 export const IMAGE_MAX_BYTES = 10 * 1024 * 1024;
 
 export interface TaskImageInsert {
@@ -28,8 +29,8 @@ export async function insertTaskImages(
   if (images.length === 0) {
     return new Map();
   }
-  // No onConflict: this insert is the row's only home now, so a client-supplied
-  // id that is already taken has to raise and become a 409 rather than silently
+  // No onConflict: this insert is the row's only home, so a client-supplied id that
+  // is already taken has to raise — and become a 409 — rather than silently
   // resolving to somebody else's image.
   const rows = await db
     .insertInto('task_attachment')
@@ -50,8 +51,9 @@ export async function insertTaskImages(
   return new Map(rows.map((row) => [row.id, row.created_at]));
 }
 
-// Clear before set: a single `is_cover = (id = $imageId)` update trips the
-// partial unique index as it walks the rows.
+// Clears the previous cover before setting the new one: a single update setting
+// `is_cover = (id = $imageId)` would trip the partial unique index as it walks the
+// rows.
 export async function setTaskCoverImage(
   db: Kysely<DB>,
   taskId: string,

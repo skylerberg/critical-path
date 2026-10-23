@@ -22,20 +22,21 @@ import {
 } from './queue';
 
 const TICK_MS = 5000;
-// Over the worst-case batch and under the lease, so a tick that overruns can
-// only overlap with rows the next claim is still barred from taking.
+// Longer than a worst-case batch of handlers and shorter than LEASE_SECONDS, so a
+// tick that overruns only overlaps with rows the next claim is still barred from
+// taking.
 export const TICK_BUDGET_MS = 45_000;
 const MAINTENANCE_EVERY_TICKS = 60;
 
-// Process-wide rather than per tick: overrunning the budget releases the
-// no-overlap latch without stopping the rows still running, so a per-tick bound
-// would let every further tick pile on another batch.
+// Process-wide rather than per tick: the budget in startWorker stops waiting for a
+// tick but not the handlers it already started, so a per-tick count would let every
+// later tick pile another batch on top of them.
 let inFlight = 0;
 
-// The counter is balanced by runDueJobs' own finally, so this is not a repair —
-// it exists because a still-running tick keeps holding its slots after whoever
-// started it has walked away, and a caller that then asks for work is answered 0
-// with no way to tell that apart from an empty queue.
+// For tests: zeroes the counter without waiting for in-flight handlers. Not a
+// repair — runDueJobs' own finally balances it — but a tick that outlives the test
+// that started it keeps holding its slots, and the next caller would then be
+// answered 0 with no way to tell that from an empty queue.
 export function resetInFlightJobs(): void {
   inFlight = 0;
 }
@@ -44,8 +45,8 @@ export async function runDueJobs(): Promise<number> {
   const kinds = registeredJobKinds();
   if (kinds.length === 0) return 0;
 
-  // Taken before the claim, or two overlapping ticks both read the same free
-  // slots and both fill them.
+  // Reserved before the claim: two overlapping ticks would otherwise both read the
+  // same free slots and both fill them.
   let held = MAX_CONCURRENT_JOBS - inFlight;
   if (held <= 0) return 0;
   inFlight += held;

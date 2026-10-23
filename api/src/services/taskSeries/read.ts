@@ -5,9 +5,9 @@ import type { TaskSeriesRef, TaskSeriesResponse, TiptapDoc } from '../../schemas
 import { dateText } from '../dateText';
 import { presetFor, summarize } from './rule';
 
-// Fail closed: the column is plain text, so a value a newer release wrote — or
-// one nothing writes — reads as the state the materializer's `status = 'active'`
-// claim already puts it in, rather than as a schedule a client thinks is live.
+// Unknown statuses read as 'ended' — the state the materializer's `status =
+// 'active'` claim already excludes — so a value a newer release wrote, or one
+// nothing writes, is never handed to a client as a live schedule.
 function narrowSeriesStatus(status: string): TaskSeriesResponse['status'] {
   return status === 'active' || status === 'paused' ? status : 'ended';
 }
@@ -72,8 +72,8 @@ export async function fetchSeries(
           .orderBy('task_series_checklist_item.sort_key')
           .orderBy('task_series_checklist_item.id')
       ).as('checklist_rows'),
-      // The honest half of "create the next occurrence anyway": the panel says
-      // so when earlier ones are still outstanding.
+      // The count of earlier occurrences still outstanding, so the panel can say so
+      // when the next one is created anyway.
       eb
         .selectFrom('task')
         .innerJoin('board_column', 'board_column.id', 'task.column_id')
@@ -125,8 +125,8 @@ export async function fetchSeries(
   }));
 }
 
-// Card detail only. Every board payload carrying this would mean a join and a
-// rule render per card, for a line one open card at a time ever shows.
+// Card detail only. Every board payload carrying this would mean a join and a rule
+// render per card, for a line that is only ever visible on one open card at a time.
 //
 // The preset and the anchor ride along with the summary because the card's own
 // recurrence menu is built from them, and they cost nothing extra here: both are

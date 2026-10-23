@@ -199,8 +199,9 @@ async function materializeSeries(
 ): Promise<MaterializeResult | null> {
   const at = sql<Date>`coalesce(${now}::timestamptz, now())`;
   return db.transaction().execute(async (trx) => {
-    // The job lease covers the job row, and one row drives every series, so it
-    // offers no per-series exclusion at all; this is what does.
+    // The job lease covers the job row, and one row drives every series, so it gives
+    // no per-series exclusion at all; the row lock below is what does, and SKIP
+    // LOCKED lets a replica move on to another series instead of waiting.
     const series = await trx
       .selectFrom('task_series')
       .selectAll('task_series')

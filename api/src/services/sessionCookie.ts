@@ -4,15 +4,15 @@ import { env } from '../config/env';
 
 export const SESSION_COOKIE_NAME = 'cp_session';
 
-// Carries the same session token the client already holds as a bearer token,
-// and exists for one reason: a browser never attaches an Authorization header
-// to an <img> tag. Media routes cannot be authenticated any other way without
-// rewriting every /api/images/<uuid> already embedded in a stored description.
+// The session token, mirrored into a cookie, and existing for one reason: a
+// browser never attaches an Authorization header to an <img>, and media routes
+// cannot be authenticated any other way without rewriting every
+// /api/images/<uuid> already embedded in a stored description.
 //
-// SameSite=Lax is the security property, not a default: it is not sent on
-// cross-site subresource requests at all, so another origin cannot point an
-// <img> at a board's pictures and learn from whether they load. Only ever set
-// from a session token — a personal access token is a CLI credential and has no
+// SameSite=Lax is the security property, not a default: the cookie is not sent
+// on cross-site subresource requests at all, so another origin cannot point an
+// <img> at a board's pictures and learn from whether they load. Set it only from
+// a session token — a personal access token is a CLI credential and has no
 // business becoming an ambient browser one.
 export function setSessionCookie(c: Context, token: string): void {
   setCookie(c, SESSION_COOKIE_NAME, token, {

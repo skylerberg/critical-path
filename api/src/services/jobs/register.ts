@@ -4,11 +4,10 @@ import { registerTaskSeriesJob } from '../taskSeries/job';
 import type { JobKind } from './payloads';
 
 // One registrar per kind, keyed by the table that declares the kinds, so the
-// registry cannot be half-filled: a kind added to JOB_PAYLOAD_SCHEMAS with
-// nothing to run it does not compile. `registeredJobKinds` is both what
-// `claimDueJobs` filters on and what `syncPeriodicJobs` retires schedules by, so
-// a process holding some other subset of the handlers is a process that quietly
-// leaves work unclaimed.
+// registry cannot be half-filled: a kind added to JOB_PAYLOAD_SCHEMAS with nothing
+// to run it does not compile. `registeredJobKinds` is both what `claimDueJobs`
+// filters on and what `syncPeriodicJobs` retires schedules by, so a process holding
+// only some of these registrars quietly leaves work unclaimed.
 const JOB_REGISTRARS: Record<JobKind, () => void> = {
   attachment_unfurl: registerAttachmentUnfurlHandler,
   task_series_materialize: registerTaskSeriesJob,

@@ -4,17 +4,19 @@ import type { CycleTask } from '../schemas/index';
 import { AdvisoryLock, takeAdvisoryLock } from './advisoryLock';
 import { accessibleProjectsFilter } from './authorization';
 
-// Serializes concurrent dependency writes within a project; without it two
-// transactions could each pass the cycle check and commit a cycle under
-// READ COMMITTED. Must run inside the request transaction.
+// Serializes concurrent dependency writes within a project: without it two
+// transactions could each pass the cycle check and commit a cycle under READ
+// COMMITTED. Must run inside the request transaction, since the lock is held only
+// to its commit.
 export async function lockProjectDependencies(db: Kysely<DB>, projectId: string): Promise<void> {
   await takeAdvisoryLock(db, AdvisoryLock.projectDependencies, projectId);
 }
 
-// A cross-project edge has to serialize against writers in both projects, and
-// ascending id is the order every such writer uses: two edges created in
-// opposite directions between the same pair would deadlock on any other rule.
-// Same reasoning as inProjectLockOrder, one lock lower down.
+// A cross-project edge has to serialize against writers in both of its projects,
+// so this takes a lock on each in ascending id order: that is the order every
+// such writer uses, and two edges created in opposite directions between the same
+// pair would deadlock on any other rule. Same reasoning as inProjectLockOrder,
+// applied to the advisory lock instead of the row lock.
 export async function lockDependencyProjects(
   db: Kysely<DB>,
   projectIds: readonly string[]
@@ -24,8 +26,10 @@ export async function lockDependencyProjects(
   }
 }
 
-// UNION (not UNION ALL) deduplicates rows, so the walk terminates even if
-// corrupt data already contains a cycle.
+// True when creating this edge would close a loop: the walk starts at
+// `blockerTaskId` and follows blockers upstream, so anything that reaches
+// `blockedTaskId` is a cycle. UNION (not UNION ALL) deduplicates rows, so the walk
+// terminates even if corrupt data already contains a cycle.
 export async function wouldCreateDependencyCycle(
   db: Kysely<DB>,
   blockedTaskId: string,

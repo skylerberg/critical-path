@@ -18,9 +18,9 @@ const CROSS_PROJECT_MESSAGE = 'column_id must reference a column in the project'
 
 export const COLUMN_NOT_FOUND = 'Column not found';
 
-// The database refuses a task or series whose column belongs to another
-// project, so this is what turns that refusal into a 422 naming the field the
-// caller sent.
+// Pre-checks what the database would otherwise refuse with an opaque error: 422
+// naming the field the caller sent, when the column is unknown or belongs to
+// another project.
 export async function assertColumnInProject(
   db: Kysely<DB>,
   columnId: string,
@@ -46,8 +46,9 @@ export async function assertColumnInProject(
   return column;
 }
 
-// 404 for a caller with no access to the column's project, so an inaccessible
-// column stays indistinguishable from a nonexistent one; 403 for a viewer.
+// Loads the column, then requires write access to its project: 404 when the
+// caller cannot see that project, so an inaccessible column stays
+// indistinguishable from a nonexistent one; 403 for a viewer.
 export async function assertColumnWrite(
   db: Kysely<DB>,
   userId: string,
@@ -65,18 +66,19 @@ export async function assertColumnWrite(
   return column;
 }
 
-// Anything that appends by reading the column's greatest position has to hold
-// this first, and before any row lock it goes on to take: the bulk move locks
-// the rows it is moving, so the reverse order deadlocks the two against each
-// other. Two concurrent moves into one column otherwise read the same max and
-// stamp the same positions, and the selections interleave by id instead of
-// landing as blocks.
+// Serializes appends into one column: every appender reads the column's greatest
+// position and writes past it, so two concurrent moves would otherwise read the
+// same max and stamp the same positions, leaving the selections interleaved by id
+// rather than landing as blocks. Take it before any row lock the caller goes on to
+// take — the bulk move locks the rows it is moving — because the reverse order
+// deadlocks the two against each other.
 export async function lockColumnTail(db: Kysely<DB>, columnId: string): Promise<void> {
   await takeAdvisoryLock(db, AdvisoryLock.columnTail, columnId);
 }
 
-// A `MovedTask` whose key is still branded, so a caller can write it back
-// rather than only serialize it into a response.
+// A `MovedTask` whose key is still a `ResolvedSortKey` rather than a plain
+// string, so a caller can write it back instead of only serializing it into a
+// response.
 export interface AppendedTask extends MovedTask {
   sort_key: ResolvedSortKey;
 }
@@ -115,11 +117,11 @@ export function positionValues(tasks: readonly MovedTask[]): RawBuilder<unknown>
 }
 
 // Empties one column into another. Every task named here already sits in the
-// source column and is moving out of it — the routes refuse a target equal to
-// the source — so unlike `relocateSelectedTasks` in ./taskBulk there is no
-// same-column case to keep a column_since for, and no client-supplied id needing
-// the project and archived predicates. Archived cards move too: the column is
-// about to be deleted underneath them.
+// source column and is moving out of it — the routes refuse a target equal to the
+// source — so there is no same-column case to keep a column_since for, and no
+// client-supplied id needing the project and archived predicates that
+// `relocateSelectedTasks` in ./taskBulk applies. Archived cards move too: the
+// column is about to be deleted underneath them.
 export async function relocateColumnTasks(
   db: Kysely<DB>,
   actorUserId: string,
@@ -168,8 +170,8 @@ export async function reorderColumnTasks(
     throw new AppError(422, 'task_ids must not contain duplicates');
   }
   // The run below is allocated past the column's tail, so this is held for the
-  // same reason every other appender holds it, and before the rows the write
-  // goes on to lock: the reverse order deadlocks against the bulk move.
+  // same reason every other appender holds it — and before the rows the write goes
+  // on to lock, since the reverse order deadlocks against the bulk move.
   await lockColumnTail(db, column.id);
 
   const rows = await db

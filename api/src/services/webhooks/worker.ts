@@ -29,8 +29,8 @@ export async function runDueDeliveries(options: RunDueDeliveriesOptions = {}): P
 
   const policy = options.policy ?? targetPolicy();
   const webhookIds = [...new Set(claimed.map((row) => row.webhook_id))];
-  // Disabled since the claim means the disable path has already terminated
-  // these rows; sending them would resurrect a backlog on a dead receiver.
+  // A disabled webhook is left out: the disable path has already terminated its
+  // pending rows, so sending them would resurrect a backlog on a dead receiver.
   const webhooks = await db
     .selectFrom('project_webhook')
     .select(['id', 'url', 'secret'])

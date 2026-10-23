@@ -2,18 +2,17 @@ import { sql, type Kysely } from 'kysely';
 import type { DB, ResolvedSortKey } from '../db/types';
 import { generateKeyBetween, generateNKeysBetween, BASE_62_DIGITS } from 'fractional-indexing';
 
-// The only place a plain string becomes writable. Everything below hands back
-// a key it has just ranked against the whole scope -- archived rows included --
-// so the assertion is the claim that it did, not a way around the check.
+// The only place a plain string becomes a writable `ResolvedSortKey`. Everything
+// below hands back a key it has just ranked against the whole scope — archived rows
+// included — so the cast records that ranking rather than offering a way around it.
 function resolved(key: string): ResolvedSortKey {
   return key as ResolvedSortKey;
 }
 
-// Inserting repeatedly against the same neighbor lengthens each successive key
-// by ~0.2 characters, so the cap is what bounds insertions at a single spot
-// (~5000). Reaching it is a clean rejection, never a silent reordering, and it
-// stays clear of both Postgres' btree entry limit and the recursion depth in
-// the library's midpoint().
+// Inserting repeatedly against the same neighbor lengthens each successive key a
+// little, so this cap is what bounds insertions at a single spot. Reaching it is a
+// clean rejection, never a silent reordering, and the value stays clear of both
+// Postgres' btree entry limit and the recursion depth in the library's midpoint().
 export const SORT_KEY_MAX_LENGTH = 1024;
 
 export function keyBetween(a: string | null, b: string | null): ResolvedSortKey {
@@ -36,9 +35,11 @@ export function isValidSortKey(key: string): boolean {
   return structurallyValid(key);
 }
 
-// The library validates a key whenever it is used as a bound. Either direction
-// proves the structure; one alone would also reject the largest and smallest
-// representable integers, which are structurally fine but have no room beyond.
+// Whether the key is a structure the library accepts. The library validates a key
+// whenever it is used as a bound, so asking both directions — the key below a
+// missing upper bound, then above a missing lower one — is what proves the
+// structure: a single direction would also reject the largest and smallest
+// representable keys, which are structurally fine but have no room beyond.
 function structurallyValid(key: string): boolean {
   for (const bounds of [[key, null] as const, [null, key] as const]) {
     try {
@@ -51,7 +52,7 @@ function structurallyValid(key: string): boolean {
   return false;
 }
 
-// Ordering scopes, and the column that groups each one.
+// The ordering scopes, each mapped to the column that groups its keys.
 const SCOPES = {
   task: 'column_id',
   board_column: 'project_id',

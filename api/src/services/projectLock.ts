@@ -3,10 +3,11 @@ import type { DB } from '../db/types';
 import { AppError } from '../utils/errors';
 import { PROJECT_COLUMNS, type ProjectRow } from './projectListItem';
 
-// The one order in which more than one project row may be locked: two lockers
-// that disagree deadlock as soon as their sets overlap. The key is the order
-// because every locker already has it; a list wanting some other order can be
-// sorted once the rows are held.
+// The only order in which more than one project row may be locked: two lockers
+// that disagree deadlock as soon as their sets overlap, so the order is by
+// project.id. That key is the order for every locker because every locker
+// already has it; a list wanting some other order can be sorted after the rows
+// are held.
 export function inProjectLockOrder<O>(
   qb: SelectQueryBuilder<DB, 'project', O>
 ): SelectQueryBuilder<DB, 'project', O> {

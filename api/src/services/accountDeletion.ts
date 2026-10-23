@@ -9,9 +9,10 @@ export interface OwnedProject {
   shared: boolean;
 }
 
-// Locked because the delete is keyed to this snapshot: an ownership transfer can
-// hand the caller someone else's board mid-request, and a member add has to wait
-// rather than slip in behind the shared check.
+// The projects this user owns, locked so the snapshot the delete is keyed to
+// cannot move underneath it: an ownership transfer could otherwise hand the
+// caller someone else's board mid-request, and a member add has to wait rather
+// than slip in behind the `shared` check.
 export async function lockOwnedProjects(db: Kysely<DB>, userId: string): Promise<OwnedProject[]> {
   const rows = await db
     .selectFrom('project')
@@ -32,16 +33,17 @@ export async function lockOwnedProjects(db: Kysely<DB>, userId: string): Promise
     .where('project.created_by', '=', userId)
     .$call(inProjectLockOrder)
     .execute();
-  // Taken in one order and listed in another: these names are read by a person,
-  // and the order rows are locked in is not up to this query.
+  // Locked by id, then listed by creation date: these names are read by a person,
+  // and the order the rows are locked in is not this query's to choose.
   return rows
     .sort((a, b) => a.created_at.getTime() - b.created_at.getTime())
     .map(({ id, name, shared }) => ({ id, name, shared }));
 }
 
-// Deliberately narrower than "everything created_by the user": a board that
-// became theirs after the guard read must survive, so that created_by's
-// ON DELETE RESTRICT aborts the account delete instead of taking it down.
+// Deliberately narrower than "every project created_by this user": a board that
+// changed hands after the list was read must survive, so it is left for
+// created_by's ON DELETE RESTRICT to abort the whole account delete rather than
+// have this take down a board that is no longer theirs.
 export async function deleteUnsharedProjects(db: Kysely<DB>, projectIds: string[]): Promise<void> {
   if (projectIds.length === 0) {
     return;
@@ -70,8 +72,8 @@ export async function storageKeysOwnedBy(
   userId: string,
   avatarStorageKey: string | null
 ): Promise<string[]> {
-  // Image keys ride along inside attachmentStorageKeys now that images are rows
-  // in that table, which is what keeps every deletion path down to one funnel.
+  // Image keys come from attachmentStorageKeys too, because images are rows in
+  // that table: every deletion path stays on one funnel.
   const keys = await attachmentStorageKeys(db, { projectsCreatedBy: userId });
   return avatarStorageKey === null ? keys : [avatarStorageKey, ...keys];
 }

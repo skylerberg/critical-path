@@ -105,8 +105,9 @@ export interface ClaimedInvitation {
   role: ProjectRole;
 }
 
-// Never demotes: a viewer invitation must not take an existing editor's rights
-// away.
+// Claims the invitations named by `rows` and returns the role the user holds in
+// each project afterwards. Never demotes: a viewer invitation must not take an
+// existing editor's rights away.
 export async function claimInvitations(
   c: Pick<PublicContext, 'get'>,
   db: Kysely<DB>,
@@ -118,9 +119,9 @@ export async function claimInvitations(
   }
 
   const projectIds = rows.map((row) => row.project_id);
-  // Every writer that touches an invitation takes the project row first;
-  // claiming in the other order closes a deadlock cycle against one revoking
-  // invitations under that lock.
+  // Every writer that touches an invitation takes the project row first. Claiming
+  // rows before those projects would close a deadlock cycle against a revoker
+  // already holding the project lock.
   const projects = await db
     .selectFrom('project')
     .select(PROJECT_COLUMNS)
@@ -129,10 +130,10 @@ export async function claimInvitations(
     .execute();
   const projectById = new Map(projects.map((project) => [project.id, project]));
 
-  // Locked rather than read: deleting an account cascades these rows away
-  // holding only the boards that account created, so the boards taken above
-  // cannot keep the role below from being one on its way out. A share lock is
-  // the weakest that conflicts with the cascade.
+  // Locked, not merely read: an account delete cascades these rows away while
+  // holding only the boards that account created, so the project locks taken above
+  // do not keep the role below from being a row on its way out. FOR SHARE is the
+  // weakest lock that conflicts with that cascade.
   const held = await db
     .selectFrom('project_member')
     .select(['project_id', 'role'])
@@ -149,9 +150,9 @@ export async function claimInvitations(
     return project !== undefined && project.created_by !== userId && !heldRole.has(row.project_id);
   });
 
-  // Consumed before it is honored, and only rows this statement removed are: a
-  // revoke already holding the row wins rather than being overtaken by a grant
-  // that read the row before it was withdrawn.
+  // The invitation is consumed before it is honored, and only rows this statement
+  // actually deleted count: a revoke already holding the row wins, rather than
+  // being overtaken by a grant that read the row before it was withdrawn.
   const consumed =
     grantable.length === 0
       ? []

@@ -17,8 +17,9 @@ async function loadWebhook(db: Kysely<DB>, webhookId: string): Promise<Selectabl
   return webhook;
 }
 
-// 404 for a caller with no access to the webhook's project, so an inaccessible
-// registration stays indistinguishable from a nonexistent one; 403 for a viewer.
+// Loads the webhook, then requires write access to its project: 404 when the caller
+// cannot see that project, so an inaccessible registration stays
+// indistinguishable from a nonexistent one; 403 for a viewer.
 export async function assertWebhookWrite(
   db: Kysely<DB>,
   userId: string,

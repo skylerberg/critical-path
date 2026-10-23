@@ -3,22 +3,24 @@ import type { DB } from '../db/types';
 
 type ProjectRef = string | RawBuilder<unknown>;
 
-// The marker must never be coalesced to the membership or project date: with no
-// row every comparison is null, which is the rule — nothing is unseen until you
-// have opened the board once.
+// The marker is a scalar subquery, deliberately never coalesced to a membership
+// or project date: with no row every comparison is null and nothing is unseen,
+// which is the rule — a board shows no change dots until the member has opened it
+// once.
 function seenMarker(userId: string, project: ProjectRef): RawBuilder<unknown> {
   return sql`(select seen.last_seen_at from project_user_seen seen
       where seen.user_id = ${userId} and seen.project_id = ${project})`;
 }
 
-// One definition of "changed", so the list dot and the per-card highlight can
-// never disagree about what it means. Each arm is a predicate on a single task,
-// which is what lets the two callers below quantify it differently without
-// restating what a change is.
+// The one definition of "changed", so the list dot and the per-card highlight
+// cannot disagree about what it means. Each arm is a predicate on a single task,
+// which is what lets the callers below quantify it differently without restating
+// what a change is.
 //
-// Two silences are deliberate: activity and comments cascade with their task, so
-// a deleted or archived card leaves nothing to notice, and `created_at` defaults
-// to transaction start, so a long write committing after a stamp sorts below it.
+// Two silences are deliberate. Activity and comments cascade with their task, so a
+// deleted or archived card leaves nothing to notice; and `created_at` defaults to
+// transaction start, so a long write that commits after a stamp still sorts below
+// it.
 function changeArms(
   userId: string,
   seenAt: RawBuilder<unknown>,
@@ -54,13 +56,12 @@ function changedTasks(userId: string, project: ProjectRef): RawBuilder<{ id: str
 // asks to be looked at, and an archived board is one the user has put away.
 //
 // Each arm gets its own EXISTS over the project's cards rather than one EXISTS
-// carrying both, because the two forms plan nothing alike. Asked as one, the
-// arms correlate only on `changed.id`, and the planner hoists each into a hash
-// of everything in task_activity and task_comment that clears the seen marker —
-// rebuilt once per project — measured, that was hundreds of thousands of
-// buffer hits for one screen that should cost single-digit milliseconds.
-// Split, each arm drives its own (task_id, created_at) index and stops at the
-// first hit.
+// carrying both, because the two forms do not plan alike. Asked as one, the arms
+// correlate only on `changed.id`, and the planner hoists each into a hash of
+// everything in task_activity and task_comment past the seen marker, rebuilt once
+// per project — measured, that was orders of magnitude more buffer traffic than a
+// single screen should need. Split, each arm drives its own (task_id, created_at)
+// index and stops at the first hit.
 //
 // The two forms answer identically: ∃x.(P(x) ∨ Q(x)) is ∃x.P(x) ∨ ∃x.Q(x).
 export function hasUnseenChanges(userId: string): RawBuilder<boolean> {

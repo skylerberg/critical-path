@@ -28,8 +28,9 @@ const INSERT_CHUNK = 500;
 
 export type DeliveryRow = Selectable<WebhookDelivery>;
 
-// A batch per request, not a call per event: one member removal publishes a
-// task_relations_set per stripped task, which per-event would be N selects.
+// One batch per request rather than a call per event: a single member removal
+// publishes a task_relations_set per stripped task, so enqueueing per event would
+// cost a select each.
 export async function enqueueDeliveries(events: WebhookEvent[]): Promise<void> {
   if (events.length === 0) return;
 

@@ -33,14 +33,14 @@ const OPEN = 1;
 
 // Two ceilings, because they bound different things. Per credential holder: a
 // live socket costs a `credentialIsLive` query every heartbeat, so socket count
-// is a multiplier on a pool of ten connections, and one account should not be
-// able to set that number. Per source address: the pre-auth window admits a
-// socket before any account is known, so this is the only thing bounding what
-// an unauthenticated caller can hold open.
+// multiplies load on the database pool, and one account should not be able to set
+// that number. Per source address: the pre-auth window admits a socket before any
+// account is known, so this is the only thing bounding what an unauthenticated
+// caller can hold open.
 //
-// The per-address ceiling is generous on purpose — it is the whole office
-// behind one NAT that pays for it being tight, while an attacker holding 200
-// idle sockets costs little.
+// The per-address ceiling is generous on purpose: it is the whole office behind one
+// NAT that pays for it being tight, while an attacker holding idle sockets costs
+// little.
 export const MAX_SOCKETS_PER_USER = 20;
 export const MAX_SOCKETS_PER_ADDRESS = 200;
 

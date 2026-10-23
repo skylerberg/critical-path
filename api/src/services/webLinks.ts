@@ -1,16 +1,16 @@
 import { env } from '../config/env';
 
-// Every path this server sends people to in the web app, in one place. They
-// were template literals in four services, which is how /projects/:id survived
-// the web app going alias-only: each end tested its own half and nothing
-// compared them. `tests/unit/webLinks.test.ts` pins these strings, and
-// `web/src/lib/router.test.ts` asserts the same list still routes — two tests
-// that fail separately rather than one gap that fails silently.
+// Every path this server sends people to in the web app, in one place. The
+// alternative — a template literal at each call site — is how /projects/:id
+// survived the web app going alias-only: each end tested its own half and
+// nothing compared them. `tests/unit/webLinks.test.ts` pins these strings and
+// `web/src/lib/router.test.ts` asserts the same list still routes, so the two
+// halves fail separately rather than one gap failing silently.
 //
-// Aliases are deliberately absent. Encoding one needs the alphabet, which is
-// already duplicated between the web app and the CLI; a third copy here is how
-// three copies drift, so the server links by id and the board rewrites the
-// address to /p/<alias>/<slug> once it loads.
+// Aliases are deliberately absent. Building one needs the alias alphabet, which
+// the web app and the CLI already each carry, and a third copy here is one more
+// place to drift: the server links by id, and the board rewrites the address to
+// /p/<alias>/<slug> once it loads.
 const WEB_PATHS = {
   project: '/projects/:projectId',
   task: '/projects/:projectId/tasks/:taskId',
@@ -48,8 +48,8 @@ export function passwordResetLink(token: string): string {
   return withToken(WEB_PATHS.passwordReset, token);
 }
 
-// Not a web route: the one-click target is an API endpoint, served from the
-// same origin as the app in every environment.
+// An API endpoint rather than a web route, so it is not in WEB_PATHS above: it is
+// served from the same origin as the app in every environment.
 export function unsubscribeOneClickUrl(token: string): string {
   return `${env.appUrlBase}/api/auth/unsubscribe/one-click?token=${token}`;
 }

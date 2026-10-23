@@ -19,9 +19,10 @@ const DIGEST_SWEEP_BUDGET_MS = 10_000;
 const DIGEST_SWEEP_BATCH = 50;
 
 // The group waits for its sender to stop rather than for a fixed delay after the
-// first card, so a second bulk assign a minute later joins the same message.
+// first card, so a second bulk assign inside this window joins the same message.
 const DIGEST_QUIET_SECONDS = 120;
-// …but a sender who keeps going never lets it settle, so the wait is capped.
+// …but a sender who keeps going never lets the window expire, so the total wait is
+// capped.
 const DIGEST_MAX_WAIT_SECONDS = 900;
 
 // Bounds the id list a single flush resolves; the remainder flushes next tick.
@@ -29,8 +30,9 @@ export const DIGEST_MAX_TASKS = 500;
 const TITLES_IN_EMAIL = 5;
 const MAX_TITLE_CHARS = 120;
 
-// Titles and board names may carry newlines, and a bullet list a card title can
-// break out of is an unsubscribe footer a card title can forge.
+// Collapses whitespace and truncates. Titles and board names are user text and may
+// carry newlines, and a card title that can start its own line can forge a line of
+// the message — an unsubscribe footer included.
 function oneLine(text: string): string {
   const collapsed = text.replace(/\s+/gu, ' ').trim();
   return collapsed.length > MAX_TITLE_CHARS
@@ -52,8 +54,9 @@ interface DigestGroup {
 }
 
 /**
- * Takes the caller's connection so the pending rows commit or roll back with
- * the assignment that caused them.
+ * Queues one pending digest row per (recipient, card) pair on the caller's
+ * connection, so those rows commit or roll back with the assignment that caused
+ * them.
  */
 export async function recordBulkAssignments(
   c: Pick<PublicContext, 'get'>,

@@ -20,8 +20,9 @@ async function loadSeriesRow(db: Kysely<DB>, seriesId: string): Promise<SeriesRo
   return { ...series, start_date_text: series.start_date_text as string };
 }
 
-// 404 for a caller with no access to the series' project, so an inaccessible
-// series stays indistinguishable from a nonexistent one; 403 for a viewer.
+// Loads the series, then requires write access to its project: 404 when the caller
+// cannot see that project, so an inaccessible series stays indistinguishable from a
+// nonexistent one; 403 for a viewer.
 export async function assertSeriesWrite(
   db: Kysely<DB>,
   userId: string,

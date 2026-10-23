@@ -5,9 +5,10 @@ import type { publishAfterCommit } from './realtime/index';
 import { recordAssigneeChanges } from './taskActivity';
 import { fetchTaskRelations, publishTaskRelationsSet } from './taskRelations';
 
-// Losing membership has to take the assignments with it: an assignee with no
-// access is a card nobody can be asked about, and the seen marker of someone who
-// can no longer open the board is a row no request will ever clear.
+// Removes the member rows, then everything that only membership made
+// meaningful: their assignments — an assignee with no access is a card nobody
+// can be asked about — and their seen marker, a row no request of theirs will
+// ever clear.
 export async function removeProjectMembers(
   c: Parameters<typeof publishAfterCommit>[0],
   db: Kysely<DB>,

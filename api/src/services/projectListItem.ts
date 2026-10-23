@@ -32,8 +32,8 @@ export const PROJECT_COLUMNS = [
   'color',
 ] as const;
 
-// Fail closed, like roles: a key a newer release wrote reaches an older client as
-// "no color" rather than as a key it has no swatch for.
+// Fail closed, as normalizeProjectRole does: a key a newer release wrote reaches
+// an older client as "no color" rather than as a key it has no swatch for.
 export function normalizeProjectAccent(color: string | null): ProjectAccent | null {
   return color !== null && projectAccent.allows(color) ? color : null;
 }
@@ -114,8 +114,9 @@ async function fetchTaskCounts(
   );
 }
 
-// project_created/project_updated carry the projects-list item shape so a
-// client that just gained visibility can upsert without a refetch.
+// Publishes the projects-list item on `project_updated` — the same shape
+// `project_created` carries — so a client that just gained visibility can upsert
+// without a refetch.
 export async function publishProjectListItem(
   c: Parameters<typeof publishAfterCommit>[0],
   db: Kysely<DB>,
