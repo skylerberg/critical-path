@@ -39,8 +39,8 @@ for (const [network, prefix] of [
   ['fc00::', 7],
   ['fe80::', 10],
   ['ff00::', 8],
-  // NAT64, 6to4 and Teredo all embed an IPv4 address; without them a
-  // synthesized prefix tunnels straight to a private v4 target.
+  // These three embed an IPv4 address, so each is blocked whole: an unblocked one is
+  // a prefix that tunnels straight to a private v4 target.
   ['64:ff9b::', 96],
   ['2002::', 16],
   ['2001::', 32],
@@ -107,7 +107,8 @@ const defaultResolve: LookupAll = (hostname, options) =>
   dns.promises.lookup(hostname, { ...options, all: true });
 
 // Passed as the `lookup` option so the vetted address is the one the socket
-// connects to; re-checking after resolution is what closes DNS rebinding.
+// connects to: resolving here and re-checking the answers is what closes DNS
+// rebinding.
 export function blockedTargetLookup(
   policy: TargetPolicy,
   resolve: LookupAll = defaultResolve

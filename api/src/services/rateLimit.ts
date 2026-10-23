@@ -27,10 +27,10 @@ function sweep(now: number): void {
   }
 }
 
-// A budget carries its own window, so budgets that reset on different schedules
-// can still be spent as one. Without that, the caller with the most to gain from
-// atomicity — the auth limiter, whose three windows are a minute, a quarter of
-// an hour and an hour — was the one caller that had to spend them one at a time.
+// A budget carries its own window, so budgets on different schedules can still be
+// spent as one set. Without that, the caller with the most to gain from atomicity
+// — the auth limiter, whose three windows are a minute, a quarter hour and an
+// hour — was the one caller forced to spend them one at a time.
 export interface Budget {
   key: string;
   max: number;
@@ -38,12 +38,12 @@ export interface Budget {
 }
 
 // Answers 0, or the 1-based position of the first full budget, having spent
-// nothing. One script rather than GET-then-INCR: over a network that gap is a
-// round trip wide. Every key gets an expiry if it has none, whatever the
-// verdict — one that lost its expiry never resets, and repairing only what gets
-// spent would strand exactly the full ones. Sent in full rather than by hash: a
-// NOSCRIPT reply after a Redis restart would silently drop every budget back to
-// the per-process window.
+// nothing. One script rather than GET-then-INCR, because over a network that gap
+// is a round trip wide. Every key gets an expiry if it has none, whatever the
+// verdict: one that lost its expiry never resets, and repairing only what gets
+// spent would strand exactly the full ones. The script is sent in full rather than
+// by hash, since a NOSCRIPT reply after a Redis restart would silently drop every
+// budget back to the per-process window.
 //
 // ARGV is the maxima followed by the windows, so ARGV[i] and ARGV[n + i] are the
 // two halves of budget i.
@@ -110,8 +110,8 @@ function consumeBudgetsLocal(budgets: Budget[], now: number): number {
   sweep(now);
   for (const [index, budget] of budgets.entries()) {
     const window = windows.get(budget.key);
-    // A key that is absent or past its window counts as zero, which is what the
-    // script's `GET ... or '0'` does. Reading it as "not full" instead let a
+    // A key that is absent or past its window counts as zero, matching the
+    // script's `GET ... or '0'`. Reading it as "not full" instead would let a
     // budget of zero admit its first attempt here and refuse it on Redis — the
     // fallback answering a different policy than the thing it stands in for.
     const spent = window !== undefined && window.resetAt > now ? window.count : 0;
@@ -132,9 +132,9 @@ function consumeBudgetsLocal(budgets: Budget[], now: number): number {
 
 // All or nothing, so an attempt one budget refuses never spends another's slot.
 // That is the whole reason to spend a set together: budgets consumed one call at
-// a time each charge for an attempt the next one is about to refuse, which for
-// the auth limiter meant a request that never reached a password hash still
-// drawing down the ceiling every caller at its address shares.
+// a time each charge for an attempt the next is about to refuse, which for the
+// auth limiter meant a request that never reached a password hash still drew down
+// the ceiling every caller at its address shares.
 export async function consumeBudgets(budgets: Budget[], now: number): Promise<Budget | null> {
   const args = [
     ...budgets.map((budget) => String(budget.max)),
@@ -256,11 +256,11 @@ export const USER_SEARCH_USER_MAX_ATTEMPTS = 100;
 const USER_SEARCH_IP_WINDOW_MS = 60 * 60_000;
 export const USER_SEARCH_IP_MAX_ATTEMPTS = 300;
 
-// This is the whole bound on scraping the user directory by name, so it is
-// keyed by address as well as by account: an account costs a signup, and signup
-// allows 50 an hour from one source, which would otherwise multiply a per-user
-// budget by fifty. Sized for an as-you-type box — a debounced keystroke run is
-// a handful of calls, so the user budget is tens of people added in a sitting.
+// The whole bound on scraping the user directory by name, so it is keyed by address
+// as well as by account: an account costs a signup, signup allows 50 an hour from
+// one source, and a per-user budget alone would multiply by fifty. Sized for an
+// as-you-type box — a debounced keystroke run is a handful of calls, so the user
+// budget is tens of people added in a sitting.
 export async function enforceUserSearchRateLimit(c: Context, userId: string): Promise<void> {
   const now = Date.now();
   const userAllowed = await consumeRateLimit(
@@ -350,12 +350,11 @@ export async function enforceInvitationResendRateLimit(invitationId: string): Pr
 const AUTH_IP_WINDOW_MS = 60 * 60_000;
 export const AUTH_IP_MAX_ATTEMPTS = 300;
 
-// Spent as one set, so an attempt any of the three refuses spends none of them.
-// That matters because a refusal here is answered before the handler reaches a
-// password hash: charging the hourly budget for attempts that cost the server
-// nothing would let one client in a retry loop — a saved password gone stale, a
-// script with no backoff — exhaust a ceiling every other caller at its address
-// shares.
+// Spent as one set, so an attempt any of the three refuses spends none of them. A
+// refusal here is answered before the handler reaches a password hash, and
+// charging the hourly budget for attempts that cost the server nothing would let
+// one client in a retry loop — a saved password gone stale, a script with no
+// backoff — exhaust a ceiling every other caller at its address shares.
 export async function enforceAuthRateLimit(c: Context, email: string): Promise<void> {
   const address = clientIp(c);
   const normalizedEmail = email.toLowerCase();
@@ -370,21 +369,20 @@ export async function enforceAuthRateLimit(c: Context, email: string): Promise<v
         max: EMAIL_MAX_ATTEMPTS,
         windowMs: EMAIL_WINDOW_MS,
       },
-      // Keyed on the source alone, and the only thing bounding what one of them
-      // can spend in total: both budgets above are keyed on the email the caller
-      // supplies, so one that varies it every request gets a fresh counter in
-      // each and neither ever refuses. Every attempt that gets past all three
-      // costs an argon2 verify — an email with no account included, since login
-      // verifies a dummy hash to keep its timing flat — so without this an
-      // unauthenticated caller sets the pace of the most expensive operation in
-      // the product.
+      // Keyed on the source alone, and the only bound on what one source can spend in
+      // total: both budgets above are keyed on the email the caller supplies, so one
+      // that varies it every request gets a fresh counter in each and neither ever
+      // refuses. Every attempt that gets past all three costs an argon2 verify — an
+      // email with no account included, since login verifies a dummy hash to keep
+      // its timing flat — so without this an unauthenticated caller sets the pace of
+      // the most expensive operation in the product.
       //
-      // What that costs is CPU and queue depth, not memory: the hash holds
-      // 64 MiB while it runs, but concurrency is capped by the thread pool it
-      // runs on, so peak memory is the same whether attempts arrive four at a
-      // time or sixty. It is that pool everything else — every fs read, every
-      // zlib pass — then queues behind. Sized well above an office signing in
-      // for the day and well below what keeps the pool busy.
+      // The cost is CPU and queue depth, not memory: the hash holds 64 MiB while it
+      // runs, but concurrency is capped by the thread pool it runs on, so peak memory
+      // is the same whether attempts arrive four at a time or sixty. It is that pool
+      // everything else — every fs read, every zlib pass — queues behind. Sized well
+      // above an office signing in for the day and well below what keeps the pool
+      // busy.
       { key: `auth-ip:${address}`, max: AUTH_IP_MAX_ATTEMPTS, windowMs: AUTH_IP_WINDOW_MS },
     ],
     Date.now()
@@ -398,11 +396,10 @@ export async function enforceAuthRateLimit(c: Context, email: string): Promise<v
 const SIGNUP_IP_WINDOW_MS = 60 * 60_000;
 export const SIGNUP_IP_MAX_ATTEMPTS = 50;
 
-// What bounds how many accounts one source can open on addresses it does not
-// own. The auth limiter it runs beside does spend a bucket keyed on the source,
-// but that one is sized for password hashing and sits six times higher, so this
-// is the ceiling that actually binds. It is far above a whole office signing up
-// together.
+// What bounds how many accounts one source can open on addresses it does not own.
+// The auth limiter beside it does spend a bucket keyed on the source, but that one
+// is sized for password hashing and sits six times higher, so this is the ceiling
+// that actually binds. It is far above a whole office signing up together.
 export async function enforceSignupRateLimit(c: Context): Promise<void> {
   const allowed = await consumeRateLimit(
     `signup-ip:${clientIp(c)}`,

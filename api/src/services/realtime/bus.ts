@@ -18,19 +18,19 @@ export interface PublishOptions {
   // Exact recipients, no access re-check — for delete/removal events whose
   // rows are gone post-commit, so access can no longer be recomputed.
   recipientUserIds?: string[];
-  // Candidate every authed socket (access-checked) instead of only the
+  // Candidate every authenticated socket, access-checked, rather than only the
   // project's subscribers — for project list events.
   broadcast?: boolean;
-  // For events whose subject only editors may read. The delivery layer applies
-  // it, so no publisher can widen it and none has to be trusted to scope it.
+  // For events whose subject only editors may read. The delivery layer applies the
+  // gate, so no publisher can widen it and none has to be trusted to scope it.
   editorsOnly?: boolean;
 }
 
-// What an account event may carry. broadcast and editorsOnly are project-scoped
-// answers — both route the entry through deliverProjectScoped, which returns on
-// the null project id — so offering them here would only be offering two more
-// ways to publish into a void. recipientUserIds is required rather than
-// optional, because for these types it is the whole delivery mechanism.
+// What an account event may carry. `broadcast` and `editorsOnly` are project-scoped
+// answers — both route the entry through deliverProjectScoped, which returns on a
+// null project id — so offering them here would only offer two more ways to publish
+// into a void. `recipientUserIds` is required rather than optional, because for
+// these types it is the whole delivery mechanism.
 export interface NamedRecipientOptions {
   recipientUserIds: string[];
 }
@@ -51,12 +51,11 @@ export type RemotePublisher = (entry: BusEntry) => Promise<void>;
 
 let remotePublish: RemotePublisher | null = null;
 
-// The one place an envelope enters from outside this process, and so the one
-// place the union is an assumption rather than something the publish site
-// proved. The payload is deliberately not re-validated: a schema that drifted
-// from its publisher would then drop live events on every replica at once.
-// A type outside the catalog is refused, though, because handleBusEntry and
-// deliver() dispatch on it.
+// The one place an envelope enters from outside this process, and so the one place
+// the union is an assumption rather than something the publish site proved. The
+// payload is deliberately not re-validated: a schema that drifted from its publisher
+// would then drop live events on every replica at once. A type outside the catalog
+// is refused, though, because handleBusEntry and deliver() dispatch on it.
 export function parseBusEntry(raw: unknown): BusEntry | null {
   if (typeof raw !== 'object' || raw === null) return null;
   const {
@@ -112,18 +111,18 @@ export function resetBus(): void {
   remotePublish = null;
 }
 
-// Split by scope so the project id cannot disagree with the type: an account
-// event published against a project, or a project event published with null,
-// would silently skip both the unseen dot and the webhook queue. Generic over
-// the event type so `data` is checked against that type's row in
-// REALTIME_PAYLOAD_SCHEMAS rather than accepted as unknown.
+// Split by scope so the project id cannot disagree with the type: an account event
+// published against a project, or a project event published with null, would
+// silently skip both the unseen dot and the webhook queue. Generic over the event
+// type so `data` is checked against that type's row in REALTIME_PAYLOAD_SCHEMAS
+// rather than accepted as unknown.
 //
-// The account half is split again by the catalog's delivery column, because
-// the two kinds have opposite requirements and the failure is silent either
-// way: a namedRecipients type published without a recipient list falls through
-// to deliverProjectScoped and is dropped on the null project id, while a
-// dispatched type published *with* one would take the exact-recipient shortcut
-// and bypass the branch that is supposed to decide its audience.
+// The account half is split again by the catalog's delivery column, because the two
+// kinds have opposite requirements and either failure is silent: a namedRecipients
+// type published without a recipient list falls through to deliverProjectScoped and
+// is dropped on the null project id, while a dispatched type published *with* one
+// takes the exact-recipient shortcut and bypasses the branch meant to decide its
+// audience.
 export function publishAfterCommit<T extends NamedRecipientEventType>(
   c: Pick<PublicContext, 'get'>,
   type: T,
@@ -151,10 +150,10 @@ export function publishAfterCommit(
   data: CallerPayload<RealtimeEventType>,
   opts?: PublishOptions
 ): void {
-  // Null when the caller has no session — a signup claiming its invitations is
-  // the one such path — which dots the project for everyone rather than failing.
-  // No type published without a session raises a dot today, so this is the
-  // fallback that keeps that changing from being a 500.
+  // Null when the caller has no session — a signup claiming its invitations is the
+  // one such path — and the project is then dotted for everyone rather than the
+  // publish failing. No type published without a session raises a dot today, so this
+  // fallback is what keeps that changing from becoming a 500.
   const actorUserId = c.get('user')?.id ?? null;
 
   // The overloads are what check that type, projectId and data agree. An
@@ -202,24 +201,24 @@ export function publishAfterCommit(
   if (!isWebhookEnvelope(entry)) {
     return;
   }
-  // A post-commit hook rather than a bus subscriber: with Redis every replica
-  // sees every entry through the subscription echo, so a subscriber would
-  // enqueue one copy per replica.
+  // A post-commit hook rather than a bus subscriber: with Redis every replica sees
+  // every entry through the subscription echo, so a subscriber would enqueue one copy
+  // per replica.
   //
-  // One hook for the whole request, queued by whichever event is the first, and
-  // it re-reads the request's list when it runs rather than closing over a
-  // snapshot taken here: every later event of the same request appends to that
-  // list, and all of them have to be in it by the time the list is read. Two
-  // things therefore have to stay true — hooks drain strictly after the handler
-  // has finished publishing (see transactionMiddleware), and nothing replaces
-  // `webhookEvents` with a copy mid-request. Either one broken delivers a batch
-  // missing everything published after the first event, silently.
+  // One hook for the whole request, queued by whichever event comes first, and it
+  // re-reads the request's list when it runs rather than closing over a snapshot
+  // taken here: every later event of the same request appends to that list, and all
+  // of them have to be in it by the time it is read. So two things have to stay true
+  // — hooks drain strictly after the handler has finished publishing (see
+  // transactionMiddleware), and nothing replaces `webhookEvents` with a copy
+  // mid-request. Break either and the batch silently misses everything published
+  // after the first event.
   const pending = c.get('webhookEvents');
   if (pending.length === 0) {
     hooks.push(() => enqueueDeliveries(c.get('webhookEvents')));
   }
-  // The whole entry, publish options included: only the correlated value carries
-  // a payload the compiler can still match to its type. Nothing leaks, because
-  // enqueueDeliveries builds the delivered body field by field.
+  // The whole entry, publish options included: only this correlated value carries a
+  // payload the compiler can still match to its type. Nothing leaks into the delivery
+  // body, because enqueueDeliveries builds that field by field.
   pending.push(entry);
 }

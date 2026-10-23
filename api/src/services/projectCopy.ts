@@ -73,7 +73,7 @@ export async function copyTasks(
   const taskIdMap = new Map(tasks.map((task) => [task.id, newIdFor()]));
 
   // Only the ids, and only to mint the copies' ids up front: the descriptions
-  // inserted below embed `/api/images/<id>` and have to point at the copies
+  // inserted below embed `/api/images/<id>`, so they have to point at the copies
   // before copyTaskAttachments writes them.
   const imageIds = await db
     .selectFrom('task_attachment')
@@ -83,8 +83,8 @@ export async function copyTasks(
     .execute();
   const imageIdMap = new Map(imageIds.map((row) => [row.id, crypto.randomUUID()]));
 
-  // A copy into the column it came from cannot keep the source's key -- they
-  // are unique per column. Only a copy into a fresh column can, and that is what
+  // A copy into its own column cannot keep the source's key, since keys are
+  // unique per column; only a copy into a fresh column can, and that is what
   // keeps a duplicated column's cards in the order they were in.
   const destinationKeys = new Map<string, ResolvedSortKey>();
   const appendedBy = new Map<string, string[]>();
@@ -226,7 +226,8 @@ export async function copyTasks(
       .execute();
   }
 
-  // One routine copies all three kinds now, images included.
+  // copyTaskAttachments handles all three kinds, images included, so nothing here
+  // needs a second pass over the images.
   const { objectCopies } = await copyTaskAttachments(db, {
     sourceTaskIds: input.sourceTaskIds,
     taskIdMap,

@@ -7,8 +7,8 @@ import {
 } from './materialize';
 
 // One periodic sweep rather than a job row per occurrence: an indexed table is
-// already the queue, and the sweep is self-healing after any edit, pause,
-// resume or delete with no schedule to cancel and reschedule.
+// already the queue, and the sweep is self-healing after any edit, pause, resume or
+// delete, with no schedule row to cancel and reschedule.
 export function registerTaskSeriesJob(): void {
   registerJobHandler({
     kind: TASK_SERIES_JOB_KIND,

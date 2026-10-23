@@ -20,9 +20,9 @@ export class SesEmailSender implements EmailSender {
     return this.loaded;
   }
 
-  // A backstop behind assertEmailConfig, not a duplicate of it: both EMAIL_DRIVER
-  // and SES_FROM_ADDRESS are read live from process.env, so a process can enter
-  // SES mode after boot and the boot assertion only ever spoke for the
+  // A backstop behind assertEmailConfig rather than a duplicate of it: EMAIL_DRIVER
+  // and SES_FROM_ADDRESS are both read live from process.env, so a process can
+  // enter SES mode after boot, when the boot assertion had already spoken for the
   // configuration it saw. Without this the SDK would be handed an undefined
   // FromEmailAddress.
   async send(message: EmailMessage): Promise<void> {

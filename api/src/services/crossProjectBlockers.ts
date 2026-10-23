@@ -14,10 +14,10 @@ export interface CrossProjectCount extends CrossProjectDependent {
   open_cross_project_blocker_count: number;
 }
 
-// Named the way each caller already knows its blockers: a handful of task ids, a
-// whole column about to have its done flag flipped, or the projects a delete is
-// about to take away. The column form is what keeps a fifty-card flip to one
-// query instead of fifty ids marshaled through an `in` list.
+// Each caller names its blockers the way it already has them: a handful of task
+// ids, a column about to have its done flag flipped, or the projects a delete is
+// about to take away. The column form keeps a fifty-card flip to one query
+// instead of fifty ids marshaled into an `in` list.
 export type CrossProjectBlockerScope =
   | { taskIds: readonly string[] }
   | { columnId: string }
@@ -98,8 +98,8 @@ export async function refreshCrossProjectBlockerCounts(
 
 // Its own event type rather than a task_relations_set fan-out: this reaches a
 // project the actor may not belong to, where the change leaves no activity or
-// comment row, so a type that raises the unseen dot would dot a board that
-// nothing in it explains and no amount of looking could clear.
+// comment row behind. The unseen dot a relations event raises there would mark a
+// board that nothing in it explains and no amount of looking could clear.
 export function publishCrossProjectBlockerCounts(
   c: Pick<PublicContext, 'get'>,
   counts: readonly CrossProjectCount[]

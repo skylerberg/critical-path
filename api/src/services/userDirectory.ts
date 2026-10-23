@@ -58,16 +58,16 @@ export function sharesProjectFilter(userId: string) {
 // asked once per candidate row. Kept beside the filter it mirrors so the two
 // cannot drift.
 //
-// Which form to use is not a matter of taste. Under a LIMIT, the correlated
-// EXISTS is re-evaluated for every row the limit has to step over, and each
-// evaluation loops the caller's whole project list: for a caller in 800
-// projects searching 2,000 accounts that was a nested loop discarding half a
-// million rows and touching a million buffers, for one keystroke. Resolved as a
-// set it is one pass, hashed once.
+// Which form to use is not a matter of taste. Under a LIMIT, the correlated EXISTS
+// is re-evaluated for every row the limit steps over, and each evaluation loops the
+// caller's whole project list: for a caller in 800 projects searching 2,000
+// accounts that was a nested loop discarding half a million rows and touching a
+// million buffers, for one keystroke. Resolved as a set it is one pass, hashed
+// once.
 //
 // NOT IN is what makes it a hashed subplan rather than a correlated one, so the
-// null guard is load-bearing: a single null in the set would make the
-// comparison null for every row and silently answer with nobody.
+// null guard is load-bearing: one null in the set would make the comparison null
+// for every row and silently answer with nobody.
 export function projectSharerIds(userId: string): RawBuilder<{ user_id: string }> {
   return sql<{ user_id: string }>`
     with mine as (

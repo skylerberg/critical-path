@@ -18,9 +18,9 @@ const CROSS_PROJECT_MESSAGE = 'column_id must reference a column in the project'
 
 export const COLUMN_NOT_FOUND = 'Column not found';
 
-// The database refuses a task or series whose column belongs to another
-// project, so this is what turns that refusal into a 422 naming the field the
-// caller sent.
+// The database's own foreign keys would refuse a task or series whose column
+// belongs to another project; checking first is what turns that refusal into a
+// 422 naming the field the caller sent.
 export async function assertColumnInProject(
   db: Kysely<DB>,
   columnId: string,
@@ -46,8 +46,8 @@ export async function assertColumnInProject(
   return column;
 }
 
-// 404 for a caller with no access to the column's project, so an inaccessible
-// column stays indistinguishable from a nonexistent one; 403 for a viewer.
+// A missing column and one in a project the caller cannot see are both a 404, so
+// the two stay indistinguishable; a viewer of that project gets a 403.
 export async function assertColumnWrite(
   db: Kysely<DB>,
   userId: string,
@@ -65,24 +65,24 @@ export async function assertColumnWrite(
   return column;
 }
 
-// Anything that appends by reading the column's greatest position has to hold
-// this first, and before any row lock it goes on to take: the bulk move locks
-// the rows it is moving, so the reverse order deadlocks the two against each
-// other. Two concurrent moves into one column otherwise read the same max and
-// stamp the same positions, and the selections interleave by id instead of
-// landing as blocks.
+// Appenders read the column's greatest position before writing, so they must hold
+// this first, and before any row lock they go on to take: the bulk move locks its
+// rows first, and the reverse order deadlocks the two against each other. Without
+// it two concurrent moves into one column read the same max and stamp the same
+// positions, interleaving the selections by id instead of landing them as
+// blocks.
 export async function lockColumnTail(db: Kysely<DB>, columnId: string): Promise<void> {
   await takeAdvisoryLock(db, AdvisoryLock.columnTail, columnId);
 }
 
-// A `MovedTask` whose key is still branded, so a caller can write it back
-// rather than only serialize it into a response.
+// A `MovedTask` that keeps its branded key, so a caller can write it back to the
+// database rather than only serialize it into a response.
 export interface AppendedTask extends MovedTask {
   sort_key: ResolvedSortKey;
 }
 
-// The probe spans archived rows too, so an appended task never collides with
-// one that is only hidden.
+// The max read spans archived rows too, so an appended key never collides with
+// one only a hidden card still holds.
 export async function appendPositions(
   db: Kysely<DB>,
   targetColumnId: string,
@@ -114,12 +114,12 @@ export function positionValues(tasks: readonly MovedTask[]): RawBuilder<unknown>
   )}) as v(id, sort_key)`;
 }
 
-// Empties one column into another. Every task named here already sits in the
-// source column and is moving out of it — the routes refuse a target equal to
-// the source — so unlike `relocateSelectedTasks` in ./taskBulk there is no
-// same-column case to keep a column_since for, and no client-supplied id needing
-// the project and archived predicates. Archived cards move too: the column is
-// about to be deleted underneath them.
+// Empties one column into another. Every id here already sits in the source
+// column and is moving out, and the routes refuse a target equal to the source,
+// so unlike `relocateSelectedTasks` in ./taskBulk there is no same-column case to
+// keep a column_since for and no client-supplied id needing the project and
+// archived predicates. Archived cards move too: the column is about to be
+// deleted underneath them.
 export async function relocateColumnTasks(
   db: Kysely<DB>,
   actorUserId: string,
@@ -167,9 +167,9 @@ export async function reorderColumnTasks(
   if (new Set(taskIds).size !== taskIds.length) {
     throw new AppError(422, 'task_ids must not contain duplicates');
   }
-  // The run below is allocated past the column's tail, so this is held for the
-  // same reason every other appender holds it, and before the rows the write
-  // goes on to lock: the reverse order deadlocks against the bulk move.
+  // The run below is allocated past the column's tail, so this holds the same
+  // lock every appender does, and before the rows the write locks: the reverse
+  // order deadlocks against the bulk move.
   await lockColumnTail(db, column.id);
 
   const rows = await db

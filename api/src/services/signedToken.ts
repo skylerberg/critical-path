@@ -1,14 +1,14 @@
 import crypto from 'crypto';
 
 // Stateless `base64url(claims).base64url(hmac)` tokens, shared by every family
-// that mails a link. The type is not a claim the caller remembers to check but
-// an argument to both halves, because the families share one secret
-// (`emailTokenSecret` falls back to `passwordResetSecret`) and separating them
-// is the only thing stopping one family's token from being spent as another's.
+// that mails a link. The type is an argument to both halves rather than a claim
+// each caller has to remember to check, because the families share one secret
+// (`emailTokenSecret` falls back to `passwordResetSecret`) and the type is the
+// only thing stopping one family's token being spent as another's.
 const TYPE_CLAIM = 't';
 
-// Reserving the claim in the type keeps a caller from spreading its own `t` over
-// the argument and quietly minting a token of a family it did not name.
+// Holding the claim as `never` in the claims type stops a caller spreading its own
+// `t` over the argument and minting a token of a family it never named.
 type TokenClaims = Record<string, unknown> & { [TYPE_CLAIM]?: never };
 
 function sign(secret: string, payload: string): Buffer {

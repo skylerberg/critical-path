@@ -16,7 +16,8 @@ export class GcsStorageProvider implements StorageProvider {
     this.bucket = new Storage().bucket(bucketName);
   }
 
-  // Keys are server-generated UUIDs; the check is defense in depth.
+  // The key becomes an object name, and every key is a server-generated UUID, so
+  // the check is defense in depth.
   private resolveKey(key: string): string {
     if (!isValidUuid(key)) {
       throw new Error(`Invalid storage key: ${key}`);
@@ -31,7 +32,8 @@ export class GcsStorageProvider implements StorageProvider {
     });
   }
 
-  // Not resumable: a resumable session buffers chunks in memory to replay them.
+  // Not resumable, because a resumable session buffers chunks in memory so it can
+  // replay them.
   async putStream(key: string, data: Readable, contentType: string): Promise<void> {
     await pipeline(
       data,

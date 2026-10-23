@@ -22,7 +22,7 @@ export function publishSeriesDeleted(c: PublishContext, projectId: string, id: s
   publishAfterCommit(c, SERIES_DELETED, projectId, { id });
 }
 
-// For rows a cascade moved rather than a call that already read them back.
+// For series a cascade moved, rather than a caller that already had them in hand.
 export async function publishSeriesUpdatedByIds(
   c: PublishContext,
   db: Kysely<DB>,

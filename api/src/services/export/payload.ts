@@ -15,8 +15,8 @@ const IMAGE_EXTENSIONS: Record<string, string> = {
   'image/webp': 'webp',
 };
 
-// One folder for every entry that owns bytes, because the manifest is now one
-// list. Derived from the id, never the user-supplied filename, so an archive can
+// One folder for every entry that owns bytes, since the manifest is a single list.
+// Derived from the id, never from the user-supplied filename, so an archive can
 // never carry a traversal path or two entries with the same name.
 export function imageArchivePath(id: string, contentType: string): string {
   return `attachments/${id}.${IMAGE_EXTENSIONS[contentType] ?? 'bin'}`;

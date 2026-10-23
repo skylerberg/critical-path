@@ -15,8 +15,8 @@ export interface SocketState {
 }
 
 // Sized for `cpath watch` with no --project, which subscribes to every board the
-// account can list and has no ceiling of its own to borrow. It is a bound on
-// unbounded growth rather than a quota: without one, a socket sending subscribe
+// account can list and has no ceiling of its own to borrow. It bounds unbounded
+// growth rather than enforcing a quota: without it, a socket sending subscribe
 // frames in a loop grows both this map and the room map for as long as it stays
 // connected.
 export const MAX_SUBSCRIPTIONS_PER_SOCKET = 1000;
@@ -43,8 +43,8 @@ export function getSocketState(socket: RealtimeSocket): SocketState | undefined 
 export function subscribeToProject(socket: RealtimeSocket, projectId: string): boolean {
   const state = socketStates.get(socket);
   if (!state) return false;
-  // Checked before the add so re-subscribing to a project already held stays
-  // idempotent at the ceiling rather than becoming the one frame that fails.
+  // Checked before the add, so re-subscribing to a project the socket already holds
+  // stays idempotent at the ceiling instead of becoming the one frame that fails.
   if (!state.projectIds.has(projectId) && state.projectIds.size >= MAX_SUBSCRIPTIONS_PER_SOCKET) {
     return false;
   }

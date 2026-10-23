@@ -3,8 +3,8 @@ import https from 'node:https';
 import type { IncomingMessage, OutgoingHttpHeaders } from 'node:http';
 import { blockedTargetLookup, type LookupAll, type TargetPolicy } from './webhooks/targets';
 
-// Not exported: every caller wraps or maps the rejection into its own outcome
-// type, and only the name in a stack trace is load-bearing.
+// Not exported: callers map the rejection into their own outcome type, so nothing
+// catches this by name — the name exists to make the log line read.
 class VettedRequestError extends Error {}
 
 export interface VettedRequestOptions {
@@ -62,8 +62,8 @@ export function vettedRequest<T>(
       options.target,
       {
         method: options.method,
-        // The global agent keeps sockets alive and reuses them by host:port,
-        // which skips the lookup entirely on every request after the first.
+        // Not the global agent: it keeps sockets alive and reuses them by
+        // host:port, which would skip the lookup on every request after the first.
         agent: false,
         lookup: blockedTargetLookup(options.policy, options.resolve),
         headers: options.headers,

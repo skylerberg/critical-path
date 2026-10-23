@@ -28,8 +28,8 @@ const INSERT_CHUNK = 500;
 
 export type DeliveryRow = Selectable<WebhookDelivery>;
 
-// A batch per request, not a call per event: one member removal publishes a
-// task_relations_set per stripped task, which per-event would be N selects.
+// One batch per request rather than a call per event: a member removal publishes a
+// task_relations_set per stripped task, so per-event would be N selects.
 export async function enqueueDeliveries(events: WebhookEvent[]): Promise<void> {
   if (events.length === 0) return;
 
@@ -118,8 +118,8 @@ export async function claimDueDeliveries(limit: number): Promise<DeliveryRow[]> 
   return result.rows;
 }
 
-// Every writer in this module takes project_webhook before webhook_delivery, so
-// two records of the same webhook cannot deadlock; keep that order.
+// Every writer in this module takes project_webhook before webhook_delivery, which
+// serializes two deliveries of the same webhook; keep that order in anything added.
 export async function recordSuccess(delivery: DeliveryRow, statusCode: number): Promise<void> {
   await db.transaction().execute(async (trx) => {
     await trx
@@ -150,12 +150,12 @@ export async function recordFailure(
 ): Promise<FailureOutcome> {
   const lastError = outcome.error.slice(0, MAX_ERROR_CHARS);
   const lastStatusCode = outcome.statusCode ?? null;
-  // attempt_count is already post-increment: the claim bumped it.
+  // `attempt_count` has already been incremented by the claim.
   const exhausted = delivery.attempt_count >= MAX_ATTEMPTS;
 
   return db.transaction().execute(async (trx): Promise<FailureOutcome> => {
-    // Locked, not just read: a row put back to pending on a webhook disabled
-    // mid-send is unreachable to both the claim and the prune.
+    // Locked, not merely read: a row put back to pending for a webhook disabled
+    // mid-send would be unreachable to both the claim and the prune.
     const webhook = await trx
       .selectFrom('project_webhook')
       .select('disabled_at')

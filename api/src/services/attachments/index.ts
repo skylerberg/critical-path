@@ -157,10 +157,10 @@ export async function assertAttachmentWrite(
   return await assertProjectWrite(db, userId, projectId, ATTACHMENT_NOT_FOUND);
 }
 
-// A published board publishes its attachments, so this is the one read that a
-// caller with no identity can pass. Anonymity is only enough for a public
-// project: on a private one the answer is still 401, because a token might have
-// earned access and saying 404 would be a lie the caller could not act on.
+// A published board publishes its attachments, so this is the only read an
+// identity-less caller can pass. Anonymity only suffices on a public project: on a
+// private one the answer is still 401, because a token might have earned access
+// and a 404 would be a lie the caller cannot act on.
 export async function assertAttachmentReadable(
   db: Kysely<DB>,
   user: { id: string } | undefined,
@@ -190,8 +190,8 @@ export type AttachmentScope =
   | { projectId: string }
   | { projectsCreatedBy: string };
 
-// Every deletion path funnels through here, so none of them can forget one of
-// the three key columns a single row may hold.
+// Every deletion path funnels through here, so none can forget one of the four
+// key columns a single row may hold.
 export async function attachmentStorageKeys(
   db: Kysely<DB>,
   scope: AttachmentScope

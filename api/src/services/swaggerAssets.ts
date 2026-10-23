@@ -8,18 +8,17 @@ const require = createRequire(import.meta.url);
 const gzip = promisify(gzipCallback);
 
 // Swagger UI's own bundle, read from the installed package rather than fetched
-// from a CDN at render time. The docs page is served from the same origin as
-// the app — one host serves the SPA and this API — and the SPA keeps its
-// session token in that origin's localStorage, so a third-party script tag here
-// is a third party holding every reader's credentials. Nothing about the page
-// is worth that, and the bytes are already on disk.
+// from a CDN at render time. One host serves the SPA and this API, and the SPA
+// keeps its session token in that origin's localStorage, so a third-party script
+// tag here is a third party holding every reader's credentials. Nothing about the
+// page is worth that, and the bytes are already on disk.
 //
-// An allow-list of exactly two names rather than a path under a root: the name
-// arrives in a URL, and this way the route is structurally incapable of
-// resolving anything else out of node_modules, traversal or no traversal.
+// The names are an allow-list of exactly two rather than a path under a root: they
+// arrive in a URL, so this route is structurally incapable of resolving anything
+// else out of node_modules, traversal or no traversal.
 //
-// The package is reached by require.resolve rather than imported, which is not
-// a reference knip can see — hence its entry in knip's ignoreDependencies.
+// The package is reached by require.resolve rather than imported, which is a
+// reference knip cannot see — hence its entry in knip's ignoreDependencies.
 const ASSET_CONTENT_TYPES = {
   'swagger-ui.css': 'text/css; charset=utf-8',
   'swagger-ui-bundle.js': 'text/javascript; charset=utf-8',

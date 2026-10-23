@@ -21,8 +21,8 @@ export type UnsubscribeTokenVerification =
   | { status: 'invalid' };
 
 // Recomputed from the stored address at redemption, so changing the address
-// invalidates every outstanding link with no stored state — and no address
-// reaches a URL, an access log or a browser history.
+// invalidates every outstanding link without any stored state — and no address
+// ever reaches a URL, an access log or a browser history.
 export function emailAddressHash(email: string): string {
   return crypto
     .createHash('sha256')
@@ -61,8 +61,9 @@ export function verifyVerificationToken(
 
 // No expiry: an unsubscribe link has to work in a year-old email, and the only
 // thing it authorizes is turning a preference off, so replay is idempotent and a
-// leak cannot enable anything. Binding the address supplies the one revocation
-// still needed — nothing else retires a token.
+// leaked link enables nothing. Binding the address supplies the revocation that
+// is still needed — changing it retires every outstanding link, and nothing else
+// retires a token.
 export function createUnsubscribeToken(
   userId: string,
   email: string,

@@ -32,14 +32,14 @@ export const PROJECT_COLUMNS = [
   'color',
 ] as const;
 
-// Fail closed, like roles: a key a newer release wrote reaches an older client as
-// "no color" rather than as a key it has no swatch for.
+// Fail closed, like roles: an accent a newer release wrote comes back as null,
+// rather than as a name an older client has no swatch for.
 export function normalizeProjectAccent(color: string | null): ProjectAccent | null {
   return color !== null && projectAccent.allows(color) ? color : null;
 }
 
-// member_ids is redundant with members and is kept only because clients from
-// before roles existed read it; it is derived here so the two cannot drift.
+// member_ids duplicates members and is kept only for clients that predate roles;
+// deriving it here is what keeps the two from drifting.
 export function toProjectResponse(row: ProjectRow, members: ProjectMemberEntry[]) {
   return {
     id: row.id,

@@ -9,8 +9,8 @@ import type { StorageProvider, StoredObject } from './types';
 export class DiskStorageProvider implements StorageProvider {
   constructor(private root: string) {}
 
-  // Keys are server-generated UUIDs; the regex check is path-traversal
-  // defense in depth.
+  // Keys are server-generated UUIDs, so rejecting a non-uuid here is
+  // path-traversal defense in depth.
   private resolveKey(key: string): string {
     if (!isValidUuid(key)) {
       throw new Error(`Invalid storage key: ${key}`);

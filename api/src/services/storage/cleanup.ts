@@ -5,14 +5,14 @@ import { storage } from './index';
 
 const STORAGE_DELETE_BATCH = 25;
 
-// Post-commit because a stored object cannot be rolled back: deleting it inside
-// the transaction would strand every row still pointing at it if the write
-// failed afterwards.
+// Post-commit because a stored object cannot be rolled back: deleting it inside the
+// transaction would strand every row still pointing at it if the write failed
+// afterwards.
 //
-// Settled per key rather than awaited as one Promise.all, and batched because an
-// account's keys are every image of every board it created: once the rows are
-// gone, a key that fails is only recoverable from this log line, and a rejection
-// that abandoned the rest of the batch would leak them with nothing recorded.
+// Batched and settled per key rather than awaited as one Promise.all: an account's
+// keys are every image of every board it created, so once the rows are gone a key
+// that fails is only recoverable from this log line, and one rejection must not
+// abandon the rest of the batch and leak them unrecorded.
 export function deleteStoredObjectsAfterCommit(
   c: Pick<PublicContext, 'get'>,
   keys: readonly string[]

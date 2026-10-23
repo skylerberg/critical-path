@@ -32,9 +32,9 @@ export const INVITATION_COLUMNS = [
   'expires_at',
 ] as const;
 
-// Derived from the row id rather than stored, so a resend can reproduce the link
-// already mailed without the raw secret ever being persisted. Validity still
-// depends on the row existing, which is what makes revocation and expiry work.
+// Derived from the row id rather than stored, so a resend reproduces the link
+// already mailed without the secret ever being persisted. Validity still depends
+// on the row existing, which is what makes revocation and expiry work.
 export function invitationToken(invitationId: string): string {
   return crypto
     .createHmac('sha256', env.emailTokenSecret)
@@ -64,10 +64,10 @@ export function toInvitationResponse(
   };
 }
 
-// The only publisher of this event, so no caller can decide what rides in it: it
-// names the project and nothing more, and readers allowed to know an address can
-// refetch the list. Broadcast because the panel showing that list also opens
-// from the project list, where an editor is sitting in no board's room.
+// The only publisher of this event, so no caller decides what rides in it: it
+// names the project and nothing more, and a reader allowed to know an address can
+// refetch the list. Broadcast, because the panel showing that list also opens
+// from the project list, where an editor is in no board's room.
 export function publishInvitationsChanged(c: Pick<PublicContext, 'get'>, projectId: string): void {
   publishAfterCommit(
     c,
@@ -118,9 +118,9 @@ export async function claimInvitations(
   }
 
   const projectIds = rows.map((row) => row.project_id);
-  // Every writer that touches an invitation takes the project row first;
-  // claiming in the other order closes a deadlock cycle against one revoking
-  // invitations under that lock.
+  // Everything that touches an invitation takes the project row first, so this
+  // does too: locking the invitation rows before the project would close a
+  // deadlock cycle against a revoke that already holds the project.
   const projects = await db
     .selectFrom('project')
     .select(PROJECT_COLUMNS)
@@ -129,10 +129,10 @@ export async function claimInvitations(
     .execute();
   const projectById = new Map(projects.map((project) => [project.id, project]));
 
-  // Locked rather than read: deleting an account cascades these rows away
-  // holding only the boards that account created, so the boards taken above
-  // cannot keep the role below from being one on its way out. A share lock is
-  // the weakest that conflicts with the cascade.
+  // Held rather than merely read: an account delete cascades project_member rows
+  // away while holding only the projects that account created, so the project
+  // rows locked above need not block it. A share lock is the weakest lock that
+  // conflicts with the cascade.
   const held = await db
     .selectFrom('project_member')
     .select(['project_id', 'role'])
@@ -149,9 +149,9 @@ export async function claimInvitations(
     return project !== undefined && project.created_by !== userId && !heldRole.has(row.project_id);
   });
 
-  // Consumed before it is honored, and only rows this statement removed are: a
-  // revoke already holding the row wins rather than being overtaken by a grant
-  // that read the row before it was withdrawn.
+  // Consumed before it is honored, and only the rows this delete actually removed
+  // are: a revoke already holding the row wins, rather than being overtaken by a
+  // grant that read the row before it was withdrawn.
   const consumed =
     grantable.length === 0
       ? []
@@ -225,8 +225,9 @@ export async function claimInvitationsForNewAccount(
   return claimInvitations(c, db, userId, rows);
 }
 
-// Write access is what makes an invitation an editor-grant, so losing it has to
-// take the outstanding grants along rather than let them land days later.
+// Write access is what makes an invitation an editor-grant, so someone losing it
+// takes their outstanding invitations with them rather than letting them land
+// days later.
 export async function revokeInvitationsFromNonEditors(
   c: Pick<PublicContext, 'get'>,
   db: Kysely<DB>,

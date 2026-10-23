@@ -16,9 +16,8 @@ function quotaExceeded(used: number, quota: number): AppError {
   );
 }
 
-// One table, one sum. Images are rows here too, so the quota still covers them
-// and a PNG cannot be used to slip past it — it just no longer takes a second
-// query and a reconciliation to say so.
+// One table, one sum: images are rows here too, so a PNG cannot slip past the
+// quota, and covering it costs no second query and no reconciliation.
 async function usedBytes(db: Kysely<DB>, projectId: string): Promise<number> {
   const row = await db
     .selectFrom('task_attachment')
@@ -38,9 +37,9 @@ export interface ProjectStorageAllowance {
   exceeded: () => AppError;
 }
 
-// Deliberately unlocked: holding the lock across a transfer would serialize a
-// project's uploads for its whole duration. The locked check below is what the
-// row commit still depends on.
+// No lock: holding one across an upload transfer would serialize every upload in
+// the project for the transfer's whole duration. This read is advice; the commit
+// depends on the locked check in `assertProjectStorageQuota`.
 export async function projectStorageAllowance(
   db: Kysely<DB>,
   projectId: string

@@ -18,19 +18,21 @@ const DIGEST_SWEEP_TIMEOUT_MS = 15_000;
 const DIGEST_SWEEP_BUDGET_MS = 10_000;
 const DIGEST_SWEEP_BATCH = 50;
 
-// The group waits for its sender to stop rather than for a fixed delay after the
-// first card, so a second bulk assign a minute later joins the same message.
+// A group closes after this many quiet seconds rather than a fixed delay after
+// its first card, so a second bulk assign a minute later joins the same email.
 const DIGEST_QUIET_SECONDS = 120;
-// …but a sender who keeps going never lets it settle, so the wait is capped.
+// A sender who keeps assigning never goes quiet, so the total wait is capped too.
 const DIGEST_MAX_WAIT_SECONDS = 900;
 
-// Bounds the id list a single flush resolves; the remainder flushes next tick.
+// Caps the cards one claim takes; a bigger group stays pending and is claimed
+// again on the next sweep.
 export const DIGEST_MAX_TASKS = 500;
 const TITLES_IN_EMAIL = 5;
 const MAX_TITLE_CHARS = 120;
 
-// Titles and board names may carry newlines, and a bullet list a card title can
-// break out of is an unsubscribe footer a card title can forge.
+// Titles and board names may carry newlines, so flatten each to one line: left
+// in, a card title could break out of its bullet and forge the unsubscribe line
+// at the foot of the email. The cap keeps a long title from crowding the list.
 function oneLine(text: string): string {
   const collapsed = text.replace(/\s+/gu, ' ').trim();
   return collapsed.length > MAX_TITLE_CHARS
@@ -178,8 +180,8 @@ function digestMessage(
   };
 }
 
-// Not the group key: two different sets of cards from the same person on the
-// same board are two different things to say.
+// Keyed by the card set, not by the group key: two different sets from the same
+// person on the same board are two different messages to say to a recipient.
 function repeatKey(projectId: string, taskIds: string[]): string {
   const fingerprint = crypto
     .createHash('sha256')
@@ -196,8 +198,8 @@ export const assignmentDigestDelivery: {
 } = {
   deliver: async (digest) => {
     // Every gate is re-evaluated rather than trusted from the write that queued
-    // the rows: the window is minutes wide, and access, assignment and the
-    // preference itself can all have moved inside it.
+    // the rows: the quiet window is minutes long, and access, assignment and the
+    // preference can all have changed inside it.
     const project = await db
       .selectFrom('project')
       .select(['id', 'name', 'created_by'])

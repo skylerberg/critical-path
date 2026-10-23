@@ -131,8 +131,8 @@ async function attempt(url: string): Promise<UnfurlOutcome> {
 
     return { state: 'ok', meta, previewKey, faviconKey };
   } catch (err) {
-    // Logged rather than rethrown: retrying a crash on the same bytes only ends
-    // with the attempts exhausted and the row spinning at 'pending' for good.
+    // Logged rather than rethrown: retrying a crash on the same bytes only
+    // exhausts the attempts and leaves the row at 'pending' for good.
     logger.error({
       msg: 'Unfurl failed while reading a fetched page',
       error: errorText(err),
@@ -141,9 +141,9 @@ async function attempt(url: string): Promise<UnfurlOutcome> {
   }
 }
 
-// A network outcome is never a throw: a 403, a timeout, a non-HTML body or a
-// blocked address all settle the row at 'failed' and report success, so it
-// cannot sit at 'pending' behind six hours of backoff.
+// A network outcome never throws: a 403, a timeout, a non-HTML body or a blocked
+// address all settle the row at 'failed' and report success, so it cannot sit at
+// 'pending' behind six hours of backoff.
 export async function runAttachmentUnfurl(attachmentId: string): Promise<void> {
   const row = await db
     .selectFrom('task_attachment')

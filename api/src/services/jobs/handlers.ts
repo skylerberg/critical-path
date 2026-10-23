@@ -6,13 +6,13 @@ import { MAX_HANDLER_TIMEOUT_MS, type PeriodicJob } from './queue';
 export interface JobHandler<K extends JobKind = JobKind> {
   kind: K;
   timeoutMs: number;
-  // Set to schedule the kind instead of enqueueing it: one row, reseeded on
-  // every start, rescheduled after every run, never retired.
+  // Set to schedule the kind rather than enqueue it: one row, reseeded on every
+  // start, rescheduled after every run, never retired.
   intervalSeconds?: number;
-  // Called again whenever a lease expires while it is still running, so it has
-  // to be idempotent under concurrency and not merely under repetition. A
-  // target row that has since been deleted is success: no foreign key covers
-  // this table, so nothing else will ever discard the job.
+  // `run` is called again whenever a lease expires while it is still running, so it
+  // must be idempotent under concurrency and not merely under repetition. A target
+  // row that has since been deleted is success: no foreign key covers this table,
+  // so nothing else will ever discard the job.
   run: (payload: JobPayloads[K]) => Promise<void>;
 }
 
@@ -29,10 +29,10 @@ export interface RegisteredJobHandler {
 const handlers = new Map<string, RegisteredJobHandler>();
 
 // Runs at dispatch, inside the runner's per-job try, so a row whose payload does
-// not match its kind fails that job and backs off like any other handler throw.
-// The missing-row branch is unreachable from typed code — both the register and
-// the enqueue side are generic over the table's keys — and exists for the tests
-// that drive this kind-agnostic machinery with kinds that deliberately have none.
+// not match its kind fails that job and backs off like any other handler throw. The
+// missing-schema branch is unreachable from typed code — both register and enqueue
+// are generic over the table's keys — and exists for the tests that drive this
+// kind-agnostic machinery with kinds that deliberately have none.
 function parsePayload(kind: string, schema: Type | undefined, payload: JsonValue): JsonValue {
   if (schema === undefined) return payload;
   const parsed = schema(payload);

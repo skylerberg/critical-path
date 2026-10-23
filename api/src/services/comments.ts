@@ -6,7 +6,7 @@ import { assertProjectAccess } from './authorization';
 export const COMMENT_NOT_FOUND = 'Comment not found';
 
 // Edit and delete are author-only; another member's comment answers 404 rather
-// than 403 so the response cannot confirm it exists.
+// than 403, so the response cannot confirm that it exists.
 export async function assertOwnComment(
   db: Kysely<DB>,
   userId: string,

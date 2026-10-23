@@ -40,7 +40,8 @@ export function sanitizeDeclaredContentType(raw: string): string {
   return MIME_PATTERN.test(withoutParameters) ? withoutParameters : DEFAULT_CONTENT_TYPE;
 }
 
-// RFC 5987 attr-char excludes these even though encodeURIComponent leaves them.
+// RFC 5987 attr-char excludes `'()*!`, even though encodeURIComponent leaves
+// them alone.
 function encodeExtValue(filename: string): string {
   return encodeURIComponent(filename).replace(
     /['()*!]/g,

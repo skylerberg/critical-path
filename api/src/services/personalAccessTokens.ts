@@ -16,19 +16,20 @@ export function isPersonalAccessToken(token: string): boolean {
   return token.startsWith(PERSONAL_ACCESS_TOKEN_PREFIX);
 }
 
-// Authentication already reads the column, so asking here costs nothing and
-// keeps a busy agent from issuing a write per request. `last_used_at` is
-// therefore accurate to the minute, which is all the UI claims.
+// The staleness check reuses the column authentication already read, so a busy
+// agent does not issue a write per request. `last_used_at` is therefore accurate
+// to the minute, which is all the UI claims.
 export function personalAccessTokenUseIsStale(lastUsedAt: Date | null): boolean {
   return lastUsedAt === null || Date.now() - lastUsedAt.getTime() >= LAST_USED_THROTTLE_MS;
 }
 
-// Writes on the pool rather than on a request's `c.get('db')`: authentication
-// runs inside the transaction opened for a mutation, where this UPDATE would
-// hold the token's row lock for the whole request — queuing every other request
-// from the same agent behind it — and would be discarded on rollback. The WHERE
-// repeats the staleness check so concurrent requests and other replicas collapse
-// to one write. A failure here must never turn a valid credential into a 401.
+// Written on the pool rather than on a request's `c.get('db')`, because
+// authentication runs inside the transaction opened for a mutation: there this
+// UPDATE would hold the token's row lock for the whole request, queuing every
+// other request from the same agent behind it, and would be discarded on
+// rollback. The WHERE repeats the staleness check, so concurrent requests and
+// other replicas collapse to one write. A failure here must never turn a valid
+// credential into a 401.
 export async function recordPersonalAccessTokenUse(id: string): Promise<void> {
   const cutoff = new Date(Date.now() - LAST_USED_THROTTLE_MS);
 

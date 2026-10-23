@@ -25,7 +25,7 @@ import type {
 
 // Never re-export this module from src/schemas/index.ts: the OpenAPI schema-name
 // registry hashes every schema in that barrel and throws on two that produce
-// identical JSON Schema, which the bare `{ id }` payloads below would.
+// identical JSON Schema, which the bare `{ id }` payloads below would produce.
 
 const idOnly = type({ id: 'string' });
 
@@ -39,10 +39,10 @@ type WithActor<T extends PayloadRows> = {
   [K in keyof T]: K extends ActorEventType ? Type<T[K]['infer'] & ActorField> : T[K];
 };
 
-// Merged from the catalog rather than restated on each of the twenty-eight
-// rows that want it: the row that says a type names its actor is then the same
-// row publishAfterCommit reads to fill it in, so a type cannot get one without
-// the other.
+// Merged in from the catalog rather than restated on each of the twenty-eight rows
+// that want it: the row saying a type names its actor is then the same row
+// publishAfterCommit reads to fill it in, so a type cannot have one without the
+// other.
 function withActor<T extends PayloadRows>(rows: T): WithActor<T> {
   return Object.fromEntries(
     Object.entries(rows).map(([eventType, schema]) => [
@@ -72,9 +72,9 @@ export const REALTIME_PAYLOAD_SCHEMAS = withActor({
   project_deleted: idOnly,
   project_position_updated: type({ id: 'string', sort_key: 'string' }),
   project_seen: idOnly,
-  // The actor comes from the catalog like every other one; it is null when a
-  // schedule materialized the change with no caller behind it. The dot ignores
-  // its own actor, so a client compares it against its user id.
+  // The actor comes from the catalog like every other one, and is null when a
+  // schedule materialized the change with no caller behind it. The dot ignores its
+  // own actor, so clients compare it against their user id.
   project_changed: idOnly,
   invitations_changed: type({ project_id: 'string' }),
 
@@ -132,18 +132,17 @@ export const REALTIME_PAYLOAD_SCHEMAS = withActor({
   series_updated: taskSeriesSchema,
   series_deleted: idOnly,
 
-  // Never delivered to a client: the transport intercepts it to close sockets.
-  // It is typed here because the transport reads the payload to decide which.
-  // user_id is required because it is the dispatch fallback when neither of the
-  // narrower ids is present.
+  // Never delivered to a client: the transport intercepts it to close sockets. It is
+  // typed here because the transport reads the payload to decide which. user_id is
+  // required because it is the fallback when neither narrower id is present.
   sessions_revoked: type({
     user_id: 'string',
     'personal_access_token_id?': 'string',
     'session_id?': 'string',
   }),
   user_updated: userSchema,
-  // The subject's own record — the same shape GET /api/auth/me answers with,
-  // which is exactly why it is delivered to no socket but theirs.
+  // The subject's own record, the shape GET /api/auth/me answers with — which is
+  // exactly why it goes to no socket but theirs.
   account_updated: meSchema,
 } satisfies Record<RealtimeEventType, unknown>);
 
@@ -151,10 +150,10 @@ export type RealtimePayloads = {
   [K in RealtimeEventType]: (typeof REALTIME_PAYLOAD_SCHEMAS)[K]['infer'];
 };
 
-// What a publish site provides. publishAfterCommit fills actor_user_id in from
-// the session, so a caller that restated it would be restating something it
-// cannot get wrong. publish() still takes the whole payload, which is what makes
-// the two publishers outside a request name someone by hand.
+// What a publish site provides. publishAfterCommit fills actor_user_id in from the
+// session, so restating it there would be restating something a caller cannot get
+// wrong; publish() still takes the whole payload, which is what lets the two
+// publishers outside a request name someone by hand.
 export type CallerPayload<T extends RealtimeEventType> = T extends ActorEventType
   ? Omit<RealtimePayloads[T], 'actor_user_id'>
   : RealtimePayloads[T];

@@ -88,9 +88,9 @@ function resolveRule(
   throw new AppError(422, 'Send either preset or rrule');
 }
 
-// The forward-only invariant: a schedule is only ever placed on or after today
-// in its own zone, so a series anchored a year back backfills nothing and the
-// unique index stays a pure concurrency backstop.
+// The forward-only invariant: a schedule is only ever placed on or after today in
+// its own zone, so a series anchored a year back never backfills the days it missed
+// and the unique index stays a pure concurrency backstop.
 export function scheduleFrom(
   fields: SeriesRuleFields,
   today: string
@@ -221,10 +221,10 @@ export interface SeriesTemplateTask {
   due_date: string | null;
 }
 
-// The card is adopted as the series' own first occurrence rather than left
-// beside a series that merely resembles it: the sweep's unique-index conflict
-// then skips that date, so the day a card starts repeating produces no second
-// copy of the card that started it, and `open_occurrence_count` counts it.
+// The card becomes the series' own first occurrence rather than sitting beside a
+// series that merely resembles it: the sweep's unique-index conflict then skips that
+// date, so the day a card starts repeating never produces a second copy of the card
+// that started it, and `open_occurrence_count` counts it.
 export async function createSeriesFromTask(
   db: Kysely<DB>,
   userId: string,

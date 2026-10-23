@@ -4,9 +4,9 @@ import { errorText } from '../utils/errors';
 export interface WorkerOptions {
   name: string;
   tickMs: number;
-  // A tick that never finishes would hold the no-overlap latch and silently
-  // stop this replica for good. Overrunning the budget only overlaps ticks,
-  // which the SKIP LOCKED lease already tolerates across replicas.
+  // A tick that never settles would leave `running` set and silently stop this
+  // replica for good. Overrunning the budget only overlaps ticks, which the SKIP
+  // LOCKED lease already tolerates across replicas.
   budgetMs: number;
   tick: () => Promise<void>;
 }

@@ -23,8 +23,8 @@ export interface CopiedAttachments {
   imageIdMap: Map<string, string>;
 }
 
-// No job is enqueued for a copy, so a source still mid-unfurl would leave its
-// copy spinning at 'pending' for good; the copy settles instead.
+// No unfurl job is enqueued for a copy, so a source still mid-unfurl would leave
+// its copy stuck at 'pending' forever; the copy settles as failed instead.
 function copiedUnfurlState(state: string | null): string | null {
   return state === 'pending' ? 'failed' : state;
 }

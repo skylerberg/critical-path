@@ -31,8 +31,8 @@ export async function isProjectMember(
   return row !== undefined;
 }
 
-// null means no access at all. The creator is implicitly an editor and is
-// never stored as a member row.
+// null means no access at all. The creator is implicitly an editor and is never
+// stored as a member row.
 export async function projectRole(
   db: Kysely<DB>,
   userId: string,
@@ -75,9 +75,8 @@ export async function assertProjectAccess(
   return project;
 }
 
-// 404 for a caller with no access, so an inaccessible project stays
-// indistinguishable from a nonexistent one; 403 only for a viewer, who can
-// already see the project and learns nothing from the distinction.
+// The 403 is only for a viewer, who can already see the project and so learns
+// nothing from the distinction; a caller with no access got the 404 above.
 export async function assertCanWriteProject(
   db: Kysely<DB>,
   userId: string,
@@ -123,8 +122,9 @@ export function assertProjectOwnedBy(
   }
 }
 
-// Guards the row the caller is about to serve, so the flag can never be read
-// from a different snapshot than the payload it gates.
+// Re-checked on the row about to be served: the cheap `is_public` gate in front
+// of the payload is a separate read, and the project can be made private between
+// the two.
 export function assertPublicProject(project: { is_public: boolean }): void {
   if (!project.is_public) {
     throw new AppError(404, 'This board is not public');

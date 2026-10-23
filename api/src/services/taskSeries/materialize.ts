@@ -357,8 +357,8 @@ async function createOccurrences(
     .orderBy('task_series_checklist_item.id')
     .execute();
 
-  // The sweep runs on every replica, and a user moving cards into this column
-  // concurrently would otherwise share the tail this probe reads.
+  // The sweep runs on every replica, and a user moving cards into this column at the
+  // same time would otherwise read the same tail and stamp the same keys.
   await lockColumnTail(trx, columnId);
 
   const tail = await trx

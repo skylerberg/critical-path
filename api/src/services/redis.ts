@@ -11,9 +11,9 @@ export function redisConfigured(): boolean {
   return Boolean(env.redisUrl);
 }
 
-// disableOfflineQueue makes commands reject immediately while disconnected,
-// so callers fall back (local bus delivery, per-process rate limits) instead
-// of hanging; the client keeps reconnecting in the background.
+// `disableOfflineQueue` makes commands reject immediately while disconnected, so
+// callers fall back (local bus delivery, per-process rate limits) instead of
+// hanging; the client keeps reconnecting in the background.
 export function getRedis(): RedisClient {
   if (!env.redisUrl) {
     throw new Error('REDIS_URL is not configured');

@@ -115,8 +115,8 @@ export async function recordJobSuccess(job: JobRow): Promise<void> {
 
 export async function recordJobFailure(job: JobRow, error: string): Promise<void> {
   const lastError = error.slice(0, MAX_ERROR_CHARS);
-  // attempts is already post-increment when the claim bumped it; a caller
-  // outside the runner may hand over a row it never claimed.
+  // `attempts` has already been incremented by the claim, and a caller outside
+  // the runner may hand over a row it never claimed.
   const step = Math.min(Math.max(job.attempts - 1, 0), BACKOFF_SECONDS.length - 1);
   const backoff = BACKOFF_SECONDS[step];
 

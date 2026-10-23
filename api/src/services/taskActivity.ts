@@ -9,8 +9,8 @@ export interface TaskActivityWrite {
   newValue?: ActivityValue | null;
 }
 
-// The generated Json column type has an index signature the value interfaces
-// cannot satisfy; jsonb parses the text back into the same object.
+// Stored as JSON text: the value types here cannot satisfy the generated Json
+// column's index signature, and jsonb parses the text back into the same object.
 function serializeValue(value: ActivityValue | null | undefined): string | null {
   return value == null ? null : JSON.stringify(value);
 }
@@ -74,9 +74,9 @@ export async function recordAssigneeChanges(
 const DESCRIPTION_COALESCE_INTERVAL = '5 minutes';
 
 // Editors autosave on an idle debounce, so one session would otherwise append an
-// entry carrying two whole documents every few seconds. A run by a single actor
-// extends one entry instead; old_value is never rewritten, so it still holds the
-// text from before the session.
+// entry carrying two whole documents every few seconds. A run by one actor extends
+// its single entry instead, and old_value is never rewritten, so it still holds
+// the text from before the session.
 export async function recordDescriptionChange(
   db: Kysely<DB>,
   actorUserId: string,
@@ -103,7 +103,8 @@ export async function recordDescriptionChange(
 
   if (last?.kind === 'description_changed' && last.actor_user_id === actorUserId) {
     if (last.back_to_old_value) {
-      // Undoing inside the window leaves the entry recording no change at all.
+      // Back to the old text inside the window, so the entry is dropped rather
+      // than left recording a change that never happened.
       await db.deleteFrom('task_activity').where('id', '=', last.id).execute();
       return;
     }

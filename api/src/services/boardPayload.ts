@@ -77,9 +77,8 @@ function boardTasksQuery(db: Kysely<DB>) {
   ]);
 }
 
-// A sort key only orders a task against its own column's, so a project-wide
-// list has to sort by the column first. `position` used to be globally
-// comparable and hid this.
+// The join to board_column is what lets a caller sort a project-wide list by
+// column first: a task's sort key only orders it against its own column's.
 function projectTasksQuery(db: Kysely<DB>, projectId: string) {
   return boardTasksQuery(db)
     .innerJoin('board_column', 'board_column.id', 'task.column_id')
@@ -223,8 +222,8 @@ export async function getBoardPayload(
     .selectFrom('label')
     .select(['id', 'name', 'color', 'sort_key'])
     .where('project_id', '=', projectId)
-    // Rows a previous pod wrote mid-deploy have no key and read last, matching
-    // the clients' byRank; the id tiebreak keeps even that order stable.
+    // A label written before its key was enforced can carry null; those sort last,
+    // matching the clients' byRank, and the id tiebreak keeps that order stable.
     .orderBy('sort_key')
     .orderBy('id')
     .execute();
@@ -384,9 +383,9 @@ export async function getPublicBoard(
   projectId: string
 ): Promise<PublicBoard | null> {
   // Nothing here is authenticated, so the flag is read on its own before the
-  // board is assembled. Building first and rejecting after let a stranger spend
-  // the whole payload query per request, and made a private project take
-  // measurably longer to refuse than one that does not exist.
+  // board is assembled: building first would let a stranger spend the whole
+  // payload query per request, and would make a private project take measurably
+  // longer to refuse than one that does not exist.
   const gate = await db
     .selectFrom('project')
     .select('is_public')

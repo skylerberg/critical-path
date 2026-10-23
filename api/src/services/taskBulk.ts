@@ -99,9 +99,9 @@ async function liveKeyIn(
 
 // Bounded by the nearest key in the whole column — archived rows and the rows
 // being moved included — so nothing sits inside the gap. That is what lets one
-// UPDATE rewrite the batch: the unique index is checked row by row as it goes,
-// and a new key equal to a moving row's old one would trip it whenever that row
-// happened to be written second.
+// UPDATE rewrite the batch: the unique index is checked row by row, and a new key
+// equal to a moving row's old one would trip it whenever that row happened to be
+// written second.
 async function gapBeside(
   db: Kysely<DB>,
   columnId: string,
@@ -226,7 +226,7 @@ export async function relocateSelectedTasks(
   return movedTasks;
 }
 
-// Sorted so concurrent inserts take their index locks in one order.
+// Sorted by task id, so concurrent inserts take their index locks in one order.
 function insertPairs(taskIds: readonly string[], values: readonly string[]): [string, string][] {
   const pairs: [string, string][] = [];
   for (const taskId of taskIds) {

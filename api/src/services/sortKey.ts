@@ -2,18 +2,17 @@ import { sql, type Kysely } from 'kysely';
 import type { DB, ResolvedSortKey } from '../db/types';
 import { generateKeyBetween, generateNKeysBetween, BASE_62_DIGITS } from 'fractional-indexing';
 
-// The only place a plain string becomes writable. Everything below hands back
-// a key it has just ranked against the whole scope -- archived rows included --
-// so the assertion is the claim that it did, not a way around the check.
+// The only place a plain string becomes writable. Every caller below hands back a
+// key it has just ranked against the whole scope, archived rows included, so this
+// assertion records that the ranking happened rather than skipping it.
 function resolved(key: string): ResolvedSortKey {
   return key as ResolvedSortKey;
 }
 
-// Inserting repeatedly against the same neighbor lengthens each successive key
-// by ~0.2 characters, so the cap is what bounds insertions at a single spot
-// (~5000). Reaching it is a clean rejection, never a silent reordering, and it
-// stays clear of both Postgres' btree entry limit and the recursion depth in
-// the library's midpoint().
+// Inserting repeatedly against the same neighbour lengthens each key by ~0.2
+// characters, so the cap is what bounds insertions at one spot (~5000). Reaching
+// it is a clean rejection, never a silent reordering, and it stays clear of both
+// Postgres' btree entry limit and the recursion depth in the library's midpoint().
 export const SORT_KEY_MAX_LENGTH = 1024;
 
 export function keyBetween(a: string | null, b: string | null): ResolvedSortKey {
@@ -36,9 +35,10 @@ export function isValidSortKey(key: string): boolean {
   return structurallyValid(key);
 }
 
-// The library validates a key whenever it is used as a bound. Either direction
-// proves the structure; one alone would also reject the largest and smallest
-// representable integers, which are structurally fine but have no room beyond.
+// The library validates a key whenever it is used as a bound. Trying both
+// directions proves the structure; one alone would also reject the largest and
+// smallest representable integers, which are structurally fine but have no room
+// beyond.
 function structurallyValid(key: string): boolean {
   for (const bounds of [[key, null] as const, [null, key] as const]) {
     try {
@@ -71,8 +71,8 @@ async function maxKey(db: Kysely<DB>, table: SortKeyTable, group: string): Promi
   return rows[0]?.max ?? null;
 }
 
-// The two keys at or above the requested one: whether it is taken, and what
-// bounds it if it is.
+// The two keys at or above the requested one: the request itself, if taken, and
+// whatever bounds it.
 async function keysAtOrAbove(
   db: Kysely<DB>,
   table: SortKeyTable,
@@ -93,7 +93,7 @@ function rankAt(requested: string, atOrAbove: readonly string[]): ResolvedSortKe
   if (ordered[0] !== requested) {
     return resolved(requested);
   }
-  // Taken: rank immediately after it, bounded by whatever sits above.
+  // Already taken: rank immediately after it, bounded by whatever sits above.
   return keysBetween(requested, ordered[1] ?? null, 1)[0]!;
 }
 

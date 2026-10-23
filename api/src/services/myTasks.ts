@@ -4,10 +4,9 @@ import type { DB } from '../db/types';
 import type { MyTask, MyTaskLink, MyTaskPersonGroup, MyTasksResponse } from '../schemas/index';
 import { accessibleProjectsFilter } from './authorization';
 
-// Large enough that a person with a normal amount of work assigned never
-// reaches it — the whole point is that most callers never learn there is a page
-// at all. It is a ceiling on one response, not on what the caller may see:
-// next_offset walks the rest.
+// Large enough that someone with a normal workload never reaches it, which is the
+// point: most callers never learn there is paging at all. It caps one response,
+// not what the caller may see — next_offset walks the rest.
 export const MY_TASKS_PAGE_SIZE = 1000;
 
 interface AssigneeRow {
@@ -49,16 +48,15 @@ export function bucketAndOrder(rows: MyTaskRow[], userId: string): MyTask[] {
   const tasks = rows.map((row): MyTask => {
     const blocking = row.blocking_rows.map(toLink);
     const blockedBy = row.blocked_by_rows.map(toLink);
-    // Only from links the caller may read: naming someone whose project they
-    // cannot open would leak the person along with the work. The hidden
-    // dependents are surfaced as a count instead, so a task that only holds up
-    // invisible people stays out of the blocking bucket rather than pointing at
-    // nobody.
+    // Built only from links the caller may read: naming someone whose project they
+    // cannot open would leak the person along with the work. What is hidden is
+    // reported as a count instead, so a task that blocks only invisible people
+    // stays out of the blocking bucket rather than pointing at nobody.
     const waitingUserIds = [...new Set(blocking.flatMap((link) => link.assignee_ids))]
       .filter((id) => id !== userId)
       .sort();
-    // A blocker counts whether or not it can be named — that is the whole point
-    // of the bucket, and the alternative files unstartable work as ready.
+    // A blocker counts whether or not it can be named: that is the point of the
+    // bucket, and the alternative marks unstartable work as ready.
     const blocked = blockedBy.length + row.hidden_blocked_by_count > 0;
     return {
       id: row.id,
@@ -122,13 +120,13 @@ export function personGroups(
     });
 }
 
-// The far end of an edge may now live in a project the caller has no relation
-// to. Every list below is filtered on this so nothing unreadable is ever named,
-// and what it filters out is reported as a bare count instead.
+// The far end of an edge can now live in a project the caller has no relation to.
+// Every list below is filtered on this, so nothing unreadable is ever named, and
+// what the filter drops is reported as a bare count instead.
 //
-// Deliberately counted over OPEN edges only, matching the visible lists:
-// counting the done ones too would let a caller subtract the two and learn that
-// a task they cannot see has been finished.
+// The count deliberately covers OPEN edges only, matching the visible lists:
+// counting the done ones too would let a caller subtract the two and learn that a
+// task they cannot see has been finished.
 const inReadableProject = (userId: string) => sql<boolean>`
   exists (
     select 1 from project p
@@ -162,14 +160,14 @@ function hiddenEdgeCount(userId: string, direction: 'blocked_by' | 'blocking'): 
 
 type MyTasksEb = ExpressionBuilder<DB, 'project' | 'task' | 'board_column'>;
 
-// One definition of an edge worth showing, per direction: open at the far end,
+// One definition per direction of an edge worth showing: open at the far end,
 // unarchived, and in a project the caller may read. The visible list and the
-// number the ordering ranks by are both built from it, so the rank cannot come
-// to disagree with the list it ranks — which is what would silently put a card
-// on the wrong page.
+// number the ordering ranks by are both built from it, so the rank cannot come to
+// disagree with the list it ranks — which would silently put a card on the wrong
+// page.
 //
-// The two directions are spelled out rather than parameterised because the
-// alias is part of the table expression, and a computed one collapses Kysely's
+// The two directions are spelled out rather than parameterised because the alias
+// is part of the table expression, and a computed one collapses Kysely's
 // inference to an uncallable union.
 function openBlockers(eb: MyTasksEb, userId: string) {
   return eb
@@ -268,10 +266,10 @@ function myTasksRows(db: Kysely<DB>, userId: string) {
       ).as('blocking_rows'),
       hiddenEdgeCount(userId, 'blocking').as('hidden_blocking_count'),
       // The two numbers the bucket is decided by, selected so the ordering can
-      // happen in SQL. It has to: the page boundary is applied there, and a
-      // LIMIT over board position would hand back an arbitrary thousand cards
-      // rather than the thousand the caller most needs, leaving the documented
-      // order holding only within a page.
+      // happen in SQL. It has to: the page boundary is applied there, and a LIMIT
+      // over board position would hand back an arbitrary thousand cards rather
+      // than the thousand the caller most needs, leaving the documented order
+      // holding only within a page.
       openBlockers(eb, userId)
         .select((ib) => ib.fn.countAll<string>().as('n'))
         .as('readable_blocker_count'),

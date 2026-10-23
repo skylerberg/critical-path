@@ -2,8 +2,8 @@ import { projectAccessIdsAmong } from './authorization';
 import { notify } from './notifications';
 import type { PublicContext } from '../types/index';
 
-// Membership already bounds who can be notified; this caps one description or
-// comment, which could otherwise name every member at once.
+// Membership already bounds who may be notified at all; this caps how many one
+// description or comment can name, which could otherwise name every member.
 export const MAX_MENTION_RECIPIENTS = 25;
 
 export type MentionSource = 'description' | 'comment';
@@ -37,8 +37,8 @@ export function collectMentionIds(doc: unknown): string[] {
   return [...ids];
 }
 
-// Without the diff every debounced description autosave would re-notify
-// everyone named in the document.
+// Only ids new to this document are returned, so a debounced description autosave
+// does not re-notify everyone already named.
 export function newMentionIds(previous: unknown, next: unknown): string[] {
   const before = new Set(collectMentionIds(previous));
   return collectMentionIds(next).filter((id) => !before.has(id));
@@ -55,14 +55,14 @@ export async function notifyMentions(
     next: unknown;
   }
 ): Promise<void> {
-  // Dropped before the cap rather than by `notify` after it, or mentioning
-  // yourself alongside twenty-five other people would spend one of their slots.
+  // Self-mentions are dropped before the cap, not after: mentioning yourself
+  // alongside twenty-five other people would otherwise spend one of their slots.
   const added = newMentionIds(args.previous, args.next).filter((id) => id !== args.actor.id);
   if (added.length === 0) return;
 
-  // Mentioning someone who cannot reach the project is stored and silently not
-  // notified: rejecting it would leave a pasted foreign chip failing every
-  // autosave with no way for the writer to find it.
+  // A mention of someone who cannot reach the project is stored but not notified,
+  // rather than rejected: rejecting it would leave a pasted foreign chip failing
+  // every autosave, with no way for the writer to find it.
   const allowed = new Set(await projectAccessIdsAmong(c.get('db'), args.project, added));
   const recipientUserIds = added.filter((id) => allowed.has(id)).slice(0, MAX_MENTION_RECIPIENTS);
   if (recipientUserIds.length === 0) return;

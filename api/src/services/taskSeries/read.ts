@@ -5,9 +5,10 @@ import type { TaskSeriesRef, TaskSeriesResponse, TiptapDoc } from '../../schemas
 import { dateText } from '../dateText';
 import { presetFor, summarize } from './rule';
 
-// Fail closed: the column is plain text, so a value a newer release wrote — or
-// one nothing writes — reads as the state the materializer's `status = 'active'`
-// claim already puts it in, rather than as a schedule a client thinks is live.
+// Fail closed: the column is plain text, so anything unrecognised — a value a newer
+// release wrote, or one nothing writes — reads as 'ended', the state the
+// materializer's `status = 'active'` claim already leaves it in, rather than reading
+// as a schedule a client would think is live.
 function narrowSeriesStatus(status: string): TaskSeriesResponse['status'] {
   return status === 'active' || status === 'paused' ? status : 'ended';
 }
@@ -72,8 +73,8 @@ export async function fetchSeries(
           .orderBy('task_series_checklist_item.sort_key')
           .orderBy('task_series_checklist_item.id')
       ).as('checklist_rows'),
-      // The honest half of "create the next occurrence anyway": the panel says
-      // so when earlier ones are still outstanding.
+      // The honest half of "create the next occurrence anyway": the panel can say how
+      // many earlier occurrences are still outstanding.
       eb
         .selectFrom('task')
         .innerJoin('board_column', 'board_column.id', 'task.column_id')
