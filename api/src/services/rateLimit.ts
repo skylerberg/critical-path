@@ -28,9 +28,8 @@ function sweep(now: number): void {
 }
 
 // A budget carries its own window, so budgets that reset on different schedules
-// can still be spent as one. Without that, the caller with the most to gain from
-// atomicity — the auth limiter, whose three windows are a minute, a quarter of
-// an hour and an hour — was the one caller that had to spend them one at a time.
+// can still be spent as one. Without that, the auth limiter — the caller whose
+// budgets all differ — is the one caller that has to spend them one at a time.
 export interface Budget {
   key: string;
   max: number;
@@ -131,10 +130,9 @@ function consumeBudgetsLocal(budgets: Budget[], now: number): number {
 }
 
 // All or nothing, so an attempt one budget refuses never spends another's slot.
-// That is the whole reason to spend a set together: budgets consumed one call at
-// a time each charge for an attempt the next one is about to refuse, which for
-// the auth limiter meant a request that never reached a password hash still
-// drawing down the ceiling every caller at its address shares.
+// Budgets spent one call at a time each charge for an attempt the next is about
+// to refuse: for the auth limiter, a request that never reached a password hash
+// still drew down the ceiling every caller at its address shares.
 export async function consumeBudgets(budgets: Budget[], now: number): Promise<Budget | null> {
   const args = [
     ...budgets.map((budget) => String(budget.max)),
@@ -182,7 +180,7 @@ async function peekRateLimitShared(key: string, maxAttempts: number): Promise<bo
   }
 }
 
-// For a budget that has to gate a call it may turn out not to be spent on.
+// For a budget that gates a call the caller may not end up spending.
 export async function peekRateLimit(
   key: string,
   now = Date.now(),
@@ -258,9 +256,9 @@ export const USER_SEARCH_IP_MAX_ATTEMPTS = 300;
 
 // This is the whole bound on scraping the user directory by name, so it is
 // keyed by address as well as by account: an account costs a signup, and signup
-// allows 50 an hour from one source, which would otherwise multiply a per-user
-// budget by fifty. Sized for an as-you-type box — a debounced keystroke run is
-// a handful of calls, so the user budget is tens of people added in a sitting.
+// has its own per-source budget, which would otherwise multiply a per-user budget
+// by its limit. Sized for an as-you-type box — a debounced keystroke run is a
+// handful of calls, so the user budget is tens of people added in a sitting.
 export async function enforceUserSearchRateLimit(c: Context, userId: string): Promise<void> {
   const now = Date.now();
   const userAllowed = await consumeRateLimit(
@@ -400,8 +398,8 @@ export const SIGNUP_IP_MAX_ATTEMPTS = 50;
 
 // What bounds how many accounts one source can open on addresses it does not
 // own. The auth limiter it runs beside does spend a bucket keyed on the source,
-// but that one is sized for password hashing and sits six times higher, so this
-// is the ceiling that actually binds. It is far above a whole office signing up
+// but that one is sized for password hashing and sits well above this, so this is
+// the ceiling that actually binds. It is far above a whole office signing up
 // together.
 export async function enforceSignupRateLimit(c: Context): Promise<void> {
   const allowed = await consumeRateLimit(

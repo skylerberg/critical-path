@@ -8,9 +8,9 @@ export const DEFAULT_CONTENT_TYPE = 'application/octet-stream';
 const MIME_TOKEN = "[a-z0-9!#$%&'*+.^_`|~-]+";
 const MIME_PATTERN = new RegExp(`^${MIME_TOKEN}/${MIME_TOKEN}$`);
 
-// Multipart filenames never pass through arktype, so this is the only thing
-// standing between an attacker-chosen name and a Postgres text bind that
-// refuses NUL — an unsanitized name would turn a bad request into a 500.
+// Multipart filenames never pass through arktype, so this is all that stands
+// between an attacker-chosen name and a Postgres text bind that refuses NUL — an
+// unsanitized name would turn a bad request into a 500.
 export function sanitizeUploadFilename(raw: string): string {
   const separator = Math.max(raw.lastIndexOf('/'), raw.lastIndexOf('\\'));
   const base = separator === -1 ? raw : raw.slice(separator + 1);

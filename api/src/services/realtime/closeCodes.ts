@@ -1,10 +1,10 @@
-// The application close codes a `/ws` socket can be closed with, as one table,
-// because a close code is protocol a client must route on and nothing else in
-// the realtime contract describes it: the generated event types come from the
-// payload catalog, so a code added or repurposed here changed no payload and
-// reached the clients as silence. `src/spec/realtime-events.ts` publishes this
-// table into the realtime document, which is what turns the next such change
-// into a compile error in a client rather than a socket it reconnects forever.
+// The application close codes a `/ws` socket can be closed with, as one table:
+// a close code is protocol a client must route on, and the generated event types
+// come from the payload catalog, so a code added or repurposed here would change
+// no payload and reach clients as silence. `src/spec/realtime-events.ts`
+// publishes this table into the realtime document, which turns the next such
+// change into a compile error in a client rather than a socket it reconnects
+// forever.
 //
 // Standard RFC 6455 codes are deliberately absent: they mean the same thing for
 // every WebSocket, so a client needs no contract of ours to handle them.

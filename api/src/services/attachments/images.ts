@@ -3,11 +3,12 @@ import type { DB } from '../../db/types';
 import { IMAGE_KIND } from './index';
 
 // Every write of a kind='image' row. Images live in task_attachment alongside
-// files and links, and carry their own storage and content-type columns so the
-// unauthenticated image route can reach them without being able to reach a
-// document's bytes.
-// Images are capped below the general attachment limit: they are served inline
-// from an unauthenticated URL, so they stay small enough to be cheap to hand out.
+// files and links, carrying their own storage and content-type columns so the
+// unauthenticated image route can reach them without reaching a document's
+// bytes.
+//
+// Capped below the general attachment limit: images are served inline from an
+// unauthenticated URL, so they stay small enough to be cheap to hand out.
 export const IMAGE_MAX_BYTES = 10 * 1024 * 1024;
 
 export interface TaskImageInsert {

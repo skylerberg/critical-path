@@ -142,8 +142,8 @@ async function attempt(url: string): Promise<UnfurlOutcome> {
 }
 
 // A network outcome is never a throw: a 403, a timeout, a non-HTML body or a
-// blocked address all settle the row at 'failed' and report success, so it
-// cannot sit at 'pending' behind six hours of backoff.
+// blocked address all settle the row at 'failed' and report success, so it cannot
+// sit at 'pending' through the retries.
 export async function runAttachmentUnfurl(attachmentId: string): Promise<void> {
   const row = await db
     .selectFrom('task_attachment')

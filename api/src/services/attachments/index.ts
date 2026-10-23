@@ -105,8 +105,8 @@ export async function fetchTaskAttachments(
   return rows.map(toAttachmentResponse);
 }
 
-// One query for a screen-sized set of tasks, the same shape the comment and
-// checklist readers use.
+// One query for a screen-sized set of tasks, the shape the comment and checklist
+// readers also use.
 export async function fetchAttachmentsForTasks(
   db: Kysely<DB>,
   taskIds: readonly string[]
@@ -191,7 +191,7 @@ export type AttachmentScope =
   | { projectsCreatedBy: string };
 
 // Every deletion path funnels through here, so none of them can forget one of
-// the three key columns a single row may hold.
+// the four storage key columns a single row may hold.
 export async function attachmentStorageKeys(
   db: Kysely<DB>,
   scope: AttachmentScope

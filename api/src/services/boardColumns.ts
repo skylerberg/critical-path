@@ -18,9 +18,8 @@ const CROSS_PROJECT_MESSAGE = 'column_id must reference a column in the project'
 
 export const COLUMN_NOT_FOUND = 'Column not found';
 
-// The database refuses a task or series whose column belongs to another
-// project, so this is what turns that refusal into a 422 naming the field the
-// caller sent.
+// The database refuses a task or series whose column belongs to another project;
+// this turns that refusal into a 422 naming the field the caller sent.
 export async function assertColumnInProject(
   db: Kysely<DB>,
   columnId: string,
@@ -65,12 +64,12 @@ export async function assertColumnWrite(
   return column;
 }
 
-// Anything that appends by reading the column's greatest position has to hold
-// this first, and before any row lock it goes on to take: the bulk move locks
-// the rows it is moving, so the reverse order deadlocks the two against each
-// other. Two concurrent moves into one column otherwise read the same max and
-// stamp the same positions, and the selections interleave by id instead of
-// landing as blocks.
+// Anything that appends by reading the column's greatest position takes this
+// first, and before any row lock it goes on to take: the bulk move locks the
+// rows it moves, so the reverse order deadlocks the two against each other.
+//
+// Without it, two concurrent moves into one column read the same max and stamp
+// the same positions.
 export async function lockColumnTail(db: Kysely<DB>, columnId: string): Promise<void> {
   await takeAdvisoryLock(db, AdvisoryLock.columnTail, columnId);
 }
@@ -114,12 +113,12 @@ export function positionValues(tasks: readonly MovedTask[]): RawBuilder<unknown>
   )}) as v(id, sort_key)`;
 }
 
-// Empties one column into another. Every task named here already sits in the
-// source column and is moving out of it — the routes refuse a target equal to
-// the source — so unlike `relocateSelectedTasks` in ./taskBulk there is no
-// same-column case to keep a column_since for, and no client-supplied id needing
-// the project and archived predicates. Archived cards move too: the column is
-// about to be deleted underneath them.
+// Empties one column into another. Every task here already sits in the source
+// column and the routes refuse a target equal to the source, so unlike
+// `relocateSelectedTasks` in ./taskBulk there is no same-column case to keep a
+// column_since for and no client-supplied id needing project and archived
+// predicates. Archived cards move too: the column is about to be deleted
+// underneath them.
 export async function relocateColumnTasks(
   db: Kysely<DB>,
   actorUserId: string,
@@ -209,9 +208,8 @@ export async function reorderColumnTasks(
     returning task.id
   `.execute(db);
 
-  // Reporting a position for a row those predicates skipped would tell every
-  // client the card sits somewhere it does not, through the response and the
-  // event alike, so the answer is what the write actually touched.
+  // Reporting a position for a row the write skipped would tell every client the
+  // card sits somewhere it does not, through the response and the event alike.
   const touched = new Set(written.rows.map((row) => row.id));
   return movedTasks.filter((task) => touched.has(task.id));
 }

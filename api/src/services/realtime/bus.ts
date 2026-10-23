@@ -26,11 +26,11 @@ export interface PublishOptions {
   editorsOnly?: boolean;
 }
 
-// What an account event may carry. broadcast and editorsOnly are project-scoped
-// answers — both route the entry through deliverProjectScoped, which returns on
-// the null project id — so offering them here would only be offering two more
-// ways to publish into a void. recipientUserIds is required rather than
-// optional, because for these types it is the whole delivery mechanism.
+// What an account event may carry. `broadcast` and `editorsOnly` are
+// project-scoped: both route the entry through deliverProjectScoped, which
+// returns on the null project id, so offering them here would be two more ways
+// to publish into a void. `recipientUserIds` is required because for these types
+// it is the whole delivery mechanism.
 export interface NamedRecipientOptions {
   recipientUserIds: string[];
 }
@@ -164,8 +164,8 @@ export function publishAfterCommit(
   const entry = {
     type,
     project_id: projectId,
-    // Merged here rather than at forty publish sites: the catalog decides
-    // which types name an actor, so a caller can neither forget nor lie.
+    // Merged here rather than at every publish site: the catalog decides which
+    // types name an actor, so a caller can neither forget nor lie.
     data: carriesActor(type) ? { ...data, actor_user_id: actorUserId } : data,
     ...opts,
   } as BusEntry;
