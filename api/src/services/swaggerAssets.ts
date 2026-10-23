@@ -8,18 +8,17 @@ const require = createRequire(import.meta.url);
 const gzip = promisify(gzipCallback);
 
 // Swagger UI's own bundle, read from the installed package rather than fetched
-// from a CDN at render time. The docs page is served from the same origin as
-// the app — one host serves the SPA and this API — and the SPA keeps its
-// session token in that origin's localStorage, so a third-party script tag here
-// is a third party holding every reader's credentials. Nothing about the page
-// is worth that, and the bytes are already on disk.
+// from a CDN at render time. One host serves the SPA and this API, and the SPA
+// keeps its session token in that origin's localStorage, so a third-party script
+// tag here would be a third party holding every reader's credentials. Nothing
+// about the page is worth that, and the bytes are already on disk.
 //
 // An allow-list of exactly two names rather than a path under a root: the name
-// arrives in a URL, and this way the route is structurally incapable of
-// resolving anything else out of node_modules, traversal or no traversal.
+// arrives in a URL, and this way the route cannot resolve anything else out of
+// node_modules, traversal or not.
 //
-// The package is reached by require.resolve rather than imported, which is not
-// a reference knip can see — hence its entry in knip's ignoreDependencies.
+// The package is reached by require.resolve rather than imported, which is not a
+// reference knip can see — hence its entry in knip's ignoreDependencies.
 const ASSET_CONTENT_TYPES = {
   'swagger-ui.css': 'text/css; charset=utf-8',
   'swagger-ui-bundle.js': 'text/javascript; charset=utf-8',
@@ -34,14 +33,14 @@ export function isSwaggerAssetName(name: string): name is SwaggerAssetName {
 export interface SwaggerAsset {
   contentType: string;
   body: Buffer;
-  // Compressed once at first read. The route is public and the bundle is 1.5 MB
-  // of exactly the content type the global compress() middleware acts on, so
-  // without this every request from every reader — and every request an
-  // unauthenticated caller cares to make — costs a fresh gzip of the whole
-  // thing. Serving it pre-encoded is also what makes that middleware skip it.
+  // Compressed once at first read. The route is public and the bundle is of
+  // exactly the content type the global compress() middleware acts on, so
+  // without this every request — including every request an unauthenticated
+  // caller cares to make — would cost a fresh gzip of the whole file. Serving
+  // it pre-encoded is also what makes that middleware skip it.
   gzip: Buffer;
   // Strong and content-derived, so a reader that already holds the bytes
-  // revalidates into a 304 rather than being sent 1.5 MB again each hour.
+  // revalidates into a 304 rather than downloading the bundle again each hour.
   etag: string;
 }
 

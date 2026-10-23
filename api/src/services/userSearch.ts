@@ -6,9 +6,9 @@ import { prefixTsquery } from './tsquery';
 import { projectSharerIds } from './userDirectory';
 
 // The one place that answers about people the caller has no relationship with.
-// Kept out of ./userDirectory, whose whole premise is that visibility derives
-// from project access — a query that deliberately ignores project access filed
-// under that premise is how the next filter added there loses it.
+// Kept out of ./userDirectory, whose premise is that visibility derives from
+// project access: a query that deliberately ignores access filed under that
+// premise is how the next filter added there loses it.
 
 export const USER_SEARCH_LIMIT = 10;
 
@@ -22,10 +22,10 @@ export async function searchUsersByName(
     .select(['app_user.id', 'app_user.name', 'app_user.avatar_storage_key'])
     .where(sql<SqlBool>`app_user.name_search_vector @@ ${prefixTsquery(query)}`)
     // Everyone the caller can already list is excluded, so this route returns
-    // strangers only. Without it the limit is spent on people the client
-    // already has, and a common name answers with nothing new while strangers
-    // matched. The caller's own row needs saying separately: someone with no
-    // projects shares one with nobody, themselves included.
+    // strangers only. Otherwise the limit is spent on people the client already
+    // has, and a common name answers with nothing new while strangers matched.
+    // The caller's own row is excluded separately: someone with no projects
+    // shares one with nobody, themselves included.
     .where('app_user.id', '!=', callerId)
     .where(sql<SqlBool>`app_user.id not in (${projectSharerIds(callerId)})`)
     .orderBy('app_user.name')

@@ -2,16 +2,17 @@ import type { Context } from 'hono';
 import { getConnInfo } from '@hono/node-server/conninfo';
 import { env } from '../config/env';
 
-// One derivation of "who is calling", shared by the request path and the socket
-// upgrade. Two would be two answers to the question every budget is keyed on,
-// and the one that reads the header wrong is the one an attacker picks.
+// Derives "who is calling" for both the request path and the socket upgrade.
+// Two derivations would answer the question every budget is keyed on
+// differently, and an attacker would pick the one that reads the header wrong.
 export function clientIpFrom(
   forwarded: string | string[] | undefined,
   socketAddress: string | undefined
 ): string {
   if (env.trustProxy) {
-    // Entries left of the proxy-appended suffix are client-forgeable. GCP
-    // HTTPS load balancers append "<client-ip>, <lb-ip>", hence hops=2 there.
+    // Entries left of the proxy-appended suffix are client-forgeable. A GCP
+    // HTTPS load balancer appends "<client-ip>, <lb-ip>", which is why the
+    // deployment sets TRUST_PROXY_HOPS to 2.
     const header = Array.isArray(forwarded) ? forwarded.join(',') : forwarded;
     if (header) {
       const entries = header.split(',');

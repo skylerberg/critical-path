@@ -12,10 +12,10 @@ export type CredentialKind = 'session' | 'personal_access_token';
 export interface AuthenticatedCredential {
   kind: CredentialKind;
   id: string;
-  // True only on the request whose authentication slid the session's expiry
-  // forward, which is the request that must also refresh the cookie mirroring
-  // it. Always false for a personal access token: those are renewed by the
-  // person who minted them or not at all.
+  // True only on the request that slid the session's expiry forward, which is
+  // also the request that must refresh the cookie mirroring it. Always false
+  // for a personal access token: those are renewed by their owner or not at
+  // all.
   renewed: boolean;
   user: {
     id: string;
@@ -92,7 +92,8 @@ async function authenticateSessionToken(
   }
 
   if (row.expires_at.getTime() <= Date.now()) {
-    // Best-effort: rolled back if a surrounding transaction aborts on the 401.
+    // Best-effort: the delete joins the request's transaction, so it is undone
+    // when the 401 aborts that transaction.
     await db.deleteFrom('session').where('session.id', '=', row.credential_id).execute();
     return null;
   }

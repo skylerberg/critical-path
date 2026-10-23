@@ -30,7 +30,7 @@ function sweep(now: number): void {
 // A budget carries its own window, so budgets that reset on different schedules
 // can still be spent as one. Without that, the caller with the most to gain from
 // atomicity — the auth limiter, whose three windows are a minute, a quarter of
-// an hour and an hour — was the one caller that had to spend them one at a time.
+// an hour and an hour — would have to spend them one at a time.
 export interface Budget {
   key: string;
   max: number;
@@ -111,8 +111,8 @@ function consumeBudgetsLocal(budgets: Budget[], now: number): number {
   for (const [index, budget] of budgets.entries()) {
     const window = windows.get(budget.key);
     // A key that is absent or past its window counts as zero, which is what the
-    // script's `GET ... or '0'` does. Reading it as "not full" instead let a
-    // budget of zero admit its first attempt here and refuse it on Redis — the
+    // script's `GET ... or '0'` does. Reading it as "not full" instead would let
+    // a budget of zero admit its first attempt here and refuse it on Redis — the
     // fallback answering a different policy than the thing it stands in for.
     const spent = window !== undefined && window.resetAt > now ? window.count : 0;
     if (spent >= budget.max) {
@@ -130,11 +130,11 @@ function consumeBudgetsLocal(budgets: Budget[], now: number): number {
   return 0;
 }
 
-// All or nothing, so an attempt one budget refuses never spends another's slot.
-// That is the whole reason to spend a set together: budgets consumed one call at
-// a time each charge for an attempt the next one is about to refuse, which for
-// the auth limiter meant a request that never reached a password hash still
-// drawing down the ceiling every caller at its address shares.
+// All or nothing, so an attempt one budget refuses spends no other's slot. That
+// is the point of spending a set together: consumed one call at a time, each
+// budget charges for an attempt the next is about to refuse, and for the auth
+// limiter that meant a request which never reached a password hash still drawing
+// down the ceiling every caller at its address shares.
 export async function consumeBudgets(budgets: Budget[], now: number): Promise<Budget | null> {
   const args = [
     ...budgets.map((budget) => String(budget.max)),
@@ -182,7 +182,8 @@ async function peekRateLimitShared(key: string, maxAttempts: number): Promise<bo
   }
 }
 
-// For a budget that has to gate a call it may turn out not to be spent on.
+// Reads a budget without spending it, for a gate on a call that may not turn
+// out to need the attempt.
 export async function peekRateLimit(
   key: string,
   now = Date.now(),
@@ -256,11 +257,11 @@ export const USER_SEARCH_USER_MAX_ATTEMPTS = 100;
 const USER_SEARCH_IP_WINDOW_MS = 60 * 60_000;
 export const USER_SEARCH_IP_MAX_ATTEMPTS = 300;
 
-// This is the whole bound on scraping the user directory by name, so it is
-// keyed by address as well as by account: an account costs a signup, and signup
-// allows 50 an hour from one source, which would otherwise multiply a per-user
-// budget by fifty. Sized for an as-you-type box — a debounced keystroke run is
-// a handful of calls, so the user budget is tens of people added in a sitting.
+// The whole bound on scraping the user directory by name, so it is keyed by
+// address as well as by account: an account costs a signup, and signup allows 50
+// an hour from one source, which would otherwise multiply a per-user budget by
+// fifty. Sized for an as-you-type box: a debounced keystroke run is a handful of
+// calls, so the per-user budget is tens of people added in one sitting.
 export async function enforceUserSearchRateLimit(c: Context, userId: string): Promise<void> {
   const now = Date.now();
   const userAllowed = await consumeRateLimit(
@@ -379,12 +380,11 @@ export async function enforceAuthRateLimit(c: Context, email: string): Promise<v
       // unauthenticated caller sets the pace of the most expensive operation in
       // the product.
       //
-      // What that costs is CPU and queue depth, not memory: the hash holds
-      // 64 MiB while it runs, but concurrency is capped by the thread pool it
-      // runs on, so peak memory is the same whether attempts arrive four at a
-      // time or sixty. It is that pool everything else — every fs read, every
-      // zlib pass — then queues behind. Sized well above an office signing in
-      // for the day and well below what keeps the pool busy.
+      // What that costs is CPU and queue depth, not memory: the hash holds 64 MiB
+      // while it runs, but the thread pool caps concurrency, so peak memory is
+      // the same whether attempts arrive four at a time or sixty. It is that pool
+      // every fs read and zlib pass then queues behind. Sized well above an
+      // office signing in for the day and well below what keeps the pool busy.
       { key: `auth-ip:${address}`, max: AUTH_IP_MAX_ATTEMPTS, windowMs: AUTH_IP_WINDOW_MS },
     ],
     Date.now()

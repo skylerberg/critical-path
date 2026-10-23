@@ -33,9 +33,10 @@ export interface SetDelta {
 }
 
 /**
- * Classifies under a row lock, so the answer cannot go stale before the write
- * that follows it. An id outside the project is never returned, which is what
- * keeps it indistinguishable from an unknown one.
+ * Loads and locks the rows a bulk write will touch, so nothing can change
+ * between this classification and the write that follows. Ids from another
+ * project land in `skipped` exactly like unknown ones, so a caller cannot tell
+ * the two apart.
  */
 export async function loadBulkTargets(
   db: Kysely<DB>,
@@ -71,8 +72,8 @@ export async function loadBulkTargets(
 
 /**
  * The cards the caller saw on either side of where the selection was dropped.
- * Either may have gone by the time the request lands, which is why there are
- * two of them.
+ * Either may have moved or gone by the time the request lands, so the pair is
+ * redundant on purpose.
  */
 export interface SelectionAnchors {
   afterTaskId?: string;
@@ -97,11 +98,11 @@ async function liveKeyIn(
   return row?.sort_key ?? null;
 }
 
-// Bounded by the nearest key in the whole column — archived rows and the rows
-// being moved included — so nothing sits inside the gap. That is what lets one
-// UPDATE rewrite the batch: the unique index is checked row by row as it goes,
-// and a new key equal to a moving row's old one would trip it whenever that row
-// happened to be written second.
+// Bounds the gap with the nearest keys in the whole column, archived and moving
+// rows included, so no other row's key can fall inside it. That is what lets
+// one UPDATE rewrite the batch: the unique index is checked row by row as it
+// goes, and a new key equal to a still-unmoved row's old key would trip it
+// whenever that row happened to be written second.
 async function gapBeside(
   db: Kysely<DB>,
   columnId: string,
@@ -152,16 +153,16 @@ async function selectionPositions(
 }
 
 /**
- * Places the rows contiguously in the order they arrive, each carrying its own
- * source column into the activity log — a selection spans columns, so one source
- * for the whole batch would misreport most of it. Unlike `relocateColumnTasks` in
- * ./boardColumns, the ids come from the client and can already be in the target
- * column, which is where the project and archived predicates and the
- * column_since case come from.
+ * Places the rows contiguously in the order they arrive. Each row reports its
+ * own source column to the activity log, since a selection can span columns and
+ * one source for the whole batch would misreport most of it. Unlike
+ * `relocateColumnTasks` in ./boardColumns, these ids come from the client and
+ * may already be in the target column, so the write still filters on project
+ * and `archived_at` and keeps `column_since` for rows that stay put.
  *
  * The caller holds the target's tail lock, which the gap read needs as much as
- * an append does: two selections dropped into one gap would otherwise read the
- * same bounds and generate the same keys.
+ * an append does: two selections dropped into the same gap would otherwise read
+ * the same bounds and generate the same keys.
  */
 export async function relocateSelectedTasks(
   db: Kysely<DB>,
@@ -238,9 +239,9 @@ function insertPairs(taskIds: readonly string[], values: readonly string[]): [st
 }
 
 /**
- * `returning` on both statements yields the exact pairs that changed, which is
- * what keeps the activity log and the published event honest: a card that
- * already carried the label produces no row, no entry and no event member.
+ * `returning` on both statements yields exactly the pairs that changed, so the
+ * activity log and the published event mention only those: adding a label a
+ * card already carries produces nothing.
  */
 export async function applyTaskLabelDelta(
   db: Kysely<DB>,

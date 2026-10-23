@@ -11,10 +11,10 @@ export async function lockProjectDependencies(db: Kysely<DB>, projectId: string)
   await takeAdvisoryLock(db, AdvisoryLock.projectDependencies, projectId);
 }
 
-// A cross-project edge has to serialize against writers in both projects, and
+// A cross-project edge must serialize against writers in both projects, and
 // ascending id is the order every such writer uses: two edges created in
 // opposite directions between the same pair would deadlock on any other rule.
-// Same reasoning as inProjectLockOrder, one lock lower down.
+// The same ordering rule as `inProjectLockOrder`, applied to the advisory locks.
 export async function lockDependencyProjects(
   db: Kysely<DB>,
   projectIds: readonly string[]
@@ -97,8 +97,8 @@ export function cyclePathIds(
 // The edges reachable downstream of the blocked task, which is exactly the set
 // cyclePathIds' BFS explores. Scoped by reachability rather than by project: a
 // loop that leaves the project and comes back is invisible to a project filter,
-// and fetching the whole table to find it would be worse. UNION, not UNION ALL,
-// so it terminates on data that already contains a cycle.
+// and fetching the whole table would be worse. UNION, not UNION ALL, so it
+// terminates on data that already contains a cycle.
 async function downstreamEdges(db: Kysely<DB>, blockedTaskId: string) {
   const result = await sql<DependencyEdge>`
     with recursive downstream(blocker_task_id, blocked_task_id) as (

@@ -21,8 +21,8 @@ export type UnsubscribeTokenVerification =
   | { status: 'invalid' };
 
 // Recomputed from the stored address at redemption, so changing the address
-// invalidates every outstanding link with no stored state — and no address
-// reaches a URL, an access log or a browser history.
+// invalidates every outstanding link without any state to store — and no
+// address reaches a URL, an access log or a browser history.
 export function emailAddressHash(email: string): string {
   return crypto
     .createHash('sha256')

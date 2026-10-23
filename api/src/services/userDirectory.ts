@@ -1,3 +1,7 @@
+// Who a caller may see, rather than what they may do — the listing half of
+// project access. Kept apart from ./authorization so a "may X do Y" assertion
+// and a "who shows up in this picker" query are never reached for each other by
+// mistake: these answer with rows, never with a 403 or a 404.
 import {
   sql,
   type ExpressionBuilder,
@@ -8,11 +12,6 @@ import {
 } from 'kysely';
 import type { DB } from '../db/types';
 import { avatarUrl } from './avatars';
-
-// Who a caller may see, rather than what they may do — the listing half of
-// project access. Kept apart from ./authorization so a "may X do Y" assertion
-// and a "who shows up in this picker" query are never reached for each other by
-// mistake: these answer with rows, never with a 403 or a 404.
 
 // Compared in SQL rather than selected and compared in memory: an address that
 // is never fetched cannot be spread into a response by a later refactor.
@@ -59,15 +58,13 @@ export function sharesProjectFilter(userId: string) {
 // cannot drift.
 //
 // Which form to use is not a matter of taste. Under a LIMIT, the correlated
-// EXISTS is re-evaluated for every row the limit has to step over, and each
-// evaluation loops the caller's whole project list: for a caller in 800
-// projects searching 2,000 accounts that was a nested loop discarding half a
-// million rows and touching a million buffers, for one keystroke. Resolved as a
-// set it is one pass, hashed once.
+// EXISTS is re-evaluated for every row the limit steps over, and each evaluation
+// loops the caller's whole project list; resolved as a set it is one pass,
+// hashed once.
 //
 // NOT IN is what makes it a hashed subplan rather than a correlated one, so the
-// null guard is load-bearing: a single null in the set would make the
-// comparison null for every row and silently answer with nobody.
+// null guard is load-bearing: a single null in the set would make the comparison
+// null for every row and silently answer with nobody.
 export function projectSharerIds(userId: string): RawBuilder<{ user_id: string }> {
   return sql<{ user_id: string }>`
     with mine as (

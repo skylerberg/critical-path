@@ -226,7 +226,7 @@ export async function copyTasks(
       .execute();
   }
 
-  // One routine copies all three kinds now, images included.
+  // One routine copies all three kinds, images included.
   const { objectCopies } = await copyTaskAttachments(db, {
     sourceTaskIds: input.sourceTaskIds,
     taskIdMap,
@@ -329,7 +329,7 @@ export async function copyProject(db: Kysely<DB>, input: CopyProjectInput): Prom
   }
 
   // Ahead of the tasks: copyTasks writes storage objects the transaction cannot
-  // roll back, so nothing that can throw belongs after it.
+  // roll back, so anything that can throw has to run before it.
   await copySeries(db, {
     sourceProjectId: input.sourceProjectId,
     project: { id: input.id, created_by: input.createdBy },

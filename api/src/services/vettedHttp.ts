@@ -62,8 +62,8 @@ export function vettedRequest<T>(
       options.target,
       {
         method: options.method,
-        // The global agent keeps sockets alive and reuses them by host:port,
-        // which skips the lookup entirely on every request after the first.
+        // No global agent: it keeps sockets alive and reuses them by host:port,
+        // which would skip the lookup on every request after the first.
         agent: false,
         lookup: blockedTargetLookup(options.policy, options.resolve),
         headers: options.headers,

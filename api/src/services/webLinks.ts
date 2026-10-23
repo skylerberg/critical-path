@@ -1,10 +1,8 @@
 import { env } from '../config/env';
 
-// Every path this server sends people to in the web app, in one place. They
-// were template literals in four services, which is how /projects/:id survived
-// the web app going alias-only: each end tested its own half and nothing
-// compared them. `tests/unit/webLinks.test.ts` pins these strings, and
-// `web/src/lib/router.test.ts` asserts the same list still routes — two tests
+// The web-app paths this server sends people to, in one place.
+// `tests/unit/webLinks.test.ts` pins these strings, and
+// `web/src/lib/router.test.ts` asserts the same routes still exist — two tests
 // that fail separately rather than one gap that fails silently.
 //
 // Aliases are deliberately absent. Encoding one needs the alphabet, which is

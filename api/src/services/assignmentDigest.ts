@@ -29,8 +29,9 @@ export const DIGEST_MAX_TASKS = 500;
 const TITLES_IN_EMAIL = 5;
 const MAX_TITLE_CHARS = 120;
 
-// Titles and board names may carry newlines, and a bullet list a card title can
-// break out of is an unsubscribe footer a card title can forge.
+// Titles and board names can contain newlines, and the message is plain text
+// with one card per line: a title could otherwise add its own lines, including
+// a forged "stop receiving these emails" line.
 function oneLine(text: string): string {
   const collapsed = text.replace(/\s+/gu, ' ').trim();
   return collapsed.length > MAX_TITLE_CHARS
@@ -178,8 +179,9 @@ function digestMessage(
   };
 }
 
-// Not the group key: two different sets of cards from the same person on the
-// same board are two different things to say.
+// Deliberately not the group key: two different sets of cards from the same
+// person on the same board are different messages and must not collapse into
+// one.
 function repeatKey(projectId: string, taskIds: string[]): string {
   const fingerprint = crypto
     .createHash('sha256')

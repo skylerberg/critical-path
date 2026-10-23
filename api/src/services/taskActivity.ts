@@ -9,8 +9,9 @@ export interface TaskActivityWrite {
   newValue?: ActivityValue | null;
 }
 
-// The generated Json column type has an index signature the value interfaces
-// cannot satisfy; jsonb parses the text back into the same object.
+// Returns JSON text rather than an object: the generated Json column type has
+// an index signature the value interfaces cannot satisfy, and jsonb parses the
+// text back into the same object.
 function serializeValue(value: ActivityValue | null | undefined): string | null {
   return value == null ? null : JSON.stringify(value);
 }

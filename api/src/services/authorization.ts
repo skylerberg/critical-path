@@ -123,8 +123,8 @@ export function assertProjectOwnedBy(
   }
 }
 
-// Guards the row the caller is about to serve, so the flag can never be read
-// from a different snapshot than the payload it gates.
+// Checked on the row the caller already read, so the flag and the payload it
+// gates always come from the same snapshot.
 export function assertPublicProject(project: { is_public: boolean }): void {
   if (!project.is_public) {
     throw new AppError(404, 'This board is not public');

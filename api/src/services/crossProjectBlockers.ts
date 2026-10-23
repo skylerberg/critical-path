@@ -15,9 +15,9 @@ export interface CrossProjectCount extends CrossProjectDependent {
 }
 
 // Named the way each caller already knows its blockers: a handful of task ids, a
-// whole column about to have its done flag flipped, or the projects a delete is
-// about to take away. The column form is what keeps a fifty-card flip to one
-// query instead of fifty ids marshaled through an `in` list.
+// whole column whose done flag is about to flip, or the projects a delete is
+// about to take away. The column form keeps a fifty-card flip to one query
+// rather than fifty ids marshaled through an `in` list.
 export type CrossProjectBlockerScope =
   | { taskIds: readonly string[] }
   | { columnId: string }
@@ -55,10 +55,11 @@ export async function crossProjectDependentsOf(
   return await scoped.execute();
 }
 
-// The one place a remote blocker's done state is resolved. Driven off the
-// requested ids rather than off the edges, so a task whose last cross-project
-// blocker just went away is reset to 0 rather than left untouched. Returns only
-// the rows that actually moved, which is exactly what has to be published.
+// The one place a remote blocker's column state becomes this task's open count.
+// Driven off the requested ids rather than off the edges, so a task whose last
+// cross-project blocker went away is reset to 0 rather than left untouched.
+// Returns only the rows that actually moved, which is exactly what has to be
+// published.
 export async function refreshCrossProjectBlockerCounts(
   db: Kysely<DB>,
   blockedTaskIds: readonly string[]
@@ -97,9 +98,9 @@ export async function refreshCrossProjectBlockerCounts(
 }
 
 // Its own event type rather than a task_relations_set fan-out: this reaches a
-// project the actor may not belong to, where the change leaves no activity or
-// comment row, so a type that raises the unseen dot would dot a board that
-// nothing in it explains and no amount of looking could clear.
+// project the actor may not belong to, and leaves no activity or comment row
+// there. A type that raises the unseen dot would dot a board with nothing in it
+// to explain the dot, and no amount of looking would clear it.
 export function publishCrossProjectBlockerCounts(
   c: Pick<PublicContext, 'get'>,
   counts: readonly CrossProjectCount[]

@@ -6,7 +6,7 @@ import { assertProjectWrite } from './authorization';
 export const LABEL_NOT_FOUND = 'Label not found';
 
 // 404 for a caller with no access to the label's project, so an inaccessible
-// label stays indistinguishable from a nonexistent one; 403 for a viewer.
+// label looks nonexistent; 403 for a viewer.
 export async function assertLabelWrite(
   db: Kysely<DB>,
   userId: string,

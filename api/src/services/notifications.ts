@@ -16,8 +16,8 @@ import type {
 } from '../schemas/notifications';
 import type { PublicContext } from '../types/index';
 
-// Membership already bounds who can be notified; this bounds the fan-out of a
-// single write on a project with a large membership.
+// Membership already bounds who can be notified; this bounds one write's
+// fan-out on a project with a large membership.
 export const MAX_NOTIFICATION_RECIPIENTS = 100;
 
 export const NOTIFY_COLUMN = {
@@ -31,8 +31,8 @@ export type NotifyColumn = (typeof NOTIFY_COLUMN)[NotificationKind];
 
 export const NOTIFICATION_KINDS = Object.keys(NOTIFY_COLUMN) as NotificationKind[];
 
-// Everything that reads or writes the preferences goes through these two, so a
-// new kind is the `NOTIFY_COLUMN` row and its migration and nothing else.
+// Every read and write of the preference columns goes through these two, so
+// adding a kind takes a `NOTIFY_COLUMN` row and its migration and nothing else.
 export const NOTIFY_COLUMNS: NotifyColumn[] = NOTIFICATION_KINDS.map((kind) => NOTIFY_COLUMN[kind]);
 
 export function toNotificationSettings(row: Record<NotifyColumn, boolean>): NotificationSettings {
@@ -77,23 +77,20 @@ export interface Recipient {
   name: string;
 }
 
-// Both mailers gate on the same four things, and the access re-check is
-// deliberately the last of them: every caller runs after its transaction
+// The one gate every mailer passes through, and the access re-check is
+// deliberately its last step: every caller runs after its transaction
 // committed, so access can have been revoked in between.
 //
-// This is the one gate every mailer passes through, so the two rules that bound
-// who a single write can reach live here rather than only in `notify`: the actor
-// is dropped, and what is left is capped. `notify` applies both again before it
-// queues anything, but a publisher that builds its own `Notification` and calls
-// `notificationDelivery.deliver` runs none of that — and "acting on yourself
-// never mails you" and "one write mails at most a hundred people" have to hold
-// for those as well. `actorUserId` is a required argument for the same reason: a
-// mailer cannot forget to pass what it has no choice about.
+// The two rules that bound what one write can reach live here, not only in
+// `notify`: the actor is dropped and the rest capped. `notify` applies both
+// again before queueing, but a publisher that builds its own `Notification` and
+// calls `notificationDelivery.deliver` runs none of that, and both rules have to
+// hold for it too. `actorUserId` is required for the same reason: a mailer
+// cannot forget to pass what it has no choice about.
 //
-// Both bound the ids asked for rather than the ones that survive the gates
-// below, so naming 150 people of whom 60 are unverified mails 40 and not 100.
-// That keeps the ceiling a bound on the fan-out of one write, which is the thing
-// worth bounding, rather than a quota to be filled.
+// Both bound the ids asked for, not the ones that survive the filters below, so
+// naming 150 people of whom 60 are unverified mails 40 and not 100 — the ceiling
+// bounds one write's fan-out rather than being a quota to fill.
 export async function eligibleRecipients(
   kind: NotificationKind,
   project: ProjectAccessFields,
@@ -139,8 +136,8 @@ export function unsubscribeLinks(
   page: string;
   headers: Record<string, string>;
 } {
-  // The web app and this service share an origin, so the app's base is also
-  // what a mail client has to post back to.
+  // The web app and this service share an origin, so the app's base URL is also
+  // the one a mail client posts the one-click unsubscribe back to.
   const token = encodeURIComponent(createUnsubscribeToken(recipient.id, recipient.email, kind));
   return {
     page: unsubscribeLink(token),
@@ -248,10 +245,10 @@ export type NotifyArgs = {
 );
 
 export async function notify(c: Pick<PublicContext, 'get'>, args: NotifyArgs): Promise<void> {
-  // Both rules are applied again in `eligibleRecipients`, which is what makes
-  // them hold for every mailer. Applying them here as well is what makes a write
-  // naming only yourself queue no hook at all, and what keeps the hundred ids
-  // this hands on from being a different hundred than the ones that get mail.
+  // Both rules apply again in `eligibleRecipients`, which is what makes them
+  // hold for every mailer. Applying them here too is what makes a write naming
+  // only yourself queue no hook at all, and what keeps the hundred ids handed on
+  // the same hundred that can get mail.
   const recipientUserIds = [...new Set(args.recipientUserIds)]
     .filter((id) => id !== args.actor.id)
     .slice(0, MAX_NOTIFICATION_RECIPIENTS);

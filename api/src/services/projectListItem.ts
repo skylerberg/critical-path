@@ -32,8 +32,8 @@ export const PROJECT_COLUMNS = [
   'color',
 ] as const;
 
-// Fail closed, like roles: a key a newer release wrote reaches an older client as
-// "no color" rather than as a key it has no swatch for.
+// Fail closed, like roles: a color a newer release wrote reaches an older client
+// as "no color" rather than as a value it has no swatch for.
 export function normalizeProjectAccent(color: string | null): ProjectAccent | null {
   return color !== null && projectAccent.allows(color) ? color : null;
 }

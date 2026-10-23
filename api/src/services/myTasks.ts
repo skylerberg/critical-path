@@ -5,9 +5,9 @@ import type { MyTask, MyTaskLink, MyTaskPersonGroup, MyTasksResponse } from '../
 import { accessibleProjectsFilter } from './authorization';
 
 // Large enough that a person with a normal amount of work assigned never
-// reaches it — the whole point is that most callers never learn there is a page
-// at all. It is a ceiling on one response, not on what the caller may see:
-// next_offset walks the rest.
+// reaches it — the point is that most callers never learn there is a page at
+// all. It caps one response, not what the caller may see: next_offset walks the
+// rest.
 export const MY_TASKS_PAGE_SIZE = 1000;
 
 interface AssigneeRow {
@@ -50,10 +50,9 @@ export function bucketAndOrder(rows: MyTaskRow[], userId: string): MyTask[] {
     const blocking = row.blocking_rows.map(toLink);
     const blockedBy = row.blocked_by_rows.map(toLink);
     // Only from links the caller may read: naming someone whose project they
-    // cannot open would leak the person along with the work. The hidden
-    // dependents are surfaced as a count instead, so a task that only holds up
-    // invisible people stays out of the blocking bucket rather than pointing at
-    // nobody.
+    // cannot open would leak the person along with the work. Hidden dependents
+    // are reported as a count instead, so a task that only holds up invisible
+    // people stays out of the blocking bucket rather than pointing at nobody.
     const waitingUserIds = [...new Set(blocking.flatMap((link) => link.assignee_ids))]
       .filter((id) => id !== userId)
       .sort();
@@ -122,9 +121,9 @@ export function personGroups(
     });
 }
 
-// The far end of an edge may now live in a project the caller has no relation
-// to. Every list below is filtered on this so nothing unreadable is ever named,
-// and what it filters out is reported as a bare count instead.
+// The far end of an edge can live in a project the caller has no relation to.
+// Every list below filters on this so nothing unreadable is ever named, and what
+// it filters out is reported as a bare count instead.
 //
 // Deliberately counted over OPEN edges only, matching the visible lists:
 // counting the done ones too would let a caller subtract the two and learn that
@@ -267,11 +266,10 @@ function myTasksRows(db: Kysely<DB>, userId: string) {
           .orderBy('dependent.id')
       ).as('blocking_rows'),
       hiddenEdgeCount(userId, 'blocking').as('hidden_blocking_count'),
-      // The two numbers the bucket is decided by, selected so the ordering can
-      // happen in SQL. It has to: the page boundary is applied there, and a
-      // LIMIT over board position would hand back an arbitrary thousand cards
-      // rather than the thousand the caller most needs, leaving the documented
-      // order holding only within a page.
+      // The two numbers the bucket depends on, selected so the ordering can
+      // happen in SQL. It must: the page boundary is applied there, and a LIMIT
+      // over board position would hand back an arbitrary thousand cards rather
+      // than the thousand the caller most needs.
       openBlockers(eb, userId)
         .select((ib) => ib.fn.countAll<string>().as('n'))
         .as('readable_blocker_count'),
