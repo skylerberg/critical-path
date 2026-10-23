@@ -15,7 +15,7 @@ const CENTRAL_HEADER_BYTES = 46;
 const END_OF_CENTRAL_DIRECTORY_BYTES = 22;
 
 // This writer emits plain zip, not zip64, so every size and offset field is 32
-// bits wide and the entry count is 16. Callers must refuse anything larger
+// bits wide and the entry-count field is 16. Callers must refuse anything larger
 // rather than let the fields wrap into a corrupt archive.
 export const ZIP_MAX_BYTES = 0xffffffff;
 export const ZIP_MAX_ENTRIES = 0xffff;

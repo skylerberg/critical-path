@@ -6,8 +6,9 @@ import { dateText } from '../dateText';
 import { presetFor, summarize } from './rule';
 
 // Fail closed: the column is plain text, so a value a newer release wrote — or
-// one nothing writes — reads as the state the materializer's `status = 'active'`
-// claim already puts it in, rather than as a schedule a client thinks is live.
+// one nothing writes — reads as 'ended'. The materializer only ever claims rows
+// whose status is active, so an unknown value is a schedule nothing sweeps, and
+// showing it as live would be a lie.
 function narrowSeriesStatus(status: string): TaskSeriesResponse['status'] {
   return status === 'active' || status === 'paused' ? status : 'ended';
 }

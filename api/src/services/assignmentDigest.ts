@@ -21,7 +21,8 @@ const DIGEST_SWEEP_BATCH = 50;
 // The group waits for its sender to stop rather than for a fixed delay after the
 // first card, so a second bulk assign a minute later joins the same message.
 const DIGEST_QUIET_SECONDS = 120;
-// …but a sender who keeps going never lets it settle, so the wait is capped.
+// …but a sender who never stops would hold the group open forever, so the wait
+// is capped.
 const DIGEST_MAX_WAIT_SECONDS = 900;
 
 // Bounds the id list a single flush resolves; the remainder flushes next tick.
@@ -29,8 +30,8 @@ export const DIGEST_MAX_TASKS = 500;
 const TITLES_IN_EMAIL = 5;
 const MAX_TITLE_CHARS = 120;
 
-// Titles and board names may carry newlines, and a bullet list a card title can
-// break out of is an unsubscribe footer a card title can forge.
+// Titles and board names may carry newlines; a card title that breaks out of its
+// bullet could forge the unsubscribe footer.
 function oneLine(text: string): string {
   const collapsed = text.replace(/\s+/gu, ' ').trim();
   return collapsed.length > MAX_TITLE_CHARS
@@ -106,7 +107,7 @@ async function dueGroups(limit: number): Promise<DigestGroup[]> {
 /**
  * Takes the group's pending rows away under a lock, so a second replica sweeping
  * the same group finds nothing rather than sending the message twice. The rows
- * are gone whatever the gates downstream decide: a recipient who has switched
+ * stay gone whatever the gates downstream decide: a recipient who has switched
  * the kind off must not accumulate a queue forever.
  */
 async function claimDigest(group: DigestGroup): Promise<AssignmentDigest | null> {
@@ -179,7 +180,7 @@ function digestMessage(
 }
 
 // Not the group key: two different sets of cards from the same person on the
-// same board are two different things to say.
+// same board are two different messages.
 function repeatKey(projectId: string, taskIds: string[]): string {
   const fingerprint = crypto
     .createHash('sha256')

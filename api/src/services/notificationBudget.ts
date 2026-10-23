@@ -9,9 +9,9 @@ import { logger, type LogFields } from '../utils/logger';
 export const NOTIFY_WINDOW_MS = 60 * 60_000;
 export const NOTIFY_PAIR_MAX_ATTEMPTS = 20;
 export const NOTIFY_RECIPIENT_MAX_ATTEMPTS = 100;
-// Distinct senders named per silenced mailbox per window. One line cannot tell a
+// Distinct senders named per silenced mailbox per window: one line cannot tell a
 // single loop from a farm of accounts, which is the attack the ceiling exists
-// for; one line per sender is the log spam it was avoiding.
+// for, while one line per sender is the log spam it avoids.
 export const NOTIFY_SILENCE_LOG_MAX = 10;
 
 // An unconditional line would turn an abuse loop into log spam, but dropping

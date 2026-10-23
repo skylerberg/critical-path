@@ -2,9 +2,10 @@ import { sql, type Kysely } from 'kysely';
 import type { DB, ResolvedSortKey } from '../db/types';
 import { generateKeyBetween, generateNKeysBetween, BASE_62_DIGITS } from 'fractional-indexing';
 
-// The only place a plain string becomes writable. Everything below hands back
-// a key it has just ranked against the whole scope -- archived rows included --
-// so the assertion is the claim that it did, not a way around the check.
+// The only place a plain string becomes a writable key. Every function below
+// returns a key it has just ranked against its whole scope, archived rows
+// included, so this assertion is the claim that one did — not a way around the
+// check.
 function resolved(key: string): ResolvedSortKey {
   return key as ResolvedSortKey;
 }
@@ -36,9 +37,10 @@ export function isValidSortKey(key: string): boolean {
   return structurallyValid(key);
 }
 
-// The library validates a key whenever it is used as a bound. Either direction
-// proves the structure; one alone would also reject the largest and smallest
-// representable integers, which are structurally fine but have no room beyond.
+// The library validates a key whenever it is used as a bound, so trying it in one
+// direction proves the structure — but that direction alone rejects the largest
+// and smallest representable keys, which are structurally fine and simply have no
+// room beyond. Hence both.
 function structurallyValid(key: string): boolean {
   for (const bounds of [[key, null] as const, [null, key] as const]) {
     try {

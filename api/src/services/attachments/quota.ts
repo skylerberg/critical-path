@@ -16,9 +16,8 @@ function quotaExceeded(used: number, quota: number): AppError {
   );
 }
 
-// One table, one sum. Images are rows here too, so the quota still covers them
-// and a PNG cannot be used to slip past it — it just no longer takes a second
-// query and a reconciliation to say so.
+// One table, one sum: images are rows here too, so the quota covers them and a
+// PNG cannot be used to slip past it.
 async function usedBytes(db: Kysely<DB>, projectId: string): Promise<number> {
   const row = await db
     .selectFrom('task_attachment')

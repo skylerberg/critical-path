@@ -14,10 +14,10 @@ export interface CrossProjectCount extends CrossProjectDependent {
   open_cross_project_blocker_count: number;
 }
 
-// Named the way each caller already knows its blockers: a handful of task ids, a
-// whole column about to have its done flag flipped, or the projects a delete is
-// about to take away. The column form is what keeps a fifty-card flip to one
-// query instead of fifty ids marshaled through an `in` list.
+// Named the way each caller already knows its blockers: task ids, a column whose
+// done flag is about to flip, or the projects a delete is about to remove. The
+// column form keeps a whole-column flip to one query instead of an `in` list of
+// every id in it.
 export type CrossProjectBlockerScope =
   | { taskIds: readonly string[] }
   | { columnId: string }
@@ -58,7 +58,7 @@ export async function crossProjectDependentsOf(
 // The one place a remote blocker's done state is resolved. Driven off the
 // requested ids rather than off the edges, so a task whose last cross-project
 // blocker just went away is reset to 0 rather than left untouched. Returns only
-// the rows that actually moved, which is exactly what has to be published.
+// the rows that moved — exactly what has to be published.
 export async function refreshCrossProjectBlockerCounts(
   db: Kysely<DB>,
   blockedTaskIds: readonly string[]
@@ -96,10 +96,10 @@ export async function refreshCrossProjectBlockerCounts(
   return result.rows;
 }
 
-// Its own event type rather than a task_relations_set fan-out: this reaches a
+// Its own event type rather than a task_relations_set fan-out: it reaches a
 // project the actor may not belong to, where the change leaves no activity or
-// comment row, so a type that raises the unseen dot would dot a board that
-// nothing in it explains and no amount of looking could clear.
+// comment row, so raising the unseen dot would dot a board with nothing in it to
+// explain the dot.
 export function publishCrossProjectBlockerCounts(
   c: Pick<PublicContext, 'get'>,
   counts: readonly CrossProjectCount[]

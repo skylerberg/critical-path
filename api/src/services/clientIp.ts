@@ -3,15 +3,16 @@ import { getConnInfo } from '@hono/node-server/conninfo';
 import { env } from '../config/env';
 
 // One derivation of "who is calling", shared by the request path and the socket
-// upgrade. Two would be two answers to the question every budget is keyed on,
-// and the one that reads the header wrong is the one an attacker picks.
+// upgrade. Every budget is keyed on it, so a second derivation would give an
+// attacker a choice of which one to fool.
 export function clientIpFrom(
   forwarded: string | string[] | undefined,
   socketAddress: string | undefined
 ): string {
   if (env.trustProxy) {
-    // Entries left of the proxy-appended suffix are client-forgeable. GCP
-    // HTTPS load balancers append "<client-ip>, <lb-ip>", hence hops=2 there.
+    // Entries left of the suffix a trusted proxy appends are client-forgeable:
+    // a GCP HTTPS load balancer appends "<client-ip>, <lb-ip>", so hops are
+    // counted from the right.
     const header = Array.isArray(forwarded) ? forwarded.join(',') : forwarded;
     if (header) {
       const entries = header.split(',');

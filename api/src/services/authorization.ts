@@ -11,8 +11,8 @@ export type ProjectRole = 'editor' | 'viewer';
 
 export const READ_ONLY_MESSAGE = 'Read-only access to this project';
 
-// Fail closed: anything that is not exactly 'editor' — a future third role, a
-// value written by a newer release — grants reads only.
+// Fail closed: anything but exactly 'editor' — a future role, a value written by
+// a newer release — grants reads only.
 export function normalizeProjectRole(role: string): ProjectRole {
   return role === 'editor' ? 'editor' : 'viewer';
 }
@@ -31,8 +31,8 @@ export async function isProjectMember(
   return row !== undefined;
 }
 
-// null means no access at all. The creator is implicitly an editor and is
-// never stored as a member row.
+// null means no access at all. The creator is implicitly an editor, with no
+// member row.
 export async function projectRole(
   db: Kysely<DB>,
   userId: string,
@@ -56,8 +56,8 @@ export async function canAccessProject(
   return (await projectRole(db, userId, project)) !== null;
 }
 
-// 404 rather than 403 so inaccessible projects are indistinguishable from
-// nonexistent ones.
+// 404 rather than 403, so an inaccessible project is indistinguishable from a
+// nonexistent one.
 export async function assertProjectAccess(
   db: Kysely<DB>,
   userId: string,
@@ -75,9 +75,7 @@ export async function assertProjectAccess(
   return project;
 }
 
-// 404 for a caller with no access, so an inaccessible project stays
-// indistinguishable from a nonexistent one; 403 only for a viewer, who can
-// already see the project and learns nothing from the distinction.
+// 403 only for a viewer, who can already read the project.
 export async function assertCanWriteProject(
   db: Kysely<DB>,
   userId: string,
@@ -111,8 +109,8 @@ export async function assertProjectWrite(
   return project;
 }
 
-// Ownership only. Callers must assert access first: on its own this answers 403
-// to a caller who cannot see the project, revealing that it exists.
+// Ownership only: callers must assert access first, or this 403 tells a stranger
+// that the project exists.
 export function assertProjectOwnedBy(
   project: { created_by: string | null },
   userId: string,
@@ -123,8 +121,8 @@ export function assertProjectOwnedBy(
   }
 }
 
-// Guards the row the caller is about to serve, so the flag can never be read
-// from a different snapshot than the payload it gates.
+// Callers pass the row they are about to serve, so the flag and the payload it
+// gates come from one read.
 export function assertPublicProject(project: { is_public: boolean }): void {
   if (!project.is_public) {
     throw new AppError(404, 'This board is not public');

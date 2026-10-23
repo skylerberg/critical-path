@@ -12,7 +12,7 @@ export async function searchTasks(
   query: string,
   projectId?: string
 ): Promise<SearchResponse> {
-  // The task vector carries english-stemmed lexemes in its A/B arms.
+  // The task vector's A and B weights carry english-stemmed lexemes.
   const matcher = prefixTsquery(query, { stemWith: 'english' });
 
   const rows = await db

@@ -11,8 +11,8 @@ export const PERIODIC_MAX_BACKOFF_SECONDS = 600;
 export const CLAIM_BATCH = 8;
 export const MAX_CONCURRENT_JOBS = 4;
 export const MAX_HANDLER_TIMEOUT_MS = 20_000;
-// How many handlers deep a claimed row can queue, which is what turns the
-// handler timeout into a bound on the whole tick.
+// How many claim rounds one tick can run, which is what turns the handler
+// timeout into a bound on the whole tick.
 export const ROUNDS_PER_TICK = Math.ceil(CLAIM_BATCH / MAX_CONCURRENT_JOBS);
 
 export type JobRow = Selectable<Job>;

@@ -18,7 +18,7 @@ export function isPersonalAccessToken(token: string): boolean {
 
 // Authentication already reads the column, so asking here costs nothing and
 // keeps a busy agent from issuing a write per request. `last_used_at` is
-// therefore accurate to the minute, which is all the UI claims.
+// therefore only accurate to the throttle window, which is all the UI claims.
 export function personalAccessTokenUseIsStale(lastUsedAt: Date | null): boolean {
   return lastUsedAt === null || Date.now() - lastUsedAt.getTime() >= LAST_USED_THROTTLE_MS;
 }

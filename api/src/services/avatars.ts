@@ -6,14 +6,12 @@ export function avatarUrl(storageKey: string | null): string | null {
   return storageKey === null ? null : `/api/avatars/${storageKey}`;
 }
 
-// Not scoped to boards the caller shares with the owner. An avatar is the same
-// key on every board its owner appears on, so a per-board rule would mean a
-// lookup per face on a card, and any member of any shared project could ask for
-// it anyway. Being signed in is the line.
+// Signed in is the whole check, not a shared board: one avatar key serves every
+// board its owner appears on, so a per-board rule would mean a lookup per face
+// on a card and would still admit any member of any shared project.
 //
-// An anonymous caller gets one only when its owner appears on a published
-// board, which is the same rule the pictures on that board follow: without it a
-// public board renders its cards with every avatar broken.
+// An anonymous caller gets one only when the owner appears on a published board:
+// without that, a public board renders with every avatar broken.
 export async function assertAvatarReadable(
   db: Kysely<DB>,
   user: { id: string } | undefined,

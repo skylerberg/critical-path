@@ -9,14 +9,14 @@
 // No project id, so neither of the project-scoped columns applies: publishing
 // one returns before the dot and the webhook queue are ever consulted.
 //
-// What a project event answers with its project — who receives this — an
-// account event has to answer here, because the delivery layer has no room to
-// fall back to: an account entry that reaches deliverProjectScoped is dropped
-// on the null project id, silently and with nothing logged. So the column is
-// what stops that being a runtime accident. `namedRecipients` is the only kind
-// whose audience the publish site knows, and publishAfterCommit's overloads
-// require exactly that kind to carry `recipientUserIds`; the other two are
-// answered by a dedicated branch and take no publish options at all.
+// A project event answers "who receives this" with its project; an account event
+// has to answer it here, because an account entry that reaches
+// deliverProjectScoped is dropped on the null project id, silently and with
+// nothing logged. So the column is what stops that being a runtime accident.
+// `namedRecipients` is the only kind whose audience the publish site knows, and
+// publishAfterCommit's overloads require exactly that kind to carry
+// `recipientUserIds`; the other two are answered by a dedicated branch and take
+// no publish options at all.
 type AccountEvent = {
   scope: 'account';
   delivery:
