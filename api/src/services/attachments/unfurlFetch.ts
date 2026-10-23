@@ -26,9 +26,8 @@ const USER_AGENT = `${APP_NAME.replace(/\s+/g, '')}-Unfurl/1`;
 
 export class UnfurlFetchError extends Error {}
 
-// Redirects are followed here rather than by the transport so every hop is
-// re-validated against the policy, instead of only the first one deciding where
-// the socket ends up. The deadline spans the whole chain, not each hop.
+// Follows redirects itself so every hop is re-validated against the policy, and
+// times the chain as a whole rather than each hop separately.
 export async function fetchVetted(
   url: string,
   limits: FetchLimits,
@@ -145,8 +144,6 @@ function requestOnce(
       });
     }
   ).catch((err: unknown) => {
-    // One error type for everything this module rejects with, whether the
-    // refusal came from the policy, the socket or the deadline.
     throw new UnfurlFetchError(errorText(err));
   });
 }

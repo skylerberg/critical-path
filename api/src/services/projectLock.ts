@@ -13,11 +13,11 @@ export function inProjectLockOrder<O>(
   return qb.orderBy('project.id').forUpdate();
 }
 
-// Every project_member write decides what to write from created_by, so that read
-// has to hold the project row: without the lock an ownership transfer can commit
-// mid-request and leave the new creator holding a member row. Writers of a
-// project's invitations hold it too, so a revoke cannot land inside a re-invite
-// about to recreate the row it revoked.
+// Every project_member write decides what to write from created_by, so the read
+// of created_by has to hold the project row: without the lock, an ownership
+// transfer can commit mid-request and leave the new creator holding a member
+// row. Invitation writers hold the same row, so a revoke cannot land inside a
+// re-invite that is about to recreate the row it revoked.
 export async function lockProject(db: Kysely<DB>, projectId: string): Promise<ProjectRow> {
   const row = await db
     .selectFrom('project')

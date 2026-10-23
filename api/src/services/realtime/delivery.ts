@@ -22,8 +22,9 @@ function sendTo(
   }
 }
 
-// Capped to self plus project-sharers: that is exactly the set allowed to read
-// the changed user's record at all, so nobody else may learn it changed.
+// Capped to the changed user plus everyone who shares a project with them:
+// exactly the set allowed to read that user's record, so nobody else learns it
+// changed.
 async function deliverUserUpdated(
   entry: Extract<BusEntry, { type: typeof USER_UPDATED }>,
   message: string,
@@ -66,8 +67,9 @@ async function deliverProjectScoped(
     .executeTakeFirst();
   if (!project) return;
 
-  // A recipient list may only narrow what the re-check already allows: it is a
-  // publisher's opinion, and this is the layer that does not take those.
+  // A recipient list narrows the set the role re-check below allows, never
+  // widens it: it carries the publisher's opinion of who should hear, which
+  // this layer does not accept as permission.
   const named = entry.recipientUserIds ? new Set(entry.recipientUserIds) : null;
   const userIds = [...new Set(candidates.map(([, state]) => state.userId))].filter(
     (userId) => named === null || named.has(userId)
@@ -99,8 +101,8 @@ export async function deliver(entry: BusEntry, dbc: Kysely<DB> = db): Promise<vo
     data: entry.data,
   });
 
-  // Ahead of the shortcuts below, each of which skips the role check: an
-  // editor-scoped entry reaches nobody rather than anybody unchecked.
+  // Routed ahead of the shortcuts below, each of which skips the role check, so
+  // an editor-scoped entry reaches nobody rather than anybody unchecked.
   if (entry.editorsOnly) {
     await deliverProjectScoped(entry, message, dbc);
     return;
