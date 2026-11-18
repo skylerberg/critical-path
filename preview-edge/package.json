@@ -19,7 +19,7 @@
     "prepare": "if [ -f ../scripts/setup-hooks.mjs ]; then node ../scripts/setup-hooks.mjs; fi"
   },
   "dependencies": {
-    "@google-cloud/storage": "^7.21.0"
+    "@google-cloud/storage": "^8.4.0"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",

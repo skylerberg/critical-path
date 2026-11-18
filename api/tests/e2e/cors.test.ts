@@ -44,7 +44,9 @@ describe('CORS', () => {
     expect(res.status).toBe(200);
     expect(res.headers.get('access-control-allow-origin')).toBe(ALLOWED);
     expect(res.headers.get('access-control-allow-credentials')).toBe('true');
-    expect(res.headers.get('vary')).toBe('Origin');
+    // A list, not a single value: compress() adds Accept-Encoding to every
+    // compressible response, compressed or not, and either may come first.
+    expect(res.headers.get('vary')?.split(/\s*,\s*/)).toContain('Origin');
   });
 
   // The allowlist is matched whole. Each of these contains or extends the real
